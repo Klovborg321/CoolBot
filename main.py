@@ -96,32 +96,6 @@ async def add_credits(user_id: int, amount: int):
     )
     return new_credits
 
-# ✅ Get player (async)
-# ✅ FULLY async get_player
-async def get_player(user_id: int) -> dict:
-    res = await supabase_request(
-        supabase.table("players").select("*").eq("id", str(user_id)).single().execute
-    )
-    if not res.data:
-        new_data = {
-            "id": str(user_id),
-            "rank": 1000,
-            "trophies": 0,
-            "credits": 1000,
-            "wins": 0,
-            "losses": 0,
-            "draws": 0,
-            "games_played": 0,
-            "current_streak": 0,
-            "best_streak": 0
-        }
-        await supabase_request(
-            supabase.table("players").insert(new_data).execute
-        )
-        return new_data
-    return res.data
-
-	
 # ✅ Upsert player (async)
 async def save_player(user_id: int, player_data: dict):
     player_data["id"] = str(user_id)
