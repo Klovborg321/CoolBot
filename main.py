@@ -1441,22 +1441,59 @@ async def stats_edit(interaction: discord.Interaction, user: discord.User, field
 @tree.command(name="clear_chat", description="Admin: Delete all messages in this channel (last 14 days only)")
 @discord.app_commands.checks.has_permissions(administrator=True)
 async def clear_chat(interaction: discord.Interaction):
+    # ✅ IMMEDIATELY acknowledge the interaction
     await interaction.response.defer(ephemeral=True)
+
     channel = interaction.channel
 
     def not_bot(msg):
-        return not msg.pinned  # Optional: skip pinned messages
+        return not msg.pinned
 
     try:
+        # ✅ Do the heavy purge AFTER deferring
         deleted = await channel.purge(limit=1000, check=not_bot, bulk=True)
-        # ✅ NEW: Remove any stale button for this channel
-        for key in list(start_buttons.keys()):
-            if key[0] == channel.id:
-                del start_buttons[key]
 
+        # ✅ Safe: send followup AFTER defer
         await interaction.followup.send(f"🧹 Cleared {len(deleted)} messages.", ephemeral=True)
+
     except Exception as e:
         await interaction.followup.send(f"⚠️ Failed to clear messages: {e}", ephemeral=True)
+
+
+@tree.command(
+    name="clear_pending",
+    description="Admin: Clear all pending games and remove start buttons."
+)
+async def clear_pending(interaction: discord.Interaction):
+    # ✅ Check admin permissions
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "⛔ You must be an admin to use this.",
+            ephemeral=True
+        )
+        return
+
+    # 1️⃣ Clear local `pending_games` state
+    for key in pending_games:
+        pending_games[key] = None
+
+    # 2️⃣ Clear Supabase `pending_games` table
+    await supabase.table("pending_games").delete().neq("game_type", "").execute()
+
+    # 3️⃣ Delete any start buttons messages
+    for msg in list(start_buttons.values()):
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+    # 4️⃣ Clear local `start_buttons` dict
+    start_buttons.clear()
+
+    await interaction.response.send_message(
+        "✅ All pending games and start buttons have been cleared.",
+        ephemeral=True
+    )
 
 
 @tree.command(
