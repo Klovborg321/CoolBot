@@ -1,0 +1,5 @@
+.env
+__pycache__/
+*.pyc
+working game - json files.txt
+working game.txt
