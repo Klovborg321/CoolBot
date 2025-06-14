@@ -105,10 +105,6 @@ async def get_player(user_id: int) -> dict:
 
     return res.data
 
-async def setup_supabase():
-    global supabase
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)  # no await here! 
-	
 # ✅ Upsert player (async)
 async def save_player(user_id: int, player_data: dict):
     player_data["id"] = str(user_id)
