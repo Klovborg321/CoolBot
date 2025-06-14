@@ -11,12 +11,12 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 import os
 
+load_dotenv()
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-load_dotenv()
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -61,6 +61,21 @@ async def save_pending_game(game_type, players, channel_id):
         "channel_id": channel_id
     }).execute()
 
+# ✅ Atomic: Deduct credits if enough
+async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
+    # Use 'gte' filter for race-safe check
+    update = await supabase.table("players") \
+        .update({"credits": supabase.py_.sql(f"credits - {amount}")}) \
+        .eq("id", str(user_id)) \
+        .gte("credits", amount) \
+        .execute()
+    return update.count > 0
+
+# ✅ Atomic: Add credits
+async def add_credits_atomic(user_id: int, amount: int):
+    await supabase.table("players").update({
+        "credits": supabase.py_.sql(f"credits + {amount}")
+    }).eq("id", str(user_id)).execute()
 
 async def clear_pending_game(game_type):
     supabase.table("pending_games").delete().eq("game_type", game_type).execute()
@@ -70,33 +85,32 @@ async def load_pending_games():
     return response.data
 
 async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
-    # 1) Get current credits
-    res = await supabase.table("players").select("credits").eq("id", user_id).single().execute()
-    if res.error:
-        await interaction.response.send_message("❌ Could not find your profile.", ephemeral=True)
-        return
-
-    credits = res.data["credits"]
-    if credits < amount:
+    # ✅ Try atomic deduction
+    success = await deduct_credits_atomic(user_id, amount)
+    if not success:
         await interaction.response.send_message("❌ Not enough credits.", ephemeral=True)
         return
 
-    # 2) Deduct credits
-    await supabase.table("players").update({"credits": credits - amount}).eq("id", user_id).execute()
-
-    # 3) Log the bet
+    # ✅ Log the bet
+    payout = int(amount / odds) if odds > 0 else amount
     await supabase.table("bets").insert({
-        "player_id": user_id,
+        "player_id": str(user_id),
         "game_id": game_id,
         "choice": choice,
         "amount": amount,
-        "payout": int(amount * odds),
+        "payout": payout,
         "won": None
     }).execute()
 
+    await interaction.response.send_message(
+        f"✅ Bet of {amount} placed on {choice}. Potential payout: {payout}",
+        ephemeral=True
+    )
+
+
 
 async def get_complete_user_data(user_id):
-    res = await supabase.table("players").select("*").eq("id", user_id).single().execute()
+    res = await supabase.table("players").select("*").eq("id", str(user_id)).single().execute()
     if res.error:
         # If not found, insert defaults!
         defaults = default_template.copy()
@@ -107,7 +121,7 @@ async def get_complete_user_data(user_id):
 
 
 async def update_user_stat(user_id, key, value, mode="set"):
-    res = await supabase.table("players").select("*").eq("id", user_id).single().execute()
+    res = await supabase.table("players").select("*").eq("id", str(user_id)).single().execute()
     if res.error:
         # Player missing, create fresh
         data = default_template.copy()
@@ -124,31 +138,21 @@ async def update_user_stat(user_id, key, value, mode="set"):
 
 
 # Load ALL players as a dict
-def get_player(user_id: int) -> dict:
-    try:
-        response = supabase.table("players").select("*").eq("id", user_id).maybe_single().execute()
-    except Exception as e:
-        print(f"Supabase error: {e}")
-        response = None
+async def get_player(user_id: int) -> dict:
+    res = await supabase.table("players").select("*").eq("id", str(user_id)).single().execute()
+    if res.error:
+        # Not found — create it
+        defaults = default_template.copy()
+        defaults["id"] = str(user_id)
+        await supabase.table("players").insert(defaults).execute()
+        return defaults
+    return res.data
 
-    if response and response.data:
-        player_data = response.data
-    else:
-        # No player: create default in DB now
-        player_data = default_template.copy()
-        player_data["id"] = user_id
-        supabase.table("players").insert(player_data).execute()
+# ✅ Fully async: Save (upsert)
+async def save_player(user_id: int, player_data: dict):
+    player_data["id"] = str(user_id)
+    await supabase.table("players").upsert(player_data).execute()
 
-    # Ensure all keys exist
-    for k, v in default_template.items():
-        player_data.setdefault(k, v)
-
-    return player_data
-
-
-def save_player(user_id: int, player_data: dict):
-    player_data["id"] = user_id
-    supabase.table("players").upsert(player_data).execute()
 
 def calculate_elo(elo1, elo2, result):
     expected = 1 / (1 + 10 ** ((elo2 - elo1) / 400))
@@ -213,33 +217,35 @@ class RoomNameGenerator:
     def __init__(self):
         self.word_cache = []
         self.used_words = set()
+        self.fetching = False
 
-    def fetch_five_letter_words(self):
-        """Fetch a list of 5-letter words from Datamuse."""
+    async def fetch_five_letter_words(self):
+        if self.fetching:
+            return  # prevent multiple calls
+        self.fetching = True
         try:
-            response = requests.get("https://api.datamuse.com/words", params={
-                "sp": "?????",
-                "max": 1000
-            })
+            response = requests.get(
+                "https://api.datamuse.com/words", params={"sp": "?????", "max": 1000}
+            )
             words = [w["word"].lower() for w in response.json() if w["word"].isalpha()]
-            # Remove already-used words
             self.word_cache = [w for w in words if w not in self.used_words]
         except Exception as e:
-            print(f"[RoomNameGenerator] Error fetching words: {e}")
-            self.word_cache = []
+            print(f"[RoomNameGenerator] Error: {e}")
+        finally:
+            self.fetching = False
 
-    def get_unique_word(self):
-        """Get a new unique 5-letter word."""
+    async def get_unique_word(self):
         if not self.word_cache:
-            self.fetch_five_letter_words()
-
+            await self.fetch_five_letter_words()
         if not self.word_cache:
-            raise RuntimeError("No unique words available at the moment.")
-
+            return "RoomX"
         word = random.choice(self.word_cache)
         self.word_cache.remove(word)
         self.used_words.add(word)
-        return word.capitalize()  # Nice format
+        return word.capitalize()
+
+# ✅ use `await room_name_generator.get_unique_word()` in your flow
+
 
 
 # ✅ Correct: instantiate it OUTSIDE the class block
@@ -355,7 +361,7 @@ class GameView(discord.ui.View):
     async def build_embed(self, guild=None, winner=None):
         embed = discord.Embed(
             title=f"🎮 {self.game_type.title()} Match Lobby",
-            description="Gathering players for a new match...",
+            description="Awaiting players for a new match...",
             color=discord.Color.orange() if not winner else discord.Color.dark_gray()
         )
         embed.set_author(
@@ -535,7 +541,7 @@ class GameView(discord.ui.View):
             chosen = random.choice(res.data)
             course_name = chosen["name"]
             course_image = chosen.get("image_url", "")
-            room_name = room_name_generator.get_unique_word()
+            await room_name_generator.get_unique_word()
 
         thread = await interaction.channel.create_thread(name=room_name)
 
@@ -589,53 +595,20 @@ class BetModal(discord.ui.Modal, title="Place Your Bet"):
     def __init__(self, game_view):
         super().__init__()
         self.game_view = game_view
-        self.choices = None  # Will be computed async in on_submit
 
         self.bet_choice = discord.ui.TextInput(
             label="Choose (A/B/1/2)",
-            placeholder="A, B or 1, 2",
+            placeholder="A, B, 1 or 2",
             max_length=1
         )
         self.bet_amount = discord.ui.TextInput(
-            label="Bet Amount", placeholder="Enter an integer amount"
+            label="Bet Amount", placeholder="Enter a positive number"
         )
         self.add_item(self.bet_choice)
         self.add_item(self.bet_amount)
 
-    async def compute_choices(self):
-        ranks = []
-        for p in self.game_view.players:
-            pdata = get_player(p)
-            ranks.append(pdata.get("rank", 1000))
-
-        if self.game_view.game_type == "singles":
-            e1, e2 = ranks
-            p1_odds = 1 / (1 + 10 ** ((e2 - e1) / 400))
-            p2_odds = 1 - p1_odds
-            return {
-                "1": f"{p1_odds * 100:.1f}%",
-                "2": f"{p2_odds * 100:.1f}%"
-            }
-
-        elif self.game_view.game_type == "doubles":
-            e1 = sum(ranks[:2]) / 2
-            e2 = sum(ranks[2:]) / 2
-            a_odds = 1 / (1 + 10 ** ((e2 - e1) / 400))
-            b_odds = 1 - a_odds
-            return {
-                "A": f"{a_odds * 100:.1f}%",
-                "B": f"{b_odds * 100:.1f}%"
-            }
-
-        elif self.game_view.game_type == "triples":
-            exp = [10 ** (e / 400) for e in ranks]
-            total = sum(exp)
-            odds = [v / total for v in exp]
-            return {str(i + 1): f"{odds[i] * 100:.1f}%" for i in range(3)}
-
     async def on_submit(self, interaction: discord.Interaction):
         user_id = interaction.user.id
-        user_name = interaction.user.display_name
         choice = self.bet_choice.value.strip().upper()
 
         try:
@@ -643,57 +616,37 @@ class BetModal(discord.ui.Modal, title="Place Your Bet"):
             if amount <= 0:
                 raise ValueError()
         except ValueError:
-            await interaction.response.send_message("❌ Invalid bet amount.", ephemeral=True)
+            await interaction.response.send_message("❌ Invalid amount.", ephemeral=True)
             return
 
-        # ✅ Fetch player from Supabase
-        player = get_player(user_id)
-        credits = player.get("credits", 1000)
-
-        if credits < amount:
-            await interaction.response.send_message("❌ Not enough credits.", ephemeral=True)
-            return
-
-        # ✅ Compute odds for payout
+        # ✅ Compute odds and payout
         odds = await self.game_view.get_odds(choice)
         payout = int(amount / odds) if odds > 0 else amount
 
-        # ✅ Update player credits + bet history
-        credits -= amount
-        bet_history = player.get("bet_history", [])
-        bet_history.append({
-            "on": choice,
+        # ✅ Atomic deduction
+        success = await deduct_credits_atomic(user_id, amount)
+        if not success:
+            await interaction.response.send_message("❌ Not enough credits.", ephemeral=True)
+            return
+
+        # ✅ Log bet in bets table
+        await supabase.table("bets").insert({
+            "player_id": str(user_id),
+            "game_id": self.game_view.message.id,
+            "choice": choice,
             "amount": amount,
             "payout": payout,
-            "won": None,
-            "game": self.game_view.message.id
-        })
+            "won": None
+        }).execute()
 
-        await save_player(user_id, {
-            "credits": credits,
-            "bet_history": bet_history
-        })
-
-        # ✅ Add bet to GameView
-        await self.game_view.add_bet(user_id, user_name, amount, choice)
-
-        # ✅ Figure out name for feedback
-        if self.game_view.game_type == "singles":
-            target_id = self.game_view.players[0] if choice == "1" else self.game_view.players[1] if choice == "2" else None
-            member = self.game_view.message.guild.get_member(target_id) if target_id else None
-            target_name = member.display_name if member else f"Player {choice}"
-        elif self.game_view.game_type == "doubles":
-            target_name = "Team A" if choice.upper() == "A" else "Team B" if choice.upper() == "B" else f"Unknown ({choice})"
-        elif self.game_view.game_type == "triples":
-            target_name = f"Player {choice}"
-        else:
-            target_name = f"Choice {choice}"
+        # ✅ Update live bets in GameView
+        await self.game_view.add_bet(user_id, interaction.user.display_name, amount, choice)
 
         await interaction.response.send_message(
-            f"✅ Bet of **{amount}** placed on **{target_name}**!\n"
-            f"📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
+            f"✅ Bet of **{amount}** on **{choice}** placed!\n📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
             ephemeral=True
         )
+
 
 
 class BetDropdown(discord.ui.Select):
@@ -1032,44 +985,38 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
         super().__init__()
         self.choice = choice
         self.game_view = game_view
+
         self.bet_amount = discord.ui.TextInput(
-            label="Bet Amount", placeholder="e.g., 200", required=True
+            label="Bet Amount",
+            placeholder="E.g. 100",
+            required=True
         )
         self.add_item(self.bet_amount)
 
     async def on_submit(self, interaction: discord.Interaction):
         user_id = interaction.user.id
 
-        # ✅ Fetch user credits from Supabase
-        res = await supabase.table("players").select("credits").eq("id", user_id).single().execute()
-        if res.error:
-            await interaction.response.send_message("❌ Could not find your profile.", ephemeral=True)
-            return
-        credits = res.data["credits"]
-
         try:
             amount = int(self.bet_amount.value.strip())
+            if amount <= 0:
+                raise ValueError()
         except ValueError:
-            await interaction.response.send_message("❌ Invalid amount format.", ephemeral=True)
+            await interaction.response.send_message("❌ Invalid amount.", ephemeral=True)
             return
 
-        if amount <= 0:
-            await interaction.response.send_message("❌ Bet must be greater than 0.", ephemeral=True)
-            return
-        if credits < amount:
+        # ✅ Compute odds & payout
+        odds = await self.game_view.get_odds(self.choice)
+        payout = int(amount / odds) if odds > 0 else amount
+
+        # ✅ Atomic deduction
+        success = await deduct_credits_atomic(user_id, amount)
+        if not success:
             await interaction.response.send_message("❌ Not enough credits.", ephemeral=True)
             return
 
-        # ✅ Compute payout using odds
-        odds = self.game_view.get_odds(self.choice)
-        payout = int(amount / odds)
-
-        # ✅ 1) Deduct credits
-        await supabase.table("players").update({"credits": credits - amount}).eq("id", user_id).execute()
-
-        # ✅ 2) Store bet in bets table
+        # ✅ Log bet
         await supabase.table("bets").insert({
-            "player_id": user_id,
+            "player_id": str(user_id),
             "game_id": self.game_view.message.id,
             "choice": self.choice,
             "amount": amount,
@@ -1077,27 +1024,14 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
             "won": None
         }).execute()
 
-        # ✅ 3) Update live GameView state for UI
+        # ✅ Add to UI
         await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice)
 
-        # ✅ Build user-friendly response
-        if self.game_view.game_type == "singles":
-            if self.choice == "1":
-                target_id = self.game_view.players[0]
-            elif self.choice == "2":
-                target_id = self.game_view.players[1]
-            else:
-                target_id = None
-            target_member = self.game_view.message.guild.get_member(target_id) if target_id else None
-            target_name = target_member.display_name if target_member else f"Player {self.choice}"
-        else:
-            target_name = "Team A" if self.choice.upper() == "A" else "Team B"
-
         await interaction.response.send_message(
-            f"✅ Bet of **{amount}** placed on **{target_name}**!\n"
-            f"📊 Odds: {odds * 100:.1f}% | 💰 Potential payout: **{payout}**",
+            f"✅ Bet of **{amount}** on **{self.choice}** placed!\n📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
             ephemeral=True
         )
+
 
 
 class BettingDropdownView(discord.ui.View):
@@ -1360,10 +1294,10 @@ async def resetstats(interaction: discord.Interaction, user: discord.User):
     dm="Send results as DM"
 )
 async def stats(interaction: discord.Interaction, user: discord.User = None, dm: bool = False):
-    target = user or interaction.user
+    user_id = user or interaction.user
 
     # ✅ 1) Fetch core stats
-    res = await supabase.table("players").select("*").eq("id", target.id).single().execute()
+    res = await supabase.table("players").select("*").eq("id", str(user_id)).single().execute()
     if res.error and res.status_code != 406:  # 406 means no match found
         await interaction.response.send_message(f"⚠️ Error: {res.error.message}", ephemeral=True)
         return
@@ -1381,8 +1315,8 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     credits = player.get("credits", 1000)
 
     # ✅ 2) Get bets from the dedicated `bets` table
-    bets = await supabase.table("bets").select("*").eq("player_id", target.id).order("id", desc=True).limit(5).execute()
-    all_bets = await supabase.table("bets").select("id,won,payout,amount").eq("player_id", target.id).execute()
+    bets = await supabase.table("bets").select("*").eq("player_id", str(user_id)).order("id", desc=True).limit(5).execute()
+    all_bets = await supabase.table("bets").select("id,won,payout,amount").eq("player_id", str(user_id)).execute()
 
     total_bets = len(all_bets.data or [])
     bets_won = sum(1 for b in all_bets.data if b.get("won") is True)
@@ -1390,7 +1324,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     net_gain = sum(b.get("payout", 0) - b.get("amount", 0) for b in all_bets.data if b.get("won") is not None)
 
     # ✅ 3) Build embed
-    embed = discord.Embed(title=f"📊 Stats for {target.display_name}")
+    embed = discord.Embed(title=f"📊 Stats for {user_id.display_name}")
     embed.add_field(name="🏆 Trophies", value=trophies)
     embed.add_field(name="📈 Rank", value=rank)
     embed.add_field(name="💰 Credits", value=credits)
@@ -1418,7 +1352,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     # ✅ 5) Send
     if dm:
         try:
-            await target.send(embed=embed)
+            await user_id.send(embed=embed)
             await interaction.response.send_message("✅ Stats sent via DM!", ephemeral=True)
         except:
             await interaction.response.send_message("⚠️ Could not send DM.", ephemeral=True)
