@@ -139,19 +139,19 @@ async def update_user_stat(user_id, key, value, mode="set"):
 
 # Load ALL players as a dict
 def get_player(user_id: int) -> dict:
-    res = await supabase.table("players").select("*").eq("id", str(user_id)).single().execute()
+    res = supabase.table("players").select("*").eq("id", str(user_id)).single().execute()
     if res.error:
         # Not found — create it
         defaults = default_template.copy()
         defaults["id"] = str(user_id)
-        await supabase.table("players").insert(defaults).execute()
+        supabase.table("players").insert(defaults).execute()
         return defaults
     return res.data
 
 # ✅ Fully async: Save (upsert)
 def save_player(user_id: int, player_data: dict):
     player_data["id"] = str(user_id)
-    await supabase.table("players").upsert(player_data).execute()
+    supabase.table("players").upsert(player_data).execute()
 
 
 def calculate_elo(elo1, elo2, result):
