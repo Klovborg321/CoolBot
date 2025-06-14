@@ -1307,53 +1307,37 @@ async def resetstats(interaction: discord.Interaction, user: discord.User):
     user="User to show stats for (leave blank for yourself)",
     dm="Send results as DM"
 )
-@tree.command(
-    name="stats",
-    description="Show player stats"
-)
-@app_commands.describe(
-    user="User to show stats for (leave blank for yourself)",
-    dm="Send results as DM"
-)
 async def stats(interaction: discord.Interaction, user: discord.User = None, dm: bool = False):
     target = user or interaction.user
 
-    # ✅ Fetch player from Supabase
+    # ✅ 1) Fetch core stats
     res = await supabase.table("players").select("*").eq("id", target.id).single().execute()
-
-    if res.error and res.status_code != 406:
-        await interaction.response.send_message(
-            f"⚠️ Error fetching stats: {res.error.message}",
-            ephemeral=True
-        )
+    if res.error and res.status_code != 406:  # 406 means no match found
+        await interaction.response.send_message(f"⚠️ Error: {res.error.message}", ephemeral=True)
         return
 
-    user_data = res.data or default_template.copy()
+    player = res.data or default_template.copy()
 
-    # ✅ Extract core stats
-    wins = user_data.get("wins", 0)
-    losses = user_data.get("losses", 0)
-    draws = user_data.get("draws", 0)
-    games = user_data.get("games_played", 0)
-    trophies = user_data.get("trophies", 0)
-    streak = user_data.get("current_streak", 0)
-    best_streak = user_data.get("best_streak", 0)
-    rank = user_data.get("rank", 1000)
-    credits = user_data.get("credits", 1000)
+    wins = player.get("wins", 0)
+    losses = player.get("losses", 0)
+    draws = player.get("draws", 0)
+    games = player.get("games_played", 0)
+    trophies = player.get("trophies", 0)
+    streak = player.get("current_streak", 0)
+    best_streak = player.get("best_streak", 0)
+    rank = player.get("rank", 1000)
+    credits = player.get("credits", 1000)
 
-    # ✅ Get bets live from `bets` table
-    bets_res = await supabase.table("bets").select("*").eq("player_id", target.id).order("id", desc=True).limit(5).execute()
-    bets = bets_res.data or []
+    # ✅ 2) Get bets from the dedicated `bets` table
+    bets = await supabase.table("bets").select("*").eq("player_id", target.id).order("id", desc=True).limit(5).execute()
+    all_bets = await supabase.table("bets").select("id,won,payout,amount").eq("player_id", target.id).execute()
 
-    # ✅ Compute bet stats
-    total_bets = await supabase.table("bets").select("id").eq("player_id", target.id).execute()
-    total_bets_count = len(total_bets.data) if total_bets.data else 0
+    total_bets = len(all_bets.data or [])
+    bets_won = sum(1 for b in all_bets.data if b.get("won") is True)
+    bets_lost = sum(1 for b in all_bets.data if b.get("won") is False)
+    net_gain = sum(b.get("payout", 0) - b.get("amount", 0) for b in all_bets.data if b.get("won") is not None)
 
-    wins_bet = sum(1 for b in bets if b.get("won") is True)
-    losses_bet = sum(1 for b in bets if b.get("won") is False)
-    net = sum(b.get("payout", 0) - b.get("amount", 0) for b in bets if b.get("won") is not None)
-
-    # ✅ Build embed
+    # ✅ 3) Build embed
     embed = discord.Embed(title=f"📊 Stats for {target.display_name}")
     embed.add_field(name="🏆 Trophies", value=trophies)
     embed.add_field(name="📈 Rank", value=rank)
@@ -1366,23 +1350,20 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     embed.add_field(name="🔥 Current Streak", value=streak)
     embed.add_field(name="🏅 Best Streak", value=best_streak)
     embed.add_field(name="\u200b", value="\u200b", inline=False)
-    embed.add_field(name="🪙 Total Bets", value=total_bets_count)
-    embed.add_field(name="✅ Bets Won", value=wins_bet)
-    embed.add_field(name="❌ Bets Lost", value=losses_bet)
-    embed.add_field(name="💸 Net Gain/Loss", value=f"{net:+}")
+    embed.add_field(name="🪙 Total Bets", value=total_bets)
+    embed.add_field(name="✅ Bets Won", value=bets_won)
+    embed.add_field(name="❌ Bets Lost", value=bets_lost)
+    embed.add_field(name="💸 Net Gain/Loss", value=f"{net_gain:+}")
 
-    # ✅ Show recent bets
-    if bets:
-        recent_lines = []
-        for b in bets:
-            result = "Won ✅" if b.get("won") else "Lost ❌"
-            choice = b.get("choice")
-            amt = b.get("amount")
-            payout = b.get("payout")
-            recent_lines.append(f"{result} {amt} on {choice} (Payout: {payout})")
-        embed.add_field(name="🗓️ Recent Bets", value="\n".join(recent_lines), inline=False)
+    # ✅ 4) Recent bets
+    if bets.data:
+        lines = []
+        for b in bets.data:
+            res = "Won ✅" if b.get("won") else "Lost ❌" if b.get("won") is False else "Pending ⏳"
+            lines.append(f"{res} {b.get('amount')} on {b.get('choice')} (Payout: {b.get('payout')})")
+        embed.add_field(name="🗓️ Recent Bets", value="\n".join(lines), inline=False)
 
-    # ✅ Send as DM or public
+    # ✅ 5) Send
     if dm:
         try:
             await target.send(embed=embed)
