@@ -8,10 +8,12 @@ import json
 import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from supabase import create_client, Client
+from supabase import create_client, AsyncClient
 import os
 
 load_dotenv()
+
+supabase: AsyncClient = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -54,6 +56,8 @@ default_template = {
 }
 
 # Helpers
+
+# ✅ Save a pending game (async)
 async def save_pending_game(game_type, players, channel_id):
     await supabase.table("pending_games").upsert({
         "game_type": game_type,
@@ -61,9 +65,17 @@ async def save_pending_game(game_type, players, channel_id):
         "channel_id": channel_id
     }).execute()
 
-# ✅ Atomic: Deduct credits if enough
+# ✅ Clear a pending game (async)
+async def clear_pending_game(game_type):
+    await supabase.table("pending_games").delete().eq("game_type", game_type).execute()
+
+# ✅ Load all pending games (async)
+async def load_pending_games():
+    response = await supabase.table("pending_games").select("*").execute()
+    return response.data
+
+# ✅ Deduct credits atomically (async)
 async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
-    # Use 'gte' filter for race-safe check
     update = await supabase.table("players") \
         .update({"credits": supabase.py_.sql(f"credits - {amount}")}) \
         .eq("id", str(user_id)) \
@@ -71,18 +83,26 @@ async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
         .execute()
     return update.count > 0
 
-# ✅ Atomic: Add credits
+# ✅ Add credits atomically (async)
 async def add_credits_atomic(user_id: int, amount: int):
     await supabase.table("players").update({
         "credits": supabase.py_.sql(f"credits + {amount}")
     }).eq("id", str(user_id)).execute()
 
-async def clear_pending_game(game_type):
-    supabase.table("pending_games").delete().eq("game_type", game_type).execute()
+# ✅ Get player (async)
+async def get_player(user_id: int) -> dict:
+    res = await supabase.table("players").select("*").eq("id", str(user_id)).single().execute()
+    if res.data is None:
+        new_data = default_template.copy()
+        new_data["id"] = str(user_id)
+        await supabase.table("players").insert(new_data).execute()
+        return new_data
+    return res.data
 
-async def load_pending_games():
-    response = supabase.table("pending_games").select("*").execute()
-    return response.data
+# ✅ Upsert player (async)
+async def save_player(user_id: int, player_data: dict):
+    player_data["id"] = str(user_id)
+    await supabase.table("players").upsert(player_data).execute()
 
 async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
     # ✅ Try atomic deduction
