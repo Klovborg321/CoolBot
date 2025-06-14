@@ -6,21 +6,22 @@ import asyncio
 import random
 import json
 import os
-from datetime import datetime, timedelta
+import asyncio
 from dotenv import load_dotenv
-
-from supabase import create_async_client, AsyncClient
+from supabase import create_client, AsyncClient
 
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# ✅ Correct async client
-supabase: AsyncClient = create_async_client(SUPABASE_URL, SUPABASE_KEY)
+supabase: AsyncClient = None  # will init below
 
-# ✅ Create the async Supabase client
-supabase: AsyncClient = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+async def setup_supabase():
+    global supabase
+    supabase = await create_client(SUPABASE_URL, SUPABASE_KEY)
+
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -1621,8 +1622,10 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 
 @bot.event
 async def on_ready():
+    global supabase
+    supabase = await create_client(SUPABASE_URL, SUPABASE_KEY)
     await tree.sync()
-    print(f"Logged in as {bot.user}")
+    print(f"✅ Bot ready as {bot.user}")
 
     pending = await load_pending_games()
     for pg in pending:
