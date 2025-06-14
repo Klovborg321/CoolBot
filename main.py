@@ -8,24 +8,23 @@ import json
 import os
 import asyncio
 from dotenv import load_dotenv
-from functools import partial
 from supabase import create_client, Client
+import asyncio
+from functools import partial
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_URL = ...
+SUPABASE_KEY = ...
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 async def supabase_request(fn, *args, **kwargs):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, partial(fn, *args, **kwargs))
 
-# Usage in async functions:
-res = await supabase_request(supabase.table("players").select("*").eq("id", "123").single().execute)
-
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-bot = commands.Bot(command_prefix="/", intents=intents)
+
+bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
 IS_TEST_MODE = os.getenv("TEST_MODE", "1") == "1"
@@ -89,26 +88,40 @@ async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
     return update.count > 0
 
 # ✅ Add credits atomically (async)
-async def add_credits_atomic(user_id: int, amount: int):
-    await supabase.table("players").update({
-        "credits": supabase.py_.sql(f"credits + {amount}")
-    }).eq("id", str(user_id)).execute()
+async def add_credits(user_id: int, amount: int):
+    user = await get_player(user_id)
+    new_credits = user["credits"] + amount
+    await supabase_request(
+        supabase.table("players").update({"credits": new_credits}).eq("id", str(user_id)).execute
+    )
+    return new_credits
 
 # ✅ Get player (async)
 # ✅ FULLY async get_player
 async def get_player(user_id: int) -> dict:
-    global supabase
-    # Use await for async client
-    res = await supabase.table("players").select("*").eq("id", str(user_id)).single().execute()
-
-    if res.data is None:
-        new_data = default_template.copy()
-        new_data["id"] = str(user_id)
-        await supabase.table("players").insert(new_data).execute()
+    res = await supabase_request(
+        supabase.table("players").select("*").eq("id", str(user_id)).single().execute
+    )
+    if not res.data:
+        new_data = {
+            "id": str(user_id),
+            "rank": 1000,
+            "trophies": 0,
+            "credits": 1000,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "games_played": 0,
+            "current_streak": 0,
+            "best_streak": 0
+        }
+        await supabase_request(
+            supabase.table("players").insert(new_data).execute
+        )
         return new_data
-
     return res.data
 
+	
 # ✅ Upsert player (async)
 async def save_player(user_id: int, player_data: dict):
     player_data["id"] = str(user_id)
