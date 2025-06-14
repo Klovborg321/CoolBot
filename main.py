@@ -1312,7 +1312,7 @@ async def resetstats(interaction: discord.Interaction, user: discord.User):
 )
 async def stats(interaction: discord.Interaction, user: discord.User = None, dm: bool = False):
     await interaction.response.defer(ephemeral=True)
-)
+
     target_user = user or interaction.user
 
     res = await supabase.table("players").select("*").eq("id", str(target_user.id)).single().execute()
@@ -1324,7 +1324,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     player = res.data or default_template.copy()
 
     wins = player.get("wins", 0)
-    losses = player.get("losses", 0)
+    losses = player.get("losses", 0)½
     draws = player.get("draws", 0)
     games = player.get("games_played", 0)
     trophies = player.get("trophies", 0)
