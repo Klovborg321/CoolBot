@@ -50,8 +50,7 @@ default_template = {
     "draws": 0,
     "games_played": 0,
     "current_streak": 0,
-    "best_streak": 0,
-    "bet_history": []
+    "best_streak": 0
 }
 
 # Helpers
