@@ -8,19 +8,17 @@ import json
 import os
 import asyncio
 from dotenv import load_dotenv
-from supabase import create_client, AsyncClient
+from supabase.client import AsyncClient  # ✅ explicitly import AsyncClient
+
+from dotenv import load_dotenv
 
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-supabase: AsyncClient = None  # will init below
-
-
-async def setup_supabase():
-    global supabase
-    supabase = await create_client(SUPABASE_URL, SUPABASE_KEY)
+# ✅ Correct async client
+supabase: AsyncClient = create_client(SUPABASE_URL, SUPABASE_KEY, is_async=True)
 
 
 intents = discord.Intents.default()
