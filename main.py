@@ -55,11 +55,13 @@ default_template = {
 }
 
 # Helpers
-async def save_pending_game(game_type, players):
-    supabase.table("pending_games").upsert({
+async def save_pending_game(game_type, players, channel_id):
+    await supabase.table("pending_games").upsert({
         "game_type": game_type,
-        "players": players
+        "players": players,
+        "channel_id": channel_id
     }).execute()
+
 
 async def clear_pending_game(game_type):
     supabase.table("pending_games").delete().eq("game_type", game_type).execute()
@@ -517,7 +519,7 @@ class GameView(discord.ui.View):
             self.abandon_task.cancel()
         await start_new_game_button(self.message.channel, self.game_type)
         pending_games[self.game_type] = None
-        await save_pending_game(self.game_type, self.players)
+        await save_pending_game(self.game_type, self.players, self.message.channel.id)
 
         res = supabase.table("courses").select("name", "image_url").execute()
         if res.error:
@@ -1513,9 +1515,9 @@ async def on_ready():
 
     pending = await load_pending_games()
     for pg in pending:
-        # Option A: auto restore lobby
-        # Option B: just repost Start Game button
-        await start_new_game_button(channel, pg["game_type"])
+        channel = bot.get_channel(pg["channel_id"])
+        if channel:
+            await start_new_game_button(channel, pg["game_type"])
 
 
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
