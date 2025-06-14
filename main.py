@@ -140,13 +140,15 @@ async def update_user_stat(user_id, key, value, mode="set"):
 # Load ALL players as a dict
 def get_player(user_id: int) -> dict:
     res = supabase.table("players").select("*").eq("id", str(user_id)).single().execute()
-    if res.data is None or res.status_code == 406:
+
+    if res.data is None:
+        # Not found — insert default immediately
         defaults = default_template.copy()
         defaults["id"] = str(user_id)
         supabase.table("players").insert(defaults).execute()
         return defaults
-    return res.data
 
+    return res.data
 
 
 # ✅ Fully async: Save (upsert)
