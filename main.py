@@ -8,8 +8,17 @@ import json
 import os
 import asyncio
 from dotenv import load_dotenv
-from supabase import create_client, Client  # ✅ this imports both sync and async create_client
-from supabase.client import AsyncClient     # ✅ this is the async type
+from supabase._async.client import AsyncClient, acreate_client
+
+async def setup_supabase() -> AsyncClient:
+    return await acreate_client(
+        SUPABASE_URL,
+        SUPABASE_KEY
+    )
+
+# Later in your on_ready or startup
+supabase: AsyncClient = await setup_supabase()
+
 
 from dotenv import load_dotenv
 
@@ -58,6 +67,9 @@ default_template = {
 }
 
 # Helpers
+
+async def setup_supabase():
+    return await acreate_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ✅ Save a pending game (async)
 async def save_pending_game(game_type, players, channel_id):
