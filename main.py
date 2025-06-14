@@ -1,4 +1,3 @@
-from courses import COURSES, COURSE_IMAGES
 import requests
 import discord
 from discord.ext import commands, tasks
@@ -505,9 +504,15 @@ class GameView(discord.ui.View):
         pending_games[self.game_type] = None
         await save_pending_game(self.game_type, self.players)
 
-        course_name = random.choice(COURSES)
-        course_image = COURSE_IMAGES.get(course_name, "")
-        room_name = room_name_generator.get_unique_word()
+        res = supabase.table("courses").select("name", "image_url").execute()
+        if res.error:
+            course_name = "Unknown"
+            course_image = ""
+        else:
+            chosen = random.choice(res.data)
+            course_name = chosen["name"]
+            course_image = chosen.get("image_url", "")
+                room_name = room_name_generator.get_unique_word()
 
         thread = await interaction.channel.create_thread(name=room_name)
 
