@@ -25,6 +25,7 @@ bot = commands.Bot(command_prefix="/", intents=intents)
 tree = bot.tree
 
 IS_TEST_MODE = os.getenv("TEST_MODE", "1") == "1"
+start_buttons = {}  # (channel_id, game_type) => Message
 
 # Globals
 games = {}
@@ -149,8 +150,19 @@ def player_display(user_id, data):
     return f"<@{user_id}> | Rank: {player['rank']} | Trophies: {player['trophies']}"
 
 async def start_new_game_button(channel, game_type):
+    key = (channel.id, game_type)
+    # If an old button exists: delete it
+    old = start_buttons.get(key)
+    if old:
+        try:
+            await old.delete()
+        except discord.NotFound:
+            pass
+
+    # Send new button
     view = GameJoinView(game_type)
-    await channel.send(content=f"🎮 Start a new {game_type} game:", view=view)
+    msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
+    start_buttons[key] = msg
 
 async def show_betting_phase(self):
     self.clear_items()
