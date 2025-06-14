@@ -140,16 +140,17 @@ async def update_user_stat(user_id, key, value, mode="set"):
 # Load ALL players as a dict
 # ✅ Safe get_player: always upsert if not exists
 async def get_player(user_id: int) -> dict:
-    res = await supabase.table("players").select("*").eq("id", str(user_id)).execute()
+    res = supabase.table("players").select("*").eq("id", str(user_id)).execute()  # ❌ no await here!
 
     if not res.data:
         # no row found → create one
         new_data = default_template.copy()
         new_data["id"] = str(user_id)
-        await supabase.table("players").insert(new_data).execute()
+        supabase.table("players").insert(new_data).execute()  # ❌ no await here either!
         return new_data
 
     return res.data[0]
+
 
 
 # ✅ Fully async: Save (upsert)
