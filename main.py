@@ -138,7 +138,7 @@ async def update_user_stat(user_id, key, value, mode="set"):
 
 
 # Load ALL players as a dict
-async def get_player(user_id: int) -> dict:
+def get_player(user_id: int) -> dict:
     res = await supabase.table("players").select("*").eq("id", str(user_id)).single().execute()
     if res.error:
         # Not found — create it
@@ -149,7 +149,7 @@ async def get_player(user_id: int) -> dict:
     return res.data
 
 # ✅ Fully async: Save (upsert)
-async def save_player(user_id: int, player_data: dict):
+def save_player(user_id: int, player_data: dict):
     player_data["id"] = str(user_id)
     await supabase.table("players").upsert(player_data).execute()
 
@@ -372,7 +372,7 @@ class GameView(discord.ui.View):
         # ✅ Get ranks from Supabase
         ranks = []
         for p in self.players:
-            pdata = await get_player(p)
+            pdata = get_player(p)
             ranks.append(pdata.get("rank", 1000))
 
         game_full = len(self.players) == self.max_players
@@ -461,7 +461,7 @@ class GameView(discord.ui.View):
     async def get_odds(self, choice):
         ranks = []
         for p in self.players:
-            pdata = await get_player(p)
+            pdata = get_player(p)
             ranks.append(pdata.get("rank", 1000))
 
         if self.game_type == "singles":
@@ -669,7 +669,7 @@ class BetDropdown(discord.ui.Select):
         if game_type == "singles":
             ranks = []
             for p in players:
-                pdata = await get_player(p)
+                pdata = get_player(p)
                 ranks.append(pdata.get("rank", 1000))
 
             e1, e2 = ranks
@@ -685,7 +685,7 @@ class BetDropdown(discord.ui.Select):
         elif game_type == "doubles":
             ranks = []
             for p in players:
-                pdata = await get_player(p)
+                pdata = get_player(p)
                 ranks.append(pdata.get("rank", 1000))
 
             e1 = sum(ranks[:2]) / 2
@@ -701,7 +701,7 @@ class BetDropdown(discord.ui.Select):
         elif game_type == "triples":
             ranks = []
             for p in players:
-                pdata = await get_player(p)
+                pdata = get_player(p)
                 ranks.append(pdata.get("rank", 1000))
 
             exp = [10 ** (e / 400) for e in ranks]
@@ -758,7 +758,7 @@ class RoomView(discord.ui.View):
         # ✅ Get player lines from DB
         lines = []
         for p in self.players:
-            pdata = await get_player(p)
+            pdata = get_player(p)
             lines.append(f"<@{p}> | Rank: {pdata.get('rank', 1000)} | Trophies: {pdata.get('trophies', 0)}")
 
         embed.description = "\n".join(lines)
@@ -814,7 +814,7 @@ class RoomView(discord.ui.View):
         # ✅ Update stats in DB
         if winner == "draw":
             for p in self.players:
-                pdata = await get_player(p)
+                pdata = get_player(p)
                 pdata["draws"] = pdata.get("draws", 0) + 1
                 pdata["games_played"] = pdata.get("games_played", 0) + 1
                 pdata["current_streak"] = 0
@@ -832,7 +832,7 @@ class RoomView(discord.ui.View):
 
         # ✅ If there is a winner:
         for p in self.players:
-            pdata = await get_player(p)
+            pdata = get_player(p)
             pdata["games_played"] = pdata.get("games_played", 0) + 1
 
             is_winner = (
@@ -857,7 +857,7 @@ class RoomView(discord.ui.View):
         # ✅ Resolve bets
         for uid, uname, amount, choice in self.game_view.bets:
             user_id = str(uid)
-            user_data = await get_player(user_id)
+            user_data = get_player(user_id)
             won = False
 
             if self.game_type == "singles":
