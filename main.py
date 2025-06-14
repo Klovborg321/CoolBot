@@ -1310,17 +1310,31 @@ async def resetstats(interaction: discord.Interaction, user: discord.User):
     user="User to show stats for (leave blank for yourself)",
     dm="Send results as DM"
 )
+@tree.command(
+    name="stats",
+    description="Show player stats"
+)
+@app_commands.describe(
+    user="User to show stats for (leave blank for yourself)",
+    dm="Send results as DM"
+)
 async def stats(interaction: discord.Interaction, user: discord.User = None, dm: bool = False):
-    user_id = user or interaction.user
+    # ✅ Immediately defer to prevent timeout if Supabase is slow
+    await interaction.response.defer(ephemeral=True)
 
-    # ✅ 1) Fetch core stats
-    res = await supabase.table("players").select("*").eq("id", str(user_id)).single().execute()
-    if res.error and res.status_code != 406:  # 406 means no match found
-        await interaction.response.send_message(f"⚠️ Error: {res.error.message}", ephemeral=True)
+    # Use specified user or the command invoker
+    target_user = user or interaction.user
+
+    # ✅ Fetch player stats from Supabase
+    res = await supabase.table("players").select("*").eq("id", str(target_user.id)).single().execute()
+
+    if res.error and res.status_code != 406:
+        await interaction.followup.send(f"⚠️ Error fetching stats: {res.error.message}", ephemeral=True)
         return
 
     player = res.data or default_template.copy()
 
+    # Core stats
     wins = player.get("wins", 0)
     losses = player.get("losses", 0)
     draws = player.get("draws", 0)
@@ -1331,17 +1345,20 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     rank = player.get("rank", 1000)
     credits = player.get("credits", 1000)
 
-    # ✅ 2) Get bets from the dedicated `bets` table
-    bets = await supabase.table("bets").select("*").eq("player_id", str(user_id)).order("id", desc=True).limit(5).execute()
-    all_bets = await supabase.table("bets").select("id,won,payout,amount").eq("player_id", str(user_id)).execute()
+    # ✅ Get bets: recent 5 and all for summary
+    bets = await supabase.table("bets").select("*").eq("player_id", str(target_user.id)).order("id", desc=True).limit(5).execute()
+    all_bets = await supabase.table("bets").select("id,won,payout,amount").eq("player_id", str(target_user.id)).execute()
 
     total_bets = len(all_bets.data or [])
     bets_won = sum(1 for b in all_bets.data if b.get("won") is True)
     bets_lost = sum(1 for b in all_bets.data if b.get("won") is False)
     net_gain = sum(b.get("payout", 0) - b.get("amount", 0) for b in all_bets.data if b.get("won") is not None)
 
-    # ✅ 3) Build embed
-    embed = discord.Embed(title=f"📊 Stats for {user_id.display_name}")
+    # ✅ Build embed nicely
+    embed = discord.Embed(
+        title=f"📊 Stats for {target_user.display_name}",
+        color=discord.Color.blue()
+    )
     embed.add_field(name="🏆 Trophies", value=trophies)
     embed.add_field(name="📈 Rank", value=rank)
     embed.add_field(name="💰 Credits", value=credits)
@@ -1358,57 +1375,48 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     embed.add_field(name="❌ Bets Lost", value=bets_lost)
     embed.add_field(name="💸 Net Gain/Loss", value=f"{net_gain:+}")
 
-    # ✅ 4) Recent bets
+    # ✅ Add recent bets if any
     if bets.data:
         lines = []
         for b in bets.data:
-            res = "Won ✅" if b.get("won") else "Lost ❌" if b.get("won") is False else "Pending ⏳"
-            lines.append(f"{res} {b.get('amount')} on {b.get('choice')} (Payout: {b.get('payout')})")
-        embed.add_field(name="🗓️ Recent Bets", value="\n".join(lines), inline=False)
-
-    # ✅ 5) Send
-    if dm:
-        try:
-            await user_id.send(embed=embed)
-            await interaction.response.send_message("✅ Stats sent via DM!", ephemeral=True)
-        except:
-            await interaction.response.send_message("⚠️ Could not send DM.", ephemeral=True)
-    else:
-        await interaction.response.send_message(embed=embed)
-
+            result = "Won ✅" if b.get("won") else "Lost ❌" if b.get("won") is False else "Pending ⏳"
+            lines.append(f"{result} {b.get('amount')} on {b.get('choice')} (P
 
 
 @tree.command(
     name="clear_active",
     description="Admin: Clear ALL active games and players OR just a specific user"
 )
-@app_commands.describe(user="User to clear from active games (leave blank to clear ALL)")
-async def clear_active(interaction: discord.Interaction, user: discord.User = None):
-    # ✅ Check admin permissions
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message(
-            "⛔ You must be an admin to use this.",
-            ephemeral=True
-        )
-        return
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def clear_active(interaction: discord.Interaction):
+    try:
+        # ✅ IMMEDIATELY acknowledge
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
 
-    if user:
-        # ✅ Clear just this user
-        player_manager.deactivate(user.id)
-        await interaction.response.send_message(
-            f"✅ Cleared **{user.display_name}** from active players.",
-            ephemeral=True
-        )
-    else:
-        # ✅ Clear everything
-        for k in pending_games:
-            pending_games[k] = None
+        # ✅ Clear the server-side states
+        for key in pending_games:
+            pending_games[key] = None
+
         player_manager.clear()
-        await interaction.response.send_message(
-            "✅ All pending games and active players cleared.",
-            ephemeral=True
-        )
 
+        # ✅ Clear start buttons for this channel only (optional)
+        for key in list(start_buttons.keys()):
+            if key[0] == interaction.channel.id:
+                del start_buttons[key]
+
+        # ✅ Confirm back
+        await interaction.followup.send("✅ Cleared all pending games and active players.", ephemeral=True)
+
+    except Exception as e:
+        # Fallback: plain channel send if followup fails
+        try:
+            if interaction.followup:
+                await interaction.followup.send(f"⚠️ Error: {e}", ephemeral=True)
+            else:
+                await interaction.channel.send(f"⚠️ Error: {e}")
+        except:
+            pass
 
 
 @tree.command(
