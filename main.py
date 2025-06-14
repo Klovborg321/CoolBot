@@ -1104,68 +1104,53 @@ class LeaderboardView(discord.ui.View):
 async def init_singles(interaction: discord.Interaction):
     channel_id = interaction.channel.id
 
-    if any(k[0] == channel_id for k in start_buttons) or any(
-        pending and pending.message.channel.id == channel_id
-        for pending in pending_games.values()
-    ):
+    # ✅ Robust: block if any start button already exists in this channel
+    if any(k[0] == channel_id for k in start_buttons):
         await interaction.response.send_message(
-            "⚠️ Singles game has already been initiated in this channel.",
+            "⚠️ this thread has already been initiated.",
             ephemeral=True
         )
         return
 
-    # ✅ FIRST: respond to interaction (avoid timeout)
+    await start_new_game_button(interaction.channel, "singles")
     await interaction.response.send_message(
         "✅ Singles game button posted!", ephemeral=True
     )
-
-    # ✅ THEN: send the actual button message
-    await start_new_game_button(interaction.channel, "singles")
-
 
 @tree.command(name="init_doubles")
 async def init_doubles(interaction: discord.Interaction):
     channel_id = interaction.channel.id
 
-    if any(k[0] == channel_id for k in start_buttons) or any(
-        pending and pending.message.channel.id == channel_id
-        for pending in pending_games.values()
-    ):
+    # ✅ Robust: block if any start button already exists in this channel
+    if any(k[0] == channel_id for k in start_buttons):
         await interaction.response.send_message(
-            "⚠️ Doubles game has already been initiated in this channel.",
+            "⚠️ this thread has already been initiated.",
             ephemeral=True
         )
         return
 
-    # ✅ FIRST: respond to interaction (avoid timeout)
+    await start_new_game_button(interaction.channel, "doubles")
     await interaction.response.send_message(
         "✅ Doubles game button posted!", ephemeral=True
     )
 
-    # ✅ THEN: send the actual button message
-    await start_new_game_button(interaction.channel, "doubles")
-
 @tree.command(name="init_triples")
-async def init_singles(interaction: discord.Interaction):
+async def init_triples(interaction: discord.Interaction):
     channel_id = interaction.channel.id
 
-    if any(k[0] == channel_id for k in start_buttons) or any(
-        pending and pending.message.channel.id == channel_id
-        for pending in pending_games.values()
-    ):
+    # ✅ Robust: block if any start button already exists in this channel
+    if any(k[0] == channel_id for k in start_buttons):
         await interaction.response.send_message(
-            "⚠️ Triples game has already been initiated in this channel.",
+            "⚠️ this thread has already been initiated.",
             ephemeral=True
         )
         return
 
-    # ✅ FIRST: respond to interaction (avoid timeout)
+    await start_new_game_button(interaction.channel, "triples")
     await interaction.response.send_message(
         "✅ Triples game button posted!", ephemeral=True
     )
 
-    # ✅ THEN: send the actual button message
-    await start_new_game_button(interaction.channel, "triples")
 
 
 @tree.command(
