@@ -1310,21 +1310,9 @@ async def resetstats(interaction: discord.Interaction, user: discord.User):
     user="User to show stats for (leave blank for yourself)",
     dm="Send results as DM"
 )
-@tree.command(
-    name="stats",
-    description="Show player stats"
-)
-@tree.command(
-    name="stats",
-    description="Show player stats"
-)
-@app_commands.describe(
-    user="User to show stats for (leave blank for yourself)",
-    dm="Send results as DM"
-)
 async def stats(interaction: discord.Interaction, user: discord.User = None, dm: bool = False):
     await interaction.response.defer(ephemeral=True)
-
+)
     target_user = user or interaction.user
 
     res = await supabase.table("players").select("*").eq("id", str(target_user.id)).single().execute()
