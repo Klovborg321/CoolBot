@@ -1455,26 +1455,48 @@ async def stats_edit(interaction: discord.Interaction, user: discord.User, field
     )
 
 
-@tree.command(name="clear_chat", description="Admin: Delete all messages in this channel (last 14 days only)")
+@tree.command(
+    name="clear_chat",
+    description="Admin: Delete all messages in this channel (last 14 days only)"
+)
 @discord.app_commands.checks.has_permissions(administrator=True)
 async def clear_chat(interaction: discord.Interaction):
-    # ✅ IMMEDIATELY acknowledge the interaction
-    await interaction.response.defer(ephemeral=True)
-
-    channel = interaction.channel
-
-    def not_bot(msg):
-        return not msg.pinned
-
     try:
-        # ✅ Do the heavy purge AFTER deferring
-        deleted = await channel.purge(limit=1000, check=not_bot, bulk=True)
+        # ✅ Check if the interaction is still valid
+        if interaction.response.is_done():
+            return
 
-        # ✅ Safe: send followup AFTER defer
+        await interaction.response.defer(ephemeral=True)
+
+        channel = interaction.channel
+
+        # ✅ Only text channels & threads that allow bulk delete
+        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+            await interaction.followup.send("❌ This command can only be used in text channels or threads.", ephemeral=True)
+            return
+
+        def not_pinned(msg):
+            return not msg.pinned
+
+        deleted = await channel.purge(limit=1000, check=not_pinned, bulk=True)
+
+        # ✅ Remove stale start buttons in this channel
+        for key in list(start_buttons.keys()):
+            if key[0] == channel.id:
+                del start_buttons[key]
+
         await interaction.followup.send(f"🧹 Cleared {len(deleted)} messages.", ephemeral=True)
 
     except Exception as e:
-        await interaction.followup.send(f"⚠️ Failed to clear messages: {e}", ephemeral=True)
+        # Fallback: interaction might be expired — so fallback to plain send
+        try:
+            if interaction.followup:
+                await interaction.followup.send(f"⚠️ Error: {e}", ephemeral=True)
+            else:
+                await interaction.channel.send(f"⚠️ Error: {e}")
+        except:
+            pass
+
 
 
 @tree.command(
