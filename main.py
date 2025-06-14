@@ -1377,38 +1377,50 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
 
 @tree.command(
     name="clear_active",
-    description="Admin: Clear ALL active games and players OR just a specific user"
+    description="Admin: Clear all pending games, start buttons, or only a specific user's active state."
+)
+@app_commands.describe(
+    user="User to clear from active players (optional)"
 )
 @discord.app_commands.checks.has_permissions(administrator=True)
-async def clear_active(interaction: discord.Interaction):
-    try:
-        # ✅ IMMEDIATELY acknowledge
-        if not interaction.response.is_done():
-            await interaction.response.defer(ephemeral=True)
+async def clear_active(interaction: discord.Interaction, user: discord.User = None):
+    # ✅ Always defer first
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True)
 
-        # ✅ Clear the server-side states
+    try:
+        if user:
+            # ✅ Only clear this user from active players
+            player_manager.deactivate(user.id)
+            await interaction.followup.send(
+                f"✅ Cleared active status for {user.display_name}.",
+                ephemeral=True
+            )
+            return
+
+        # ✅ Clear ALL pending games
         for key in pending_games:
             pending_games[key] = None
 
+        # ✅ Clear all active players
         player_manager.clear()
 
-        # ✅ Clear start buttons for this channel only (optional)
-        for key in list(start_buttons.keys()):
-            if key[0] == interaction.channel.id:
-                del start_buttons[key]
+        # ✅ Clear all start buttons
+        for msg in list(start_buttons.values()):
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+        start_buttons.clear()
 
-        # ✅ Confirm back
-        await interaction.followup.send("✅ Cleared all pending games and active players.", ephemeral=True)
+        await interaction.followup.send(
+            "✅ Cleared ALL pending games, active players, and start buttons.",
+            ephemeral=True
+        )
 
     except Exception as e:
-        # Fallback: plain channel send if followup fails
-        try:
-            if interaction.followup:
-                await interaction.followup.send(f"⚠️ Error: {e}", ephemeral=True)
-            else:
-                await interaction.channel.send(f"⚠️ Error: {e}")
-        except:
-            pass
+        await interaction.followup.send(f"⚠️ Failed: {e}", ephemeral=True)
+
 
 
 @tree.command(
