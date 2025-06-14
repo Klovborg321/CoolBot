@@ -373,6 +373,8 @@ class GameView(discord.ui.View):
             icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
         )
 
+        embed.timestamp = discord.utils.utcnow()  # ✅ Add timestamp
+
         # ✅ Get ranks from Supabase
         ranks = []
         for p in self.players:
