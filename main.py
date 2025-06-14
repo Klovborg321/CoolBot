@@ -93,15 +93,24 @@ async def add_credits_atomic(user_id: int, amount: int):
     }).eq("id", str(user_id)).execute()
 
 # ✅ Get player (async)
+# ✅ FULLY async get_player
 async def get_player(user_id: int) -> dict:
+    global supabase
+    # Use await for async client
     res = await supabase.table("players").select("*").eq("id", str(user_id)).single().execute()
+
     if res.data is None:
         new_data = default_template.copy()
         new_data["id"] = str(user_id)
         await supabase.table("players").insert(new_data).execute()
         return new_data
+
     return res.data
 
+async def setup_supabase():
+    global supabase
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)  # no await here! 
+	
 # ✅ Upsert player (async)
 async def save_player(user_id: int, player_data: dict):
     player_data["id"] = str(user_id)
@@ -163,13 +172,13 @@ async def update_user_stat(user_id, key, value, mode="set"):
 # Load ALL players as a dict
 # ✅ Safe get_player: always upsert if not exists
 async def get_player(user_id: int) -> dict:
-    res = supabase.table("players").select("*").eq("id", str(user_id)).execute()  # ❌ no await here!
+    res = await supabase.table("players").select("*").eq("id", str(user_id)).execute()  # ❌ no await here!
 
     if not res.data:
         # no row found → create one
         new_data = default_template.copy()
         new_data["id"] = str(user_id)
-        supabase.table("players").insert(new_data).execute()  # ❌ no await here either!
+        await supabase.table("players").insert(new_data).execute()  # ❌ no await here either!
         return new_data
 
     return res.data[0]
@@ -564,7 +573,7 @@ class GameView(discord.ui.View):
         pending_games[self.game_type] = None
         await save_pending_game(self.game_type, self.players, self.message.channel.id)
 
-        res = supabase.table("courses").select("name", "image_url").execute()
+        res = await supabase.table("courses").select("name", "image_url").execute()
         if res.error:
             course_name = "Unknown"
             course_image = ""
@@ -1622,16 +1631,14 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 
 @bot.event
 async def on_ready():
-    global supabase
-    supabase = await create_client(SUPABASE_URL, SUPABASE_KEY)
+    await setup_supabase()  # ✅ ensure supabase is ready before any DB usage
     await tree.sync()
-    print(f"✅ Bot ready as {bot.user}")
+    print(f"Logged in as {bot.user}")
 
     pending = await load_pending_games()
     for pg in pending:
         channel = bot.get_channel(pg["channel_id"])
         if channel:
             await start_new_game_button(channel, pg["game_type"])
-
 
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
