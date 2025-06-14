@@ -1162,18 +1162,51 @@ class LeaderboardView(discord.ui.View):
 
 @tree.command(name="init_singles")
 async def init_singles(interaction: discord.Interaction):
+    key = (interaction.channel.id, "singles")
+    if key in start_buttons:
+        await interaction.response.send_message(
+            "⚠️ A start button for singles already exists in this channel.",
+            ephemeral=True
+        )
+        return
+
     await start_new_game_button(interaction.channel, "singles")
-    await interaction.response.send_message("✅ New singles game button created.", ephemeral=True)
+    await interaction.response.send_message(
+        "✅ New singles game button created.",
+        ephemeral=True
+    )
 
 @tree.command(name="init_doubles")
 async def init_doubles(interaction: discord.Interaction):
+    key = (interaction.channel.id, "doubles")
+    if key in start_buttons:
+        await interaction.response.send_message(
+            "⚠️ A doubles game start button already exists in this channel.",
+            ephemeral=True
+        )
+        return
+
     await start_new_game_button(interaction.channel, "doubles")
-    await interaction.response.send_message("✅ New doubles game button created.", ephemeral=True)
+    await interaction.response.send_message(
+        "✅ New doubles game button created.",
+        ephemeral=True
+    )
 
 @tree.command(name="init_triples")
 async def init_triples(interaction: discord.Interaction):
+    key = (interaction.channel.id, "triples")
+    if key in start_buttons:
+        await interaction.response.send_message(
+            "⚠️ A triples game start button already exists in this channel.",
+            ephemeral=True
+        )
+        return
+
     await start_new_game_button(interaction.channel, "triples")
-    await interaction.response.send_message("✅ New triples game button created.", ephemeral=True)
+    await interaction.response.send_message(
+        "✅ New triples game button created.",
+        ephemeral=True
+    )
 
 @bot.tree.command(
     name="leaderboard",
