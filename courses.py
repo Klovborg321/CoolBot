@@ -1,0 +1,23 @@
+COURSES = [
+    "Tourist Trap Easy", "Tourist Trap Hard", "Cherry Blossom Easy",
+    "Cherry Blossom Hard", "Seagull Stacks Easy", "Seagull Stacks Hard",
+    "Arizona Modern Easy", "Arizona Modern Hard", "Original Gothic Easy",
+    "Original Gothic Hard", "Bogey's Bonanza Easy", "Bogey's Bonanza Hard",
+    "Tethys Station Easy", "Tethys Station Hard", "Quixote Valley Easy",
+    "Quixote Valley Hard", "Shangri-La Easy", "Shangri-La Hard",
+    "Sweetopia Easy", "Sweetopia Hard", "20.000 Leagues Easy",
+    "20.000 Leagues Hard", "Upside Town Easy", "Upside Town Hard",
+    "Laser Lair Easy", "Laser Lair Hard", "Alfheim Easy", "Alfheim Hard",
+    "Gardens of Babylon Easy", "Gardens of Babylon Hard", "Labyrinth Easy",
+    "Labyrinth Hard", "El Dorado Easy", "El Dorado Hard", "Myst Easy",
+    "Myst Hard", "Temple of Zerzura Easy", "Temple of Zerzura Hard",
+    "Atlantis Easy", "Atlantis Hard", "Ice Lair Easy", "Ice Lair Hard",
+    "8-Bit Lair Easy", "8-Bit Lair Hard", "Widows's Walkabout Easy",
+    "Widows's Walkabout Hard", "Meow Wolf Easy", "Meow Wolf Hard",
+    "Mars Gardens Easy", "Mars Gardens Hard", "Viva Las Elvis Easy",
+    "Viva Las Elvis Hard", "Around the World Easy", "Around the World Hard",
+    "Journey Easy", "Journey Hard", "Venice Easy", "Venice Hard",
+    "Wallace & Gromit Easy", "Wallace & Gromit Hard", "Holiday Hideaway Easy",
+    "Holiday Hideaway Hard", "Mount Olympus Easy", "Mount Olympus Hard",
+    "Raptor Cliff's Easy", "Raptor Cliff's Hard"
+]
