@@ -126,24 +126,30 @@ async def update_user_stat(user_id, key, value, mode="set"):
 
 # Load ALL players as a dict
 def get_player(user_id: int) -> dict:
-    response = supabase.table("players").select("*").eq("id", user_id).maybe_single().execute()
+    try:
+        response = supabase.table("players").select("*").eq("id", user_id).maybe_single().execute()
+    except Exception as e:
+        print(f"Supabase error: {e}")
+        response = None
 
-    if response.data:
+    if response and response.data:
         player_data = response.data
     else:
+        # No player: create default in DB now
         player_data = default_template.copy()
         player_data["id"] = user_id
         supabase.table("players").insert(player_data).execute()
 
+    # Ensure all keys exist
     for k, v in default_template.items():
         player_data.setdefault(k, v)
+
     return player_data
 
 
-async def save_player(user_id: int, player_data: dict):
+def save_player(user_id: int, player_data: dict):
     player_data["id"] = user_id
-    await supabase.table("players").upsert(player_data).execute()
-
+    supabase.table("players").upsert(player_data).execute()
 
 def calculate_elo(elo1, elo2, result):
     expected = 1 / (1 + 10 ** ((elo2 - elo1) / 400))
