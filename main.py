@@ -1108,8 +1108,9 @@ class LeaderboardView(discord.ui.View):
 async def init_singles(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
-    key = (interaction.channel.id, "singles")
-
+    # ✅ Block if:
+    # 1) There is any pending game of this type
+    # 2) There is ANY start button in this channel (any game type)
     if pending_games["singles"] or any(k[0] == interaction.channel.id for k in start_buttons):
         await interaction.followup.send(
             "⚠️ A game is already pending or a button is active here.",
@@ -1118,7 +1119,6 @@ async def init_singles(interaction: discord.Interaction):
         return
 
     await start_new_game_button(interaction.channel, "singles")
-
     await interaction.followup.send(
         "✅ Singles game button posted!",
         ephemeral=True
@@ -1129,8 +1129,6 @@ async def init_singles(interaction: discord.Interaction):
 async def init_doubles(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
-    key = (interaction.channel.id, "doubles")
-
     if pending_games["doubles"] or any(k[0] == interaction.channel.id for k in start_buttons):
         await interaction.followup.send(
             "⚠️ A game is already pending or a button is active here.",
@@ -1139,7 +1137,6 @@ async def init_doubles(interaction: discord.Interaction):
         return
 
     await start_new_game_button(interaction.channel, "doubles")
-
     await interaction.followup.send(
         "✅ Doubles game button posted!",
         ephemeral=True
@@ -1150,8 +1147,6 @@ async def init_doubles(interaction: discord.Interaction):
 async def init_triples(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
-    key = (interaction.channel.id, "triples")
-
     if pending_games["triples"] or any(k[0] == interaction.channel.id for k in start_buttons):
         await interaction.followup.send(
             "⚠️ A game is already pending or a button is active here.",
@@ -1160,12 +1155,10 @@ async def init_triples(interaction: discord.Interaction):
         return
 
     await start_new_game_button(interaction.channel, "triples")
-
     await interaction.followup.send(
         "✅ Triples game button posted!",
         ephemeral=True
     )
-
 
 
 
