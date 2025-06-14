@@ -12,20 +12,21 @@ from supabase import create_client, Client
 import asyncio
 from functools import partial
 
-SUPABASE_URL = ...
-SUPABASE_KEY = ...
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+load_dotenv()
 
-async def supabase_request(fn, *args, **kwargs):
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, partial(fn, *args, **kwargs))
+# ✅ Supabase config
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: AsyncClient = None  # will be created async
 
+# ✅ Discord intents
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
+
 
 IS_TEST_MODE = os.getenv("TEST_MODE", "1") == "1"
 start_buttons = {}  # (channel_id, game_type) => Message
