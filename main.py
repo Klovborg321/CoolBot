@@ -1383,15 +1383,36 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
 
 
 
-@tree.command(name="clear_active", description="Clear players from active games")
-async def clear_active(interaction: discord.Interaction):
-    global pending_game, active_players
+@tree.command(
+    name="clear_active",
+    description="Admin: Clear ALL active games and players OR just a specific user"
+)
+@app_commands.describe(user="User to clear from active games (leave blank to clear ALL)")
+async def clear_active(interaction: discord.Interaction, user: discord.User = None):
+    # ✅ Check admin permissions
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "⛔ You must be an admin to use this.",
+            ephemeral=True
+        )
+        return
 
-    for k in pending_games:
-        pending_games[k] = None
+    if user:
+        # ✅ Clear just this user
+        player_manager.deactivate(user.id)
+        await interaction.response.send_message(
+            f"✅ Cleared **{user.display_name}** from active players.",
+            ephemeral=True
+        )
+    else:
+        # ✅ Clear everything
+        for k in pending_games:
+            pending_games[k] = None
         player_manager.clear()
-
-    await interaction.response.send_message("✅ Active game and players have been cleared.", ephemeral=True)
+        await interaction.response.send_message(
+            "✅ All pending games and active players cleared.",
+            ephemeral=True
+        )
 
 
 
