@@ -1102,50 +1102,80 @@ class LeaderboardView(discord.ui.View):
 
 @tree.command(name="init_singles")
 async def init_singles(interaction: discord.Interaction):
-    key = (interaction.channel.id, "singles")
-    if key in start_buttons:
+    channel_id = interaction.channel.id
+
+    # ✅ Block if ANY start button exists in this channel (for any type)
+    if any(k[0] == channel_id for k in start_buttons):
         await interaction.response.send_message(
-            "⚠️ A singles game button already exists in this channel.",
+            "⚠️ A start button already exists in this channel for some game type.",
+            ephemeral=True
+        )
+        return
+
+    # ✅ Block if ANY pending game exists in this channel (for any type)
+    if any(
+        pending and pending.message.channel.id == channel_id
+        for pending in pending_games.values()
+    ):
+        await interaction.response.send_message(
+            "⚠️ A game is already pending in this channel.",
             ephemeral=True
         )
         return
 
     await start_new_game_button(interaction.channel, "singles")
-    await interaction.response.send_message(
-        "✅ Singles game button posted!", ephemeral=True
-    )
+    await interaction.response.send_message("✅ Singles game button posted!", ephemeral=True)
 
 
 @tree.command(name="init_doubles")
 async def init_doubles(interaction: discord.Interaction):
-    key = (interaction.channel.id, "doubles")
-    if key in start_buttons:
+    channel_id = interaction.channel.id
+
+    if any(k[0] == channel_id for k in start_buttons):
         await interaction.response.send_message(
-            "⚠️ A doubles game button already exists in this channel.",
+            "⚠️ A start button already exists in this channel for some game type.",
+            ephemeral=True
+        )
+        return
+
+    if any(
+        pending and pending.message.channel.id == channel_id
+        for pending in pending_games.values()
+    ):
+        await interaction.response.send_message(
+            "⚠️ A game is already pending in this channel.",
             ephemeral=True
         )
         return
 
     await start_new_game_button(interaction.channel, "doubles")
-    await interaction.response.send_message(
-        "✅ Doubles game button posted!", ephemeral=True
-    )
-
+    await interaction.response.send_message("✅ Doubles game button posted!", ephemeral=True)
 
 @tree.command(name="init_triples")
 async def init_triples(interaction: discord.Interaction):
-    key = (interaction.channel.id, "triples")
-    if key in start_buttons:
+    channel_id = interaction.channel.id
+
+    if any(k[0] == channel_id for k in start_buttons):
         await interaction.response.send_message(
-            "⚠️ A triples game button already exists in this channel.",
+            "⚠️ A start button already exists in this channel for some game type.",
+            ephemeral=True
+        )
+        return
+
+    if any(
+        pending and pending.message.channel.id == channel_id
+        for pending in pending_games.values()
+    ):
+        await interaction.response.send_message(
+            "⚠️ A game is already pending in this channel.",
             ephemeral=True
         )
         return
 
     await start_new_game_button(interaction.channel, "triples")
-    await interaction.response.send_message(
-        "✅ Triples game button posted!", ephemeral=True
-    )
+    await interaction.response.send_message("✅ Triples game button posted!", ephemeral=True)
+
+
 
 @tree.command(
     name="leaderboard",
