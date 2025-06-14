@@ -8,16 +8,18 @@ import json
 import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from supabase import create_client, AsyncClient
-import os
-
+# ✅ Load .env first
 load_dotenv()
 
+# ✅ Get env vars
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase: AsyncClient = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# ✅ Import the async version of Supabase
+from supabase import create_client, AsyncClient
+
+# ✅ Create the async Supabase client
+supabase: AsyncClient = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 intents = discord.Intents.default()
 intents.message_content = True
