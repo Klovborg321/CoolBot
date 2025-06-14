@@ -8,28 +8,19 @@ import json
 import os
 import asyncio
 from dotenv import load_dotenv
+
+
 from supabase._async.client import AsyncClient, acreate_client
-
-async def setup_supabase() -> AsyncClient:
-    return await acreate_client(
-        SUPABASE_URL,
-        SUPABASE_KEY
-    )
-
-# Later in your on_ready or startup
-supabase: AsyncClient = await setup_supabase()
-
-
-from dotenv import load_dotenv
 
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# ✅ Correct async client
-supabase: AsyncClient = create_client(SUPABASE_URL, SUPABASE_KEY, is_async=True)
+supabase: AsyncClient = None  # ✅ Declare only, no await
 
+async def setup_supabase():
+    return await acreate_client(SUPABASE_URL, SUPABASE_KEY)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -1636,11 +1627,23 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 
 
 
+supabase: AsyncClient = None
+
+# 2️⃣ Do NOT call await at the top-level.
+# Instead, initialize inside an async function, e.g., on_ready:
+
+from supabase._async.client import AsyncClient, acreate_client
+
+async def setup_supabase():
+    return await acreate_client(SUPABASE_URL, SUPABASE_KEY)
+
 @bot.event
 async def on_ready():
-    await setup_supabase()  # ✅ ensure supabase is ready before any DB usage
+    global supabase
+    supabase = await setup_supabase()
     await tree.sync()
     print(f"Logged in as {bot.user}")
+
 
     pending = await load_pending_games()
     for pg in pending:
