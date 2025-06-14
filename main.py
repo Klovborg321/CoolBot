@@ -8,15 +8,16 @@ import json
 import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-# ✅ Load .env first
+
+from supabase import create_async_client, AsyncClient
+
 load_dotenv()
 
-# ✅ Get env vars
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# ✅ Import the async version of Supabase
-from supabase import create_client, AsyncClient
+# ✅ Correct async client
+supabase: AsyncClient = create_async_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ✅ Create the async Supabase client
 supabase: AsyncClient = create_client(SUPABASE_URL, SUPABASE_KEY)
