@@ -8,19 +8,19 @@ import json
 import os
 import asyncio
 from dotenv import load_dotenv
-
-
-from supabase._async.client import AsyncClient, acreate_client
-
-load_dotenv()
+from functools import partial
+from supabase import create_client, Client
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-supabase: AsyncClient = None  # ✅ Declare only, no await
+async def supabase_request(fn, *args, **kwargs):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, partial(fn, *args, **kwargs))
 
-async def setup_supabase():
-    return await acreate_client(SUPABASE_URL, SUPABASE_KEY)
+# Usage in async functions:
+res = await supabase_request(supabase.table("players").select("*").eq("id", "123").single().execute)
 
 intents = discord.Intents.default()
 intents.message_content = True
