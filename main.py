@@ -1314,18 +1314,19 @@ async def resetstats(interaction: discord.Interaction, user: discord.User):
     name="stats",
     description="Show player stats"
 )
+@tree.command(
+    name="stats",
+    description="Show player stats"
+)
 @app_commands.describe(
     user="User to show stats for (leave blank for yourself)",
     dm="Send results as DM"
 )
 async def stats(interaction: discord.Interaction, user: discord.User = None, dm: bool = False):
-    # ✅ Immediately defer to prevent timeout if Supabase is slow
     await interaction.response.defer(ephemeral=True)
 
-    # Use specified user or the command invoker
     target_user = user or interaction.user
 
-    # ✅ Fetch player stats from Supabase
     res = await supabase.table("players").select("*").eq("id", str(target_user.id)).single().execute()
 
     if res.error and res.status_code != 406:
@@ -1334,7 +1335,6 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
 
     player = res.data or default_template.copy()
 
-    # Core stats
     wins = player.get("wins", 0)
     losses = player.get("losses", 0)
     draws = player.get("draws", 0)
@@ -1345,7 +1345,6 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     rank = player.get("rank", 1000)
     credits = player.get("credits", 1000)
 
-    # ✅ Get bets: recent 5 and all for summary
     bets = await supabase.table("bets").select("*").eq("player_id", str(target_user.id)).order("id", desc=True).limit(5).execute()
     all_bets = await supabase.table("bets").select("id,won,payout,amount").eq("player_id", str(target_user.id)).execute()
 
@@ -1354,11 +1353,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     bets_lost = sum(1 for b in all_bets.data if b.get("won") is False)
     net_gain = sum(b.get("payout", 0) - b.get("amount", 0) for b in all_bets.data if b.get("won") is not None)
 
-    # ✅ Build embed nicely
-    embed = discord.Embed(
-        title=f"📊 Stats for {target_user.display_name}",
-        color=discord.Color.blue()
-    )
+    embed = discord.Embed(title=f"📊 Stats for {target_user.display_name}", color=discord.Color.blue())
     embed.add_field(name="🏆 Trophies", value=trophies)
     embed.add_field(name="📈 Rank", value=rank)
     embed.add_field(name="💰 Credits", value=credits)
@@ -1375,12 +1370,22 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     embed.add_field(name="❌ Bets Lost", value=bets_lost)
     embed.add_field(name="💸 Net Gain/Loss", value=f"{net_gain:+}")
 
-    # ✅ Add recent bets if any
     if bets.data:
         lines = []
         for b in bets.data:
             result = "Won ✅" if b.get("won") else "Lost ❌" if b.get("won") is False else "Pending ⏳"
-            lines.append(f"{result} {b.get('amount')} on {b.get('choice')} (P
+            lines.append(f"{result} {b.get('amount')} on {b.get('choice')} (Payout: {b.get('payout')})")
+        embed.add_field(name="🗓️ Recent Bets", value="\n".join(lines), inline=False)
+
+    if dm:
+        try:
+            await target_user.send(embed=embed)
+            await interaction.followup.send("✅ Stats sent via DM!", ephemeral=True)
+        except Exception:
+            await interaction.followup.send("⚠️ Could not send DM.", ephemeral=True)
+    else:
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 
 @tree.command(
