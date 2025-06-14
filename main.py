@@ -219,9 +219,12 @@ class RoomNameGenerator:
         word = random.choice(self.word_cache)
         self.word_cache.remove(word)
         self.used_words.add(word)
-        return word.capitalize()  # Optional: Make it look nice in Discord
+        return word.capitalize()  # Nice format
 
-        room_name_generator = RoomNameGenerator()
+
+# ✅ Correct: instantiate it OUTSIDE the class block
+room_name_generator = RoomNameGenerator()
+
 
 class GameJoinView(discord.ui.View):
     def __init__(self, game_type):
