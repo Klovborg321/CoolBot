@@ -822,7 +822,7 @@ class RoomView(discord.ui.View):
                 pdata["draws"] = pdata.get("draws", 0) + 1
                 pdata["games_played"] = pdata.get("games_played", 0) + 1
                 pdata["current_streak"] = 0
-                await upsert_player(p, pdata)
+                await save_player(p, pdata)
 
             if self.lobby_message:
                 embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner)
@@ -856,7 +856,7 @@ class RoomView(discord.ui.View):
                 pdata["losses"] = pdata.get("losses", 0) + 1
                 pdata["current_streak"] = 0
 
-            await upsert_player(p, pdata)
+            await save_player(p, pdata)
 
         # ✅ Resolve bets
         for uid, uname, amount, choice in self.game_view.bets:
