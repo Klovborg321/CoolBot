@@ -221,7 +221,7 @@ class RoomNameGenerator:
         self.used_words.add(word)
         return word.capitalize()  # Optional: Make it look nice in Discord
 
-room_name_generator = RoomNameGenerator()
+        room_name_generator = RoomNameGenerator()
 
 class GameJoinView(discord.ui.View):
     def __init__(self, game_type):
