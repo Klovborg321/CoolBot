@@ -884,7 +884,7 @@ class RoomView(discord.ui.View):
                         user_data["credits"] = user_data.get("credits", 0) + payout
                         print(f"💰 {uname} won {payout} credits (bet {amount} on {choice})")
 
-            await upsert_player(user_id, user_data)
+            await save_player(user_id, user_data)
 
         # ✅ Show winner
         if isinstance(winner, int):
