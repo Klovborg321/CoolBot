@@ -126,20 +126,17 @@ async def update_user_stat(user_id, key, value, mode="set"):
 
 # Load ALL players as a dict
 async def get_player(user_id: int) -> dict:
-    response = await supabase.table("players").select("*").eq("id", user_id).single().execute()
+    response = await supabase.table("players").select("*").eq("id", user_id).maybe_single().execute()
 
-    if response.error and response.status_code == 406:
-        # No player found → create one!
+    if response.data:
+        player_data = response.data
+    else:
         player_data = default_template.copy()
         player_data["id"] = user_id
         await supabase.table("players").insert(player_data).execute()
-    else:
-        player_data = response.data
 
-    # Fill missing keys
     for k, v in default_template.items():
         player_data.setdefault(k, v)
-
     return player_data
 
 
