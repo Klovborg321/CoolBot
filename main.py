@@ -1324,7 +1324,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     player = res.data or default_template.copy()
 
     wins = player.get("wins", 0)
-    losses = player.get("losses", 0)½
+    losses = player.get("losses", 0)  # ✅ fixed typo here!
     draws = player.get("draws", 0)
     games = player.get("games_played", 0)
     trophies = player.get("trophies", 0)
@@ -1373,7 +1373,6 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
             await interaction.followup.send("⚠️ Could not send DM.", ephemeral=True)
     else:
         await interaction.followup.send(embed=embed, ephemeral=True)
-
 
 
 @tree.command(
