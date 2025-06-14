@@ -221,7 +221,7 @@ class RoomNameGenerator:
         self.used_words.add(word)
         return word.capitalize()  # Optional: Make it look nice in Discord
 
-        room_name_generator = RoomNameGenerator()
+room_name_generator = RoomNameGenerator()
 
 class GameJoinView(discord.ui.View):
     def __init__(self, game_type):
@@ -512,7 +512,7 @@ class GameView(discord.ui.View):
             chosen = random.choice(res.data)
             course_name = chosen["name"]
             course_image = chosen.get("image_url", "")
-                room_name = room_name_generator.get_unique_word()
+            room_name = room_name_generator.get_unique_word()
 
         thread = await interaction.channel.create_thread(name=room_name)
 
