@@ -8,7 +8,8 @@ import json
 import os
 import asyncio
 from dotenv import load_dotenv
-from supabase.client import AsyncClient  # ✅ explicitly import AsyncClient
+from supabase import create_client, Client  # ✅ this imports both sync and async create_client
+from supabase.client import AsyncClient     # ✅ this is the async type
 
 from dotenv import load_dotenv
 
