@@ -153,18 +153,17 @@ def player_display(user_id, data):
 
 async def start_new_game_button(channel, game_type):
     key = (channel.id, game_type)
-    # If an old button exists: delete it
     old = start_buttons.get(key)
     if old:
         try:
             await old.delete()
         except discord.NotFound:
             pass
-
-    # Send new button
     view = GameJoinView(game_type)
     msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
     start_buttons[key] = msg
+    return msg  # ✅ return it!
+
 
 async def show_betting_phase(self):
     self.clear_items()
@@ -1165,47 +1164,46 @@ async def init_singles(interaction: discord.Interaction):
     key = (interaction.channel.id, "singles")
     if key in start_buttons:
         await interaction.response.send_message(
-            "⚠️ A start button for singles already exists in this channel.",
+            "⚠️ A singles game button already exists in this channel.",
             ephemeral=True
         )
         return
 
     await start_new_game_button(interaction.channel, "singles")
     await interaction.response.send_message(
-        "✅ New singles game button created.",
-        ephemeral=True
+        "✅ Singles game button posted!", ephemeral=True
     )
+
 
 @tree.command(name="init_doubles")
 async def init_doubles(interaction: discord.Interaction):
     key = (interaction.channel.id, "doubles")
     if key in start_buttons:
         await interaction.response.send_message(
-            "⚠️ A doubles game start button already exists in this channel.",
+            "⚠️ A doubles game button already exists in this channel.",
             ephemeral=True
         )
         return
 
     await start_new_game_button(interaction.channel, "doubles")
     await interaction.response.send_message(
-        "✅ New doubles game button created.",
-        ephemeral=True
+        "✅ Doubles game button posted!", ephemeral=True
     )
+
 
 @tree.command(name="init_triples")
 async def init_triples(interaction: discord.Interaction):
     key = (interaction.channel.id, "triples")
     if key in start_buttons:
         await interaction.response.send_message(
-            "⚠️ A triples game start button already exists in this channel.",
+            "⚠️ A triples game button already exists in this channel.",
             ephemeral=True
         )
         return
 
     await start_new_game_button(interaction.channel, "triples")
     await interaction.response.send_message(
-        "✅ New triples game button created.",
-        ephemeral=True
+        "✅ Triples game button posted!", ephemeral=True
     )
 
 @bot.tree.command(
