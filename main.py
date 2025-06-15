@@ -362,11 +362,16 @@ class BettingButtonDropdown(discord.ui.Button):
         self.game_view = game_view
 
     async def callback(self, interaction: discord.Interaction):
+        # ✅ Create view and pre-build dropdown options safely:
+        view = BettingDropdownView(self.game_view)
+        await view.prepare()
+
         await interaction.response.send_message(
             "Select who you want to bet on:",
-            view=BettingDropdownView(self.game_view),
+            view=view,
             ephemeral=True
         )
+
 
 class GameView(discord.ui.View):
     def __init__(self, game_type, creator):
@@ -706,7 +711,7 @@ class BetModal(discord.ui.Modal, title="Place Your Bet"):
 class BetDropdown(discord.ui.Select):
     def __init__(self, game_view):
         self.game_view = game_view
-        self.options_built = False  # Will build options async
+        self.options_built = False  # Flag for lazy rebuild
         super().__init__(
             placeholder="Select who to bet on...",
             min_values=1,
@@ -715,10 +720,11 @@ class BetDropdown(discord.ui.Select):
         )
 
     async def build_options(self):
-        options = []
         players = self.game_view.players
         game_type = self.game_view.game_type
         guild = self.game_view.message.guild if self.game_view.message else None
+
+        options = []
 
         if game_type == "singles":
             ranks = []
@@ -768,12 +774,14 @@ class BetDropdown(discord.ui.Select):
                 label = f"{name} ({o * 100:.1f}%)"
                 options.append(discord.SelectOption(label=label, value=str(i)))
 
+        # ✅ Assign options safely
         self.options = options
         self.options_built = True
 
     async def callback(self, interaction: discord.Interaction):
+        # ✅ Always safe: make sure options are built
         if not self.options_built:
-            await self.build_options()  # Shouldn't normally be needed; pre-built by BettingDropdownView
+            await self.build_options()
 
         choice = self.values[0]
         await interaction.response.send_modal(BetAmountModal(choice, self.game_view))
@@ -1145,7 +1153,12 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
 class BettingDropdownView(discord.ui.View):
     def __init__(self, game_view):
         super().__init__(timeout=60)
-        self.add_item(BetDropdown(game_view))
+        self.dropdown = BetDropdown(game_view)
+        self.add_item(self.dropdown)
+
+    async def prepare(self):
+        await self.dropdown.build_options()
+
 
 class LeaderboardView(discord.ui.View):
     def __init__(self, entries, page_size=10, sort_key="rank", title="🏆 Leaderboard"):
@@ -1176,7 +1189,7 @@ class LeaderboardView(discord.ui.View):
             credits = stats.get("credits", 1000)
             line = f"#{i:>2}  {name:<20} | 🏆 {trophies:<3} | 💰 {credits:<4} | 📈 {rank}"
             lines.append(line)
-        return "\n".join(lines)
+        return "\n".join(lines) if lines else "*No entries*"
 
     async def update(self):
         self.update_buttons()
@@ -1193,7 +1206,7 @@ class LeaderboardView(discord.ui.View):
             self.view_obj = view_obj
 
         async def callback(self, interaction: discord.Interaction):
-            self.view_obj.page -= 1
+            self.view_obj.page = max(0, self.view_obj.page - 1)
             await self.view_obj.update()
             await interaction.response.defer()
 
@@ -1206,6 +1219,7 @@ class LeaderboardView(discord.ui.View):
             self.view_obj.page += 1
             await self.view_obj.update()
             await interaction.response.defer()
+
 
 
 @tree.command(name="init_singles")
@@ -1479,7 +1493,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@tree.command(
+@@tree.command(
     name="clear_active",
     description="Admin: Clear all pending games, start buttons, or only a specific user's active state."
 )
@@ -1488,13 +1502,12 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
 )
 @discord.app_commands.checks.has_permissions(administrator=True)
 async def clear_active(interaction: discord.Interaction, user: discord.User = None):
-    # ✅ Always defer first
-    if not interaction.response.is_done():
+    try:
+        # ✅ Always defer immediately, no condition check needed
         await interaction.response.defer(ephemeral=True)
 
-    try:
         if user:
-            # ✅ Only clear this user from active players
+            # ✅ Deactivate only this user
             player_manager.deactivate(user.id)
             await interaction.followup.send(
                 f"✅ Cleared active status for {user.display_name}.",
@@ -1502,14 +1515,14 @@ async def clear_active(interaction: discord.Interaction, user: discord.User = No
             )
             return
 
-        # ✅ Clear ALL pending games
+        # ✅ Clear all pending games
         for key in pending_games:
             pending_games[key] = None
 
         # ✅ Clear all active players
         player_manager.clear()
 
-        # ✅ Clear all start buttons
+        # ✅ Delete all start buttons safely
         for msg in list(start_buttons.values()):
             try:
                 await msg.delete()
@@ -1523,7 +1536,9 @@ async def clear_active(interaction: discord.Interaction, user: discord.User = No
         )
 
     except Exception as e:
+        # If something fails AFTER deferring, fallback to followup
         await interaction.followup.send(f"⚠️ Failed: {e}", ephemeral=True)
+
 
 
 
