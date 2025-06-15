@@ -68,6 +68,33 @@ default_template = {
 
 # Helpers
 
+async def dm_all_online(guild: discord.Guild, message: str):
+    """DM all online members in the given guild with a custom message."""
+    # Make sure your bot has `members` intent enabled!
+    if not guild.me.guild_permissions.administrator:
+        print("⚠️ Bot may not have permission to read member list.")
+    
+    sent = 0
+    failed = 0
+
+    for member in guild.members:
+        # Skip bots, offline, and the bot itself
+        if member.bot or member.status == discord.Status.offline or member == guild.me:
+            continue
+
+        try:
+            await member.send(message)
+            sent += 1
+        except discord.Forbidden:
+            # User DMs closed or bot blocked
+            failed += 1
+        except Exception as e:
+            print(f"Error sending to {member}: {e}")
+            failed += 1
+
+    print(f"✅ Done. Sent to {sent} users, failed for {failed}.")
+
+
 # ✅ Save a pending game (async)
 async def save_pending_game(game_type, players, channel_id):
     await run_db(lambda: supabase.table("pending_games").upsert({
@@ -879,14 +906,15 @@ class RoomView(discord.ui.View):
             for uid, uname, amount, choice in self.game_view.bets:
                 await run_db(lambda: supabase
                     .table("bets")
-                    .update({"won": False})
+                    .update({"won": None})   # <-- KEY FIX: not False!
                     .eq("player_id", uid)
                     .eq("game_id", self.game_view.message.id)
                     .eq("choice", choice)
                     .is_("won", None)
                     .execute()
                 )
-                print(f"✅ Bet by {uname} closed as draw (no payout, no loss)")
+            print(f"✅ Bet by {uname} closed as draw (no payout, no loss)")
+
 
             # ✅ Update embeds + announce
             embed = await self.game_view.build_embed(self.message.guild, winner=winner)
@@ -1471,13 +1499,13 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     rank = player.get("rank", 1000)
     credits = player.get("credits", 1000)
 
-    bets = await run_db(lambda: supabase.table("bets").select("*").eq("player_id", str(target_user.id)).order("id", desc=True).limit(5).execute())
-    all_bets = await run_db(lambda: supabase.table("bets").select("id,won,payout,amount").eq("player_id", str(target_user.id)).execute())
+    bets_res = await run_db(lambda: supabase.table("bets").select("*").eq("player_id", str(target_user.id)).order("id", desc=True).limit(5).execute())
+    all_bets_res = await run_db(lambda: supabase.table("bets").select("id,won,payout,amount").eq("player_id", str(target_user.id)).execute())
 
-    total_bets = len(all_bets.data or [])
-    bets_won = sum(1 for b in all_bets.data if b.get("won") is True)
-    bets_lost = sum(1 for b in all_bets.data if b.get("won") is False)
-    net_gain = sum(b.get("payout", 0) - b.get("amount", 0) for b in all_bets.data if b.get("won") is not None)
+    total_bets = len(all_bets_res.data or [])
+    bets_won = sum(1 for b in all_bets_res.data if b.get("won") is True)
+    bets_lost = sum(1 for b in all_bets_res.data if b.get("won") is False)
+    net_gain = sum(b.get("payout", 0) - b.get("amount", 0) for b in all_bets_res.data if b.get("won") is not None)
 
     embed = discord.Embed(title=f"📊 Stats for {target_user.display_name}", color=discord.Color.blue())
     embed.add_field(name="🏆 Trophies", value=trophies)
@@ -1496,11 +1524,19 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     embed.add_field(name="❌ Bets Lost", value=bets_lost)
     embed.add_field(name="💸 Net Gain/Loss", value=f"{net_gain:+}")
 
-    if bets.data:
+    # ✅ Safe bet history with clear draw logic:
+    if bets_res.data:
         lines = []
-        for b in bets.data:
-            result = "Won ✅" if b.get("won") else "Lost ❌" if b.get("won") is False else "Pending ⏳"
-            lines.append(f"{result} {b.get('amount')} on {b.get('choice')} (Payout: {b.get('payout')})")
+        for b in bets_res.data:
+            won = b.get("won")
+            if won is True:
+                result = f"Won ✅ {b.get('amount')} on {b.get('choice')} (Payout: {b.get('payout')})"
+            elif won is False:
+                result = f"Lost ❌ {b.get('amount')} on {b.get('choice')} (Payout: 0)"
+            else:
+                result = f"Draw ⚪️ {b.get('amount')} on {b.get('choice')} (No payout)"
+            lines.append(result)
+
         embed.add_field(name="🗓️ Recent Bets", value="\n".join(lines), inline=False)
 
     if dm:
@@ -1511,6 +1547,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
             await interaction.followup.send("⚠️ Could not send DM.", ephemeral=True)
     else:
         await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 
 @tree.command(
@@ -1782,7 +1819,16 @@ async def clear_bet_history(interaction: discord.Interaction, user: discord.User
             ephemeral=True
         )
 
-
+@tree.command(name="dm_online")
+@app_commands.describe(msg="Message to send")
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def dm_online(interaction: discord.Interaction, msg: str):
+    await interaction.response.send_message(
+        f"📨 Sending message to online members...",
+        ephemeral=True
+    )
+    await dm_all_online(interaction.guild, msg)
+    await interaction.followup.send("✅ All online members have been messaged.", ephemeral=True)
 
 @bot.event
 async def on_ready():
