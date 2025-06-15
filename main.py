@@ -68,10 +68,6 @@ default_template = {
 
 # Helpers
 
-async def setup_supabase():
-    global supabase
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-
 # ✅ Save a pending game (async)
 async def save_pending_game(game_type, players, channel_id):
     await run_db(lambda: supabase.table("pending_games").upsert({
@@ -89,14 +85,18 @@ async def load_pending_games():
     response = await run_db(lambda: supabase.table("pending_games").select("*").execute())
     return response.data
 
-# ✅ Deduct credits atomically (async)
 async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
-    update = await run_db(lambda: supabase.table("players") \
-        .update({"credits": supabase.py_.sql(f"credits - {amount}")}) \
-        .eq("id", str(user_id)) \
-        .gte("credits", amount) \
-        .execute())
-    return update.count > 0
+    res = await run_db(
+        lambda: supabase.rpc("deduct_credits_atomic", {
+            "user_id": str(user_id),
+            "amount": amount
+        }).execute()
+    )
+    if res.error:
+        print(f"Supabase RPC error: {res.error.message}")
+        return False
+    return bool(res.data)
+
 
 async def add_credits(user_id: int, amount: int):
     user = await get_player(user_id)
@@ -567,20 +567,26 @@ class GameView(discord.ui.View):
         self.clear_items()
         if self.abandon_task:
             self.abandon_task.cancel()
+
+        # ✅ This button resets the start button for new games
         await start_new_game_button(self.message.channel, self.game_type)
         pending_games[self.game_type] = None
         await save_pending_game(self.game_type, self.players, self.message.channel.id)
 
+        # ✅ Pick a random course
         res = await run_db(lambda: supabase.table("courses").select("name", "image_url").execute())
-        if res.error:
+        if res.status_code != 200 or not res.data:
             course_name = "Unknown"
             course_image = ""
         else:
             chosen = random.choice(res.data)
             course_name = chosen["name"]
             course_image = chosen.get("image_url", "")
-            await room_name_generator.get_unique_word()
 
+        # ✅ FIX: actually store the room name!
+        room_name = await room_name_generator.get_unique_word()
+
+        # ✅ Use the generated room name
         thread = await interaction.channel.create_thread(name=room_name)
 
         embed = await self.build_embed(interaction.guild)
@@ -614,7 +620,6 @@ class GameView(discord.ui.View):
 
         await self.message.edit(embed=lobby_embed, view=None)
         await self.show_betting_phase()
-
 
 
 class BettingButton(discord.ui.Button):
@@ -1588,7 +1593,6 @@ async def clear_pending(interaction: discord.Interaction):
     amount="Amount of credits to add"
 )
 async def add_credits(interaction: discord.Interaction, user: discord.User, amount: int):
-    # ✅ Check admin
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
             "⛔ You don't have permission to use this command.",
@@ -1596,8 +1600,15 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
         )
         return
 
-    # ✅ Fetch current credits (safe)
-    query = await run_db(lambda: supabase.table("players").select("credits").eq("id", str(user.id)).single().execute())
+    player = await get_player(user.id)
+    new_credits = player.get("credits", 0) + amount
+
+    await run_db(lambda: supabase.table("players").update({"credits": new_credits}).eq("id", str(user.id)).execute())
+
+    await interaction.response.send_message(
+        f"✅ Added {amount} credits to {user.display_name}. New total: {new_credits}.",
+        ephemeral=True
+    )
 
 
 
