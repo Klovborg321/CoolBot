@@ -9,7 +9,7 @@ import asyncio
 from dotenv import load_dotenv
 import asyncio
 from functools import partial
-from discord import ui, Interaction
+from discord import app_commands, Interaction, SelectOption, ui, Embed
 from supabase import create_client, Client
 import os
 
@@ -67,18 +67,6 @@ default_template = {
 }
 
 # Helpers
-async def submit_score(interaction: Interaction):
-    # ✅ Fetch all courses to show user in dropdown in modal
-    courses_res = await run_db(lambda: supabase.table("courses").select("name").execute())
-    courses = [c["name"] for c in (courses_res.data or [])]
-
-    if not courses:
-        await interaction.response.send_message("❌ No courses found.", ephemeral=True)
-        return
-
-    # ✅ Show modal with dynamic courses
-    await interaction.response.send_modal(SubmitScoreModal(courses))
-
 
 async def dm_all_online(guild: discord.Guild, message: str):
     """DM all online members in the given guild with a custom message."""
@@ -1451,59 +1439,65 @@ async def leaderboard_local(interaction: discord.Interaction, user: discord.User
     msg = await interaction.response.send_message(embed=first_embed, view=view)
     view.message = await msg.original_response()
 
-class ScoreSubmitModal(discord.ui.Modal, title="⛳ Submit a New Score"):
+class ScoreSubmitModal(ui.Modal, title="⛳ Submit Score"):
     def __init__(self, course_name: str):
         super().__init__()
         self.course_name = course_name
 
-        self.add_item(discord.ui.TextInput(
-            label="Your Gross Score",
-            placeholder="Enter your total strokes (e.g. 72)",
-            custom_id="score",
+        self.add_item(ui.TextInput(
+            label="Gross Score",
+            placeholder="e.g. 72",
             style=discord.TextStyle.short,
-            required=True,
-            min_length=1,
-            max_length=5
+            required=True
         ))
 
-    async def on_submit(self, interaction: discord.Interaction):
-        # Extract entered score safely:
-        score_value = int(self.children[0].value)
+    async def on_submit(self, interaction: Interaction):
+        try:
+            score = int(self.children[0].value)
+            if score <= 0:
+                raise ValueError("Score must be positive.")
 
-        # Fetch course slope & rating:
-        course = await run_db(lambda: supabase
-            .table("courses")
-            .select("rating, slope")
-            .eq("name", self.course_name)
-            .single()
-            .execute())
+            # Look up course details
+            res = await run_db(lambda: supabase
+                .table("courses")
+                .select("*")
+                .eq("name", self.course_name)
+                .single()
+                .execute()
+            )
 
-        if not course.data:
-            await interaction.response.send_message(f"❌ Course not found!", ephemeral=True)
-            return
+            if not res.data:
+                await interaction.response.send_message(
+                    f"❌ Course '{self.course_name}' not found.",
+                    ephemeral=True
+                )
+                return
 
-        rating = float(course.data["rating"])
-        slope = float(course.data["slope"])
+            course = res.data
+            course_rating = course.get("course_rating", 72)
+            slope = course.get("slope_rating", 113)
 
-        # Calculate differential
-        diff = round((113 / slope) * (score_value - rating), 1)
+            # Calculate handicap (USGA)
+            differential = (score - course_rating) * 113 / slope
 
-        # Save it
-        await run_db(lambda: supabase
-            .table("handicaps")
-            .insert({
+            # Store score + handicap
+            await run_db(lambda: supabase.table("handicaps").upsert({
                 "player_id": str(interaction.user.id),
                 "course_name": self.course_name,
-                "score": score_value,
-                "handicap_differential": diff
-            })
-            .execute())
+                "score": score,
+                "handicap": differential
+            }).execute())
 
-        await interaction.response.send_message(
-            f"✅ Recorded {score_value} for **{self.course_name}**.\n"
-            f"📐 Differential: `{diff}`",
-            ephemeral=True
-        )
+            await interaction.response.send_message(
+                f"✅ Recorded! Gross Score: {score}, Handicap Index: {differential:.1f}",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            await interaction.response.send_message(
+                f"❌ Error: {e}",
+                ephemeral=True
+            )
 
 @tree.command(
     name="stats_reset",
@@ -1897,41 +1891,8 @@ async def clear_bet_history(interaction: discord.Interaction, user: discord.User
             ephemeral=True
         )
 
-@tree.command(
-    name="submit_score",
-    description="Submit your score for an existing course"
-)
-async def submit_score(interaction: discord.Interaction):
-    # ✅ Defer to avoid timeout if needed
-    await interaction.response.defer(ephemeral=True)
+from discord import app_commands, Interaction, SelectOption, ui, Embed
 
-    # Fetch courses list
-    res = await run_db(lambda: supabase.table("courses").select("name").execute())
-
-    if not res.data:
-        await interaction.followup.send("❌ No courses available.", ephemeral=True)
-        return
-
-    # Build a select dropdown
-    options = [
-        discord.SelectOption(label=row["name"], value=row["name"])
-        for row in res.data
-    ]
-
-    class CourseSelectView(discord.ui.View):
-        @discord.ui.select(
-            placeholder="Select a course",
-            min_values=1,
-            max_values=1,
-            options=options
-        )
-        async def select_callback(self, select, interaction2: discord.Interaction):
-            # When selected: show the modal
-            await interaction2.response.send_modal(ScoreSubmitModal(course_name=select.values[0]))
-            self.stop()
-
-    view = CourseSelectView()
-    await interaction.followup.send("🏌️ Pick a course to submit your score:", view=view, ephemeral=True)
 
 @app_commands.describe(
     course="The course name exactly as stored"
