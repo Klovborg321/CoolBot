@@ -1247,20 +1247,19 @@ async def init_singles(interaction: discord.Interaction):
     )
 
 
-
-@tree.command(name="init_triples")
-async def init_triples(interaction: discord.Interaction):
-    if pending_games["triples"] or any(k[0] == interaction.channel.id for k in start_buttons):
+@tree.command(name="init_doubles")
+async def init_doubles(interaction: discord.Interaction):
+    if pending_games["doubles"] or any(k[0] == interaction.channel.id for k in start_buttons):
         await interaction.response.send_message(
-            "⚠️ A triples game is already pending or a button is active here.",
+            "⚠️ A doubles game is already pending or a button is active here.",
             ephemeral=True
         )
         return
 
     await interaction.response.defer(ephemeral=True)
-    await start_new_game_button(interaction.channel, "triples")
+    await start_new_game_button(interaction.channel, "doubles")
     await interaction.followup.send(
-        "✅ Triples game button posted!",
+        "✅ Doubles game button posted!",
         ephemeral=True
     )
 
@@ -1274,8 +1273,9 @@ async def init_triples(interaction: discord.Interaction):
         )
         return
 
+    await interaction.response.defer(ephemeral=True)
     await start_new_game_button(interaction.channel, "triples")
-    await interaction.response.send_message(
+    await interaction.followup.send(
         "✅ Triples game button posted!",
         ephemeral=True
     )
