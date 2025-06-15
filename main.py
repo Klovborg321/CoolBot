@@ -1226,6 +1226,7 @@ class LeaderboardView(discord.ui.View):
 
 @tree.command(name="init_singles")
 async def init_singles(interaction: discord.Interaction):
+    # 1️⃣ Fast RAM check FIRST:
     if pending_games["singles"] or any(k[0] == interaction.channel.id for k in start_buttons):
         await interaction.response.send_message(
             "⚠️ A singles game is already pending or a button is active here.",
@@ -1233,25 +1234,33 @@ async def init_singles(interaction: discord.Interaction):
         )
         return
 
+    # 2️⃣ Safe: defer because View is coming
+    await interaction.response.defer(ephemeral=True)
+
+    # 3️⃣ Create the button
     await start_new_game_button(interaction.channel, "singles")
-    await interaction.response.send_message(
+
+    # 4️⃣ Confirm
+    await interaction.followup.send(
         "✅ Singles game button posted!",
         ephemeral=True
     )
 
 
-@tree.command(name="init_doubles")
-async def init_doubles(interaction: discord.Interaction):
-    if pending_games["doubles"] or any(k[0] == interaction.channel.id for k in start_buttons):
+
+@tree.command(name="init_triples")
+async def init_triples(interaction: discord.Interaction):
+    if pending_games["triples"] or any(k[0] == interaction.channel.id for k in start_buttons):
         await interaction.response.send_message(
-            "⚠️ A doubles game is already pending or a button is active here.",
+            "⚠️ A triples game is already pending or a button is active here.",
             ephemeral=True
         )
         return
 
-    await start_new_game_button(interaction.channel, "doubles")
-    await interaction.response.send_message(
-        "✅ Doubles game button posted!",
+    await interaction.response.defer(ephemeral=True)
+    await start_new_game_button(interaction.channel, "triples")
+    await interaction.followup.send(
+        "✅ Triples game button posted!",
         ephemeral=True
     )
 
@@ -1688,39 +1697,35 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 @tree.command(name="tournament")
 @app_commands.describe(player_count="Number of players (must be a power of 2)")
 async def tournament(interaction: discord.Interaction, player_count: int):
-    # ✅ Validate first (no defer yet!)
+    # ✅ Always defer: multi async steps + views
+    await interaction.response.defer(ephemeral=True)
+
+    # ✅ Validate power of 2
     if player_count < 2 or (player_count & (player_count - 1)) != 0:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "❌ Player count must be 2, 4, 8, 16, 32, etc.",
             ephemeral=True
         )
         return
 
-    # ✅ Now defer, because starting the tournament may take time
-    if not interaction.response.is_done():
-        await interaction.response.defer(ephemeral=True)
-
-    # ✅ Collect players (auto-fill for testing)
-    players = [interaction.user.id]  # Host is auto-added
+    # ✅ Collect players (host + dummy for now)
+    players = [interaction.user.id]
     while len(players) < player_count:
         players.append(random.randint(100000000000000000, 999999999999999999))
 
-    # ✅ Create and start Tournament (can be async & heavy)
+    # ✅ Create & start the Tournament
     tourney = Tournament(
         creator_id=interaction.user.id,
         players=players,
         channel=interaction.channel
     )
-
     await tourney.start()
 
-    # ✅ Final confirmation after deferred start
+    # ✅ Confirm to host
     await interaction.followup.send(
         f"🏆 Tournament with **{player_count} players** has started!",
         ephemeral=True
     )
-
-
 
 
 
