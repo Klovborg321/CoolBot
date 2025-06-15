@@ -1300,8 +1300,8 @@ class SubmitScoreSelect(discord.ui.Select):
         await interaction.response.send_modal(
             SubmitScoreModal(course_name=selected["name"], course_id=course_id)
         )
-		
-		class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
+
+class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
     def __init__(self, course_name, course_id):
         super().__init__()
         self.course_name = course_name
