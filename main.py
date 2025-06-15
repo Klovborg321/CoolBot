@@ -955,6 +955,13 @@ class RoomView(discord.ui.View):
         await asyncio.sleep(30)
         await self.message.channel.edit(archived=True)
 
+        # ✅ 🔑 Tournament hook: pass single player ID if winner is valid
+        if self.game_view and self.game_view.on_tournament_complete:
+            # Only pass a true player ID for singles
+            if self.game_type == "singles" and isinstance(winner, int):
+                await self.game_view.on_tournament_complete(winner)
+
+
 
 class GameEndedButton(discord.ui.Button):
     def __init__(self, view):
