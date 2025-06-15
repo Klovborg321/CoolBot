@@ -871,7 +871,7 @@ class RoomView(discord.ui.View):
 
         self.voting_closed = True
 
-        # ✅ Update stats in DB
+        # ✅ Update player stats for draw
         if winner == "draw":
             for p in self.players:
                 pdata = await get_player(p)
@@ -890,7 +890,7 @@ class RoomView(discord.ui.View):
             await self.message.channel.edit(archived=True)
             return
 
-        # ✅ If there is a winner:
+        # ✅ Update player stats for a winner
         for p in self.players:
             pdata = await get_player(p)
             pdata["games_played"] = pdata.get("games_played", 0) + 1
@@ -914,10 +914,8 @@ class RoomView(discord.ui.View):
 
             await save_player(p, pdata)
 
-        # ✅ Resolve bets
+        # ✅ Resolve bets: update `won` and payout credits
         for uid, uname, amount, choice in self.game_view.bets:
-            user_id = str(uid)
-            user_data = await get_player(user_id)
             won = False
 
             if self.game_type == "singles":
@@ -932,15 +930,23 @@ class RoomView(discord.ui.View):
                 except:
                     won = False
 
-            for bet in user_data.get("bet_history", []):
-                if bet.get("game") == self.game_view.message.id and bet.get("won") is None:
-                    bet["won"] = won
-                    if won:
-                        payout = bet.get("payout", int(amount / self.game_view.get_odds(choice)))
-                        user_data["credits"] = user_data.get("credits", 0) + payout
-                        print(f"💰 {uname} won {payout} credits (bet {amount} on {choice})")
+            # ✅ Mark the bet in Supabase
+            await run_db(lambda: supabase
+                .table("bets")
+                .update({"won": won})
+                .eq("player_id", uid)
+                .eq("game_id", self.game_view.message.id)
+                .eq("choice", choice)
+                .eq("won", None)
+                .execute()
+            )
 
-            await save_player(user_id, user_data)
+            # ✅ Pay out if won
+            if won:
+                odds = await self.game_view.get_odds(choice)
+                payout = int(amount / odds) if odds > 0 else amount
+                await add_credits(uid, payout)
+                print(f"💰 {uname} won {payout} credits (bet {amount} on {choice})")
 
         # ✅ Show winner
         if isinstance(winner, int):
@@ -961,12 +967,10 @@ class RoomView(discord.ui.View):
         await asyncio.sleep(30)
         await self.message.channel.edit(archived=True)
 
-        # ✅ 🔑 Tournament hook: pass single player ID if winner is valid
+        # ✅ Tournament hook if needed
         if self.game_view and self.game_view.on_tournament_complete:
-            # Only pass a true player ID for singles
             if self.game_type == "singles" and isinstance(winner, int):
                 await self.game_view.on_tournament_complete(winner)
-
 
 
 class GameEndedButton(discord.ui.Button):
