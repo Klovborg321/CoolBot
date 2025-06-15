@@ -1404,7 +1404,7 @@ async def leaderboard_local(interaction: discord.Interaction, user: discord.User
 
 @tree.command(
     name="stats_reset",
-    description="Admin: Reset a user's stats"
+    description="Admin: Reset a user's stats and clear their betting history"
 )
 @app_commands.describe(user="The user to reset")
 @discord.app_commands.checks.has_permissions(administrator=True)
@@ -1413,11 +1413,11 @@ async def stats_reset(interaction: discord.Interaction, user: discord.User):
         await interaction.response.defer(ephemeral=True)
 
     try:
-        # ✅ Prepare new stats with consistent ID type
+        # ✅ Prepare fresh stats — ensure ID is a string
         new_stats = default_template.copy()
-        new_stats["id"] = str(user.id)  # Ensure type matches DB (usually string)
+        new_stats["id"] = str(user.id)
 
-        # ✅ Upsert (update if exists, insert if missing)
+        # ✅ Upsert stats in Supabase
         res = await run_db(lambda: supabase
             .table("players")
             .upsert(new_stats)
@@ -1431,13 +1431,32 @@ async def stats_reset(interaction: discord.Interaction, user: discord.User):
             )
             return
 
+        # ✅ Delete ALL bets for this user
+        bets_res = await run_db(lambda: supabase
+            .table("bets")
+            .delete()
+            .eq("player_id", str(user.id))
+            .execute()
+        )
+
+        if getattr(bets_res, "status_code", 200) != 200:
+            await interaction.followup.send(
+                f"⚠️ Stats reset but failed to clear bets: {getattr(bets_res, 'data', bets_res)}",
+                ephemeral=True
+            )
+            return
+
         await interaction.followup.send(
-            f"✅ Stats for {user.display_name} have been reset.",
+            f"✅ Stats and **all betting history** for {user.display_name} have been reset.",
             ephemeral=True
         )
 
     except Exception as e:
-        await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
+        await interaction.followup.send(
+            f"❌ Error: {e}",
+            ephemeral=True
+        )
+
 
 
 
