@@ -18,6 +18,10 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = None
 
+async def run_db(fn):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, fn)
+
 def setup_supabase():
     global supabase
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -65,47 +69,58 @@ default_template = {
 # Helpers
 
 async def setup_supabase():
-    return await acreate_client(SUPABASE_URL, SUPABASE_KEY)
+    global supabase
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ✅ Save a pending game (async)
-def save_pending_game(game_type, players, channel_id):
-    supabase.table("pending_games").upsert({
+async def save_pending_game(game_type, players, channel_id):
+    await run_db(lambda: supabase.table("pending_games").upsert({
         "game_type": game_type,
         "players": players,
         "channel_id": channel_id
     }).execute()
 
 # ✅ Clear a pending game (async)
-def clear_pending_game(game_type):
-    supabase.table("pending_games").delete().eq("game_type", game_type).execute()
+async def clear_pending_game(game_type):
+    await run_db(lambda: supabase.table("pending_games").delete().eq("game_type", game_type).execute()
 
 # ✅ Load all pending games (async)
-def load_pending_games():
-    response = supabase.table("pending_games").select("*").execute()
+async def load_pending_games():
+    response = await run_db(lambda: supabase.table("pending_games").select("*").execute())
     return response.data
 
 # ✅ Deduct credits atomically (async)
 async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
-    update = supabase.table("players") \
+    update = await run_db(lambda: supabase.table("players") \
         .update({"credits": supabase.py_.sql(f"credits - {amount}")}) \
         .eq("id", str(user_id)) \
         .gte("credits", amount) \
-        .execute()
+        .execute())
     return update.count > 0
 
-# ✅ Add credits atomically (async)
 async def add_credits(user_id: int, amount: int):
     user = await get_player(user_id)
     new_credits = user["credits"] + amount
-    await supabase_request(
-        supabase.table("players").update({"credits": new_credits}).eq("id", str(user_id)).execute
+
+    # Run the blocking update safely
+    await run_db(lambda: supabase
+        .table("players")
+        .update({"credits": new_credits})
+        .eq("id", str(user_id))
+        .execute())
     )
+
     return new_credits
 
-# ✅ Upsert player (async)
+
 async def save_player(user_id: int, player_data: dict):
     player_data["id"] = str(user_id)
-    supabase.table("players").upsert(player_data).execute()
+    await run_db(lambda: supabase
+        .table("players")
+        .upsert(player_data)
+        .execute()
+    )
+
 
 async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
     # ✅ Try atomic deduction
@@ -116,14 +131,15 @@ async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
 
     # ✅ Log the bet
     payout = int(amount / odds) if odds > 0 else amount
-    supabase.table("bets").insert({
+
+    await run_db(lambda: supabase.table("bets").insert({
         "player_id": str(user_id),
         "game_id": game_id,
         "choice": choice,
         "amount": amount,
         "payout": payout,
         "won": None
-    }).execute()
+    }).execute())
 
     await interaction.response.send_message(
         f"✅ Bet of {amount} placed on {choice}. Potential payout: {payout}",
@@ -133,18 +149,18 @@ async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
 
 
 async def get_complete_user_data(user_id):
-    res = supabase.table("players").select("*").eq("id", str(user_id)).single().execute()
+    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).single().execute())
     if res.error:
         # If not found, insert defaults!
         defaults = default_template.copy()
         defaults["id"] = user_id
-        supabase.table("players").insert(defaults).execute()
+        await run_db(lambda: supabase.table("players").insert(defaults).execute())
         return defaults
     return res.data
 
 
 async def update_user_stat(user_id, key, value, mode="set"):
-    res = supabase.table("players").select("*").eq("id", str(user_id)).single().execute()
+    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).single().execute())
     if res.error:
         # Player missing, create fresh
         data = default_template.copy()
@@ -163,24 +179,17 @@ async def update_user_stat(user_id, key, value, mode="set"):
 # Load ALL players as a dict
 # ✅ Safe get_player: always upsert if not exists
 async def get_player(user_id: int) -> dict:
-    res = supabase.table("players").select("*").eq("id", str(user_id)).execute()  # ❌ no await here!
+    # Safely select
+    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).execute())
 
     if not res.data:
-        # no row found → create one
+        # No row found → create one
         new_data = default_template.copy()
         new_data["id"] = str(user_id)
-        supabase.table("players").insert(new_data).execute()  # ❌ no await here either!
+        await run_db(lambda: supabase.table("players").insert(new_data).execute())
         return new_data
 
     return res.data[0]
-
-
-
-# ✅ Fully async: Save (upsert)
-async def save_player(user_id: int, player_data: dict):
-    player_data["id"] = str(user_id)
-    supabase.table("players").upsert(player_data).execute()
-
 
 
 def calculate_elo(elo1, elo2, result):
@@ -564,7 +573,7 @@ class GameView(discord.ui.View):
         pending_games[self.game_type] = None
         await save_pending_game(self.game_type, self.players, self.message.channel.id)
 
-        res = supabase.table("courses").select("name", "image_url").execute()
+        res = await run_db(lambda: supabase.table("courses").select("name", "image_url").execute())
         if res.error:
             course_name = "Unknown"
             course_image = ""
@@ -661,14 +670,14 @@ class BetModal(discord.ui.Modal, title="Place Your Bet"):
             return
 
         # ✅ Log bet in bets table
-        supabase.table("bets").insert({
+        await run_db(lambda: supabase.table("bets").insert({
             "player_id": str(user_id),
             "game_id": self.game_view.message.id,
             "choice": choice,
             "amount": amount,
             "payout": payout,
             "won": None
-        }).execute()
+        }).execute())
 
         # ✅ Update live bets in GameView
         await self.game_view.add_bet(user_id, interaction.user.display_name, amount, choice)
@@ -985,7 +994,7 @@ class VoteButton(discord.ui.Button):
         self.view_obj.votes[interaction.user.id] = self.value
 
         # ✅ Optional: You can store this vote in Supabase too if you want an audit log
-        # Example: supabase.table("votes").insert({...})
+        # Example: await run_db(lambda: supabase.table("votes").insert({...})
 
         # ✅ Prepare feedback text
         voter = interaction.guild.get_member(interaction.user.id)
@@ -1046,14 +1055,14 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
             return
 
         # ✅ Log bet
-        supabase.table("bets").insert({
+        await run_db(lambda: supabase.table("bets").insert({
             "player_id": str(user_id),
             "game_id": self.game_view.message.id,
             "choice": self.choice,
             "amount": amount,
             "payout": payout,
             "won": None
-        }).execute()
+        }).execute())
 
         # ✅ Add to UI
         await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice)
@@ -1196,7 +1205,7 @@ async def init_triples(interaction: discord.Interaction):
 @discord.app_commands.describe(user="User to check in the leaderboard")
 async def leaderboard_local(interaction: discord.Interaction, user: discord.User = None):
     # 1️⃣ Fetch all players ordered by rank descending
-    res = supabase.table("players").select("*").order("rank", desc=True).execute()
+    res = await run_db(lambda: supabase.table("players").select("*").order("rank", desc=True).execute())
     if res.error or not res.data:
         await interaction.response.send_message("📭 No players have stats yet.", ephemeral=True)
         return
@@ -1310,10 +1319,10 @@ async def resetstats(interaction: discord.Interaction, user: discord.User):
         return
 
     # ✅ Reset player in Supabase
-    res = supabase.table("players").upsert({
+    res = await run_db(lambda: supabase.table("players").upsert({
         "id": user.id,
         **default_template
-    }).execute()
+    }).execute())
 
     if res.error:
         await interaction.response.send_message(
@@ -1340,7 +1349,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
 
     target_user = user or interaction.user
 
-    res = supabase.table("players").select("*").eq("id", str(target_user.id)).single().execute()
+    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(target_user.id)).single().execute())
 
     if res.error and res.status_code != 406:
         await interaction.followup.send(f"⚠️ Error fetching stats: {res.error.message}", ephemeral=True)
@@ -1358,8 +1367,8 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     rank = player.get("rank", 1000)
     credits = player.get("credits", 1000)
 
-    bets = supabase.table("bets").select("*").eq("player_id", str(target_user.id)).order("id", desc=True).limit(5).execute()
-    all_bets = supabase.table("bets").select("id,won,payout,amount").eq("player_id", str(target_user.id)).execute()
+    bets = await run_db(lambda: supabase.table("bets").select("*").eq("player_id", str(target_user.id)).order("id", desc=True).limit(5).execute())
+    all_bets = await run_db(lambda: supabase.table("bets").select("id,won,payout,amount").eq("player_id", str(target_user.id)).execute())
 
     total_bets = len(all_bets.data or [])
     bets_won = sum(1 for b in all_bets.data if b.get("won") is True)
@@ -1477,7 +1486,7 @@ async def stats_edit(interaction: discord.Interaction, user: discord.User, field
 
     # ✅ Upsert in Supabase
     update = { "id": str(user.id), field: value }
-    res = supabase.table("players").upsert(update).execute()
+    res = await run_db(lambda: supabase.table("players").upsert(update).execute())
 
     if res.error:
         await interaction.response.send_message(
@@ -1554,7 +1563,7 @@ async def clear_pending(interaction: discord.Interaction):
         pending_games[key] = None
 
     # 2️⃣ Clear Supabase `pending_games` table
-    supabase.table("pending_games").delete().neq("game_type", "").execute()
+    await run_db(lambda: supabase.table("pending_games").delete().neq("game_type", "").execute())
 
     # 3️⃣ Delete any start buttons messages
     for msg in list(start_buttons.values()):
@@ -1580,6 +1589,14 @@ async def clear_pending(interaction: discord.Interaction):
     user="User to add credits to",
     amount="Amount of credits to add"
 )
+@tree.command(
+    name="add_credits",
+    description="Admin command to add credits to a user"
+)
+@app_commands.describe(
+    user="User to add credits to",
+    amount="Amount of credits to add"
+)
 async def add_credits(interaction: discord.Interaction, user: discord.User, amount: int):
     # ✅ Check admin
     if not interaction.user.guild_permissions.administrator:
@@ -1589,34 +1606,8 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
         )
         return
 
-    # ✅ Fetch current credits
-    query = supabase.table("players").select("credits").eq("id", str(user.id)).single().execute()
-
-    if query.error:
-        current_credits = 0  # assume new
-    else:
-        current_credits = query.data.get("credits", 0)
-
-    # ✅ Add amount
-    new_credits = current_credits + amount
-
-    # ✅ Upsert back to Supabase
-    res = supabase.table("players").upsert({
-        "id": str(user.id),
-        "credits": new_credits
-    }).execute()
-
-    if res.error:
-        await interaction.response.send_message(
-            f"❌ Error adding credits: {res.error.message}",
-            ephemeral=True
-        )
-        return
-
-    await interaction.response.send_message(
-        f"✅ Added {amount} credits to {user.display_name}. Now has **{new_credits}** credits.",
-        ephemeral=True
-    )
+    # ✅ Fetch current credits (safe)
+    query = await run_db(lambda: supabase.table("players").select("credits").eq("id", str(user.id)).single().execute())
 
 
 
