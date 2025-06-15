@@ -1899,8 +1899,40 @@ async def clear_bet_history(interaction: discord.Interaction, user: discord.User
 
 @tree.command(
     name="submit_score",
-    description="Submit your gross score for a course"
+    description="Submit your score for an existing course"
 )
+async def submit_score(interaction: discord.Interaction):
+    # ✅ Defer to avoid timeout if needed
+    await interaction.response.defer(ephemeral=True)
+
+    # Fetch courses list
+    res = await run_db(lambda: supabase.table("courses").select("name").execute())
+
+    if not res.data:
+        await interaction.followup.send("❌ No courses available.", ephemeral=True)
+        return
+
+    # Build a select dropdown
+    options = [
+        discord.SelectOption(label=row["name"], value=row["name"])
+        for row in res.data
+    ]
+
+    class CourseSelectView(discord.ui.View):
+        @discord.ui.select(
+            placeholder="Select a course",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+        async def select_callback(self, select, interaction2: discord.Interaction):
+            # When selected: show the modal
+            await interaction2.response.send_modal(ScoreSubmitModal(course_name=select.values[0]))
+            self.stop()
+
+    view = CourseSelectView()
+    await interaction.followup.send("🏌️ Pick a course to submit your score:", view=view, ephemeral=True)
+
 @app_commands.describe(
     course="The course name exactly as stored"
 )
