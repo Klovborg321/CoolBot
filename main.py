@@ -388,6 +388,7 @@ class GameView(discord.ui.View):
         self.bets = []
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
         self.add_item(LeaveGameButton(self))
+        self.on_tournament_complete = None  # ✅ callback for tournament to hook into
 
     async def abandon_game(self, reason):
         global pending_game
@@ -1040,6 +1041,53 @@ class VoteButton(discord.ui.Button):
         if len(self.view_obj.votes) == len(self.view_obj.players):
             await self.view_obj.finalize_game()
 
+class Tournament:
+    def __init__(self, host_id, players, channel, game_type="singles"):
+        self.host_id = host_id
+        self.players = players
+        self.channel = channel
+        self.game_type = game_type
+        self.round = 1
+        self.bracket = []
+        self.current_matches = []
+        self.thread = None
+
+    async def start(self):
+        # Create main tournament thread
+        self.thread = await self.channel.create_thread(name=f"Tournament {random.randint(1000, 9999)}")
+
+        await self.thread.send(f"🏆 **Tournament started!** Players: {', '.join(f'<@{p}>' for p in self.players)}")
+        await self.next_round()
+
+    async def next_round(self):
+        if len(self.players) == 1:
+            await self.thread.send(f"🎉 **Winner: <@{self.players[0]}>!**")
+            return
+
+        random.shuffle(self.players)
+        self.current_matches = []
+
+        for i in range(0, len(self.players), 2):
+            if i+1 < len(self.players):
+                match_players = [self.players[i], self.players[i+1]]
+                view = GameView("singles", match_players[0])
+                view.players = match_players
+                view.max_players = 2
+                embed = await view.build_embed(self.channel.guild)
+                msg = await self.thread.send(embed=embed, view=view)
+                view.message = msg
+                view.on_tournament_complete = self.match_complete  # Hook!
+                self.current_matches.append(view)
+            else:
+                # Odd player advances automatically
+                await self.thread.send(f"✅ <@{self.players[i]}> advances (bye).")
+                self.current_matches.append(self.players[i])
+
+    async def match_complete(self, winner_id):
+        self.players = [winner_id if isinstance(m, GameView) and m.winner == winner_id else p
+                        for m, p in zip(self.current_matches, self.players)]
+        await self.next_round()
+
 
 class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
     def __init__(self, choice, game_view):
@@ -1632,6 +1680,24 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
         f"✅ Added {amount} credits to {user.display_name}. New total: {new_credits}.",
         ephemeral=True
     )
+
+@tree.command(name="tournament")
+@app_commands.describe(player_count="Number of players (must be power of 2)")
+async def tournament(interaction: discord.Interaction, player_count: int):
+    if player_count & (player_count - 1) != 0:
+        await interaction.response.send_message("Player count must be 2, 4, 8, 16...", ephemeral=True)
+        return
+
+    # Collect players: you can make this a real join view.
+    players = [interaction.user.id]  # Add host first
+
+    while len(players) < player_count:
+        # For now, auto fill with dummy IDs for testing
+        players.append(random.randint(100000000000000000, 999999999999999999))
+
+    tourney = Tournament(interaction.user.id, players, interaction.channel)
+    await tourney.start()
+    await interaction.response.send_message("✅ Tournament started!", ephemeral=True)
 
 
 
