@@ -1348,7 +1348,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
         self.course_name = course_name
         self.course_id = course_id
 
-        self.add_item(discord.ui.InputText(
+        self.add_item(discord.ui.TextInput(
             label=f"Best score for {course_name}",
             placeholder="Enter your best score",
             style=discord.TextStyle.short
@@ -1389,6 +1389,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
             f"✅ Score for **{self.course_name}** submitted: {score} (Handicap: `{handicap}`)",
             ephemeral=True
         )
+
 
 
 @tree.command(name="submit_score", description="Submit your best score for a course")
