@@ -22,6 +22,7 @@ def setup_supabase():
     global supabase
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+
 # ✅ Discord intents
 intents = discord.Intents.default()
 intents.message_content = True
@@ -1630,10 +1631,9 @@ async def setup_supabase():
 
 @bot.event
 async def on_ready():
-    global supabase
-    supabase = await setup_supabase()
+    setup_supabase()
     await tree.sync()
-    print(f"Logged in as {bot.user}")
+    print(f"✅ Logged in as {bot.user}")
 
 
     pending = await load_pending_games()
