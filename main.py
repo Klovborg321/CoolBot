@@ -1665,6 +1665,48 @@ async def clear_active(interaction: discord.Interaction, user: discord.User = No
         # If something fails AFTER deferring, fallback to followup
         await interaction.followup.send(f"⚠️ Failed: {e}", ephemeral=True)
 
+@tree.command(name="submit_score", description="Submit your score for a course")
+async def submit_score(interaction: Interaction):
+    # Always defer or respond immediately
+    await interaction.response.defer(ephemeral=True)
+
+    # Get courses from Supabase
+    res = await run_db(lambda: supabase.table("courses").select("name").execute())
+
+    if not res.data:
+        await interaction.followup.send("❌ No courses found.", ephemeral=True)
+        return
+
+    # Build options
+    options = [
+        SelectOption(label=course["name"], value=course["name"])
+        for course in res.data
+    ]
+
+    class CourseSelect(ui.Select):
+        def __init__(self):
+            super().__init__(
+                placeholder="Select a course...",
+                min_values=1,
+                max_values=1,
+                options=options
+            )
+
+        async def callback(self, interaction2: Interaction):
+            await interaction2.response.send_modal(ScoreSubmitModal(self.values[0]))
+            view.stop()
+
+    class CourseSelectView(ui.View):
+        def __init__(self):
+            super().__init__(timeout=30)
+            self.add_item(CourseSelect())
+
+    view = CourseSelectView()
+    await interaction.followup.send(
+        "🏌️ Pick a course to submit your score:",
+        view=view,
+        ephemeral=True
+    )
 
 
 
@@ -1892,13 +1934,6 @@ async def clear_bet_history(interaction: discord.Interaction, user: discord.User
         )
 
 from discord import app_commands, Interaction, SelectOption, ui, Embed
-
-
-@app_commands.describe(
-    course="The course name exactly as stored"
-)
-async def submit_score(interaction: discord.Interaction, course: str):
-    await interaction.response.send_modal(ScoreSubmitModal(course_name=course))
 
 
 @tree.command(
