@@ -22,6 +22,7 @@ def setup_supabase():
     global supabase
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+setup_supabase()  # ← runs immediately when script loads!
 
 # ✅ Discord intents
 intents = discord.Intents.default()
@@ -1621,7 +1622,6 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 
 @bot.event
 async def on_ready():
-    setup_supabase()  # correct — do NOT await
     await tree.sync()
     print(f"✅ Logged in as {bot.user}")
 
