@@ -1350,7 +1350,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
 
         self.add_item(discord.ui.TextInput(
             label=f"Best score for {course_name}",
-            placeholder="Enter your best score",
+            placeholder="Enter your best score (e.g. 72.5)",
             style=discord.TextStyle.short
         ))
 
@@ -1361,7 +1361,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
             await interaction.response.send_message("❌ Invalid number.", ephemeral=True)
             return
 
-        # Use course_id from self.course_id
+        # ✅ Fetch course info from DB
         course = await run_db(lambda: supabase
             .table("courses")
             .select("*")
@@ -1370,9 +1370,15 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
             .execute()
         )
 
-        par = course.data.get("par", 72)
-        handicap = score - par
+        # ✅ Get course_rating & slope_rating with safe defaults
+        course_rating = float(course.data.get("course_rating", 72.0))
+        slope_rating = float(course.data.get("slope_rating", 113.0))
 
+        # ✅ Calculate differential using official formula:
+        # (Score - Course Rating) * 113 / Slope Rating
+        differential = round((score - course_rating) * 113 / slope_rating, 1)
+
+        # ✅ Upsert full data to `handicaps` table
         await run_db(lambda: supabase
             .table("handicaps")
             .upsert({
@@ -1380,13 +1386,17 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
                 "course_id": self.course_id,
                 "course_name": self.course_name,
                 "score": score,
-                "handicap_differential": handicap
+                "course_rating": course_rating,
+                "slope_rating": slope_rating,
+                "handicap_differential": differential
             })
             .execute()
         )
 
         await interaction.response.send_message(
-            f"✅ Score for **{self.course_name}** submitted: {score} (Handicap: `{handicap}`)",
+            f"✅ Submitted **{score}** for **{self.course_name}**\n"
+            f"📏 Course Rating: `{course_rating}` | Slope: `{slope_rating}`\n"
+            f"📊 Differential: `{differential}`",
             ephemeral=True
         )
 
