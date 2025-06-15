@@ -1277,26 +1277,31 @@ class LeaderboardView(discord.ui.View):
 class SubmitScoreView(discord.ui.View):
     def __init__(self, courses):
         super().__init__(timeout=120)
-        self.add_item(SubmitScoreSelect(courses))
+        self.courses = courses
+        self.add_item(SubmitScoreSelect(self))
 
 class SubmitScoreSelect(discord.ui.Select):
-    def __init__(self, courses):
+    def __init__(self, view: SubmitScoreView):
+        self.view = view
         options = [
-            discord.SelectOption(label=course["name"], value=str(course["id"]))
-            for course in courses
+            discord.SelectOption(label=c["name"], value=str(c["id"]))
+            for c in view.courses
         ]
-        super().__init__(placeholder="Choose a course", options=options)
+        super().__init__(placeholder="Select a course", options=options)
 
     async def callback(self, interaction: Interaction):
+        # Get the selected course directly from self.view.courses
         course_id = self.values[0]
-        course = next(
-            (c for c in self.view.children[0].options if c.value == course_id),
-            None
-        )
-        await interaction.response.send_modal(SubmitScoreModal(course.label, course_id))
+        selected = next((c for c in self.view.courses if str(c["id"]) == course_id), None)
+        if not selected:
+            await interaction.response.send_message("❌ Course not found.", ephemeral=True)
+            return
 
-# --- 2️⃣ Modal to enter score ---
-class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
+        await interaction.response.send_modal(
+            SubmitScoreModal(course_name=selected["name"], course_id=course_id)
+        )
+		
+		class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
     def __init__(self, course_name, course_id):
         super().__init__()
         self.course_name = course_name
@@ -1304,7 +1309,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
 
         self.add_item(discord.ui.InputText(
             label=f"Best score for {course_name}",
-            placeholder="Enter your best score as a number",
+            placeholder="Enter your best score",
             style=discord.TextStyle.short
         ))
 
@@ -1315,37 +1320,51 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
             await interaction.response.send_message("❌ Invalid number.", ephemeral=True)
             return
 
-        # Example: simple handicap formula — replace with real one!
-        course_data = await run_db(lambda: supabase.table("courses").select("*").eq("id", self.course_id).single().execute())
-        par = course_data.data.get("par", 72)
+        # Use course_id from self.course_id
+        course = await run_db(lambda: supabase
+            .table("courses")
+            .select("*")
+            .eq("id", self.course_id)
+            .single()
+            .execute()
+        )
+
+        par = course.data.get("par", 72)
         handicap = score - par
 
-        # Upsert player handicap for this course
-        await run_db(lambda: supabase.table("handicaps").upsert({
-            "player_id": str(interaction.user.id),
-            "course_id": self.course_id,
-            "score": score,
-            "handicap": handicap
-        }).execute())
+        await run_db(lambda: supabase
+            .table("handicaps")
+            .upsert({
+                "player_id": str(interaction.user.id),
+                "course_id": self.course_id,
+                "course_name": self.course_name,
+                "score": score,
+                "handicap_differential": handicap
+            })
+            .execute()
+        )
 
         await interaction.response.send_message(
-            f"✅ Your score for **{self.course_name}** is {score}. Handicap: `{handicap}`",
+            f"✅ Score for **{self.course_name}** submitted: {score} (Handicap: `{handicap}`)",
             ephemeral=True
         )
 
-# --- 3️⃣ The slash command ---
+
 @tree.command(name="submit_score", description="Submit your best score for a course")
 async def submit_score(interaction: discord.Interaction):
-    # 1️⃣ Fetch courses
-    res = await run_db(lambda: supabase.table("courses").select("id, name").execute())
+    res = await run_db(lambda: supabase
+        .table("courses")
+        .select("id, name")
+        .execute()
+    )
     if not res.data:
         await interaction.response.send_message("⚠️ No courses found.", ephemeral=True)
         return
 
-    # 2️⃣ Send dropdown view
+    view = SubmitScoreView(res.data)
     await interaction.response.send_message(
-        "🏌️‍♂️ Select a course to submit your best score:",
-        view=SubmitScoreView(res.data),
+        "🏌️ Select a course to submit your best score:",
+        view=view,
         ephemeral=True
     )
 
