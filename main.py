@@ -1451,65 +1451,59 @@ async def leaderboard_local(interaction: discord.Interaction, user: discord.User
     msg = await interaction.response.send_message(embed=first_embed, view=view)
     view.message = await msg.original_response()
 
-class SubmitScoreModal(ui.Modal, title="Submit Best Score"):
-    def __init__(self, courses: list[str]):
+class ScoreSubmitModal(discord.ui.Modal, title="⛳ Submit a New Score"):
+    def __init__(self, course_name: str):
         super().__init__()
-        self.courses = courses
+        self.course_name = course_name
 
-        self.course_dropdown = ui.Select(
-            placeholder="Select a course",
-            options=[discord.SelectOption(label=name, value=name) for name in self.courses]
-        )
-        self.add_item(self.course_dropdown)
+        self.add_item(discord.ui.TextInput(
+            label="Your Gross Score",
+            placeholder="Enter your total strokes (e.g. 72)",
+            custom_id="score",
+            style=discord.TextStyle.short,
+            required=True,
+            min_length=1,
+            max_length=5
+        ))
 
-        self.score_input = ui.TextInput(
-            label="Your Score",
-            placeholder="e.g. 85",
-            required=True
-        )
-        self.add_item(self.score_input)
+    async def on_submit(self, interaction: discord.Interaction):
+        # Extract entered score safely:
+        score_value = int(self.children[0].value)
 
-    async def on_submit(self, interaction: Interaction):
-        try:
-            course = self.course_dropdown.values[0]
-            score = float(self.score_input.value)
+        # Fetch course slope & rating:
+        course = await run_db(lambda: supabase
+            .table("courses")
+            .select("rating, slope")
+            .eq("name", self.course_name)
+            .single()
+            .execute())
 
-            # Fetch course_rating + slope_rating
-            course_data = await run_db(lambda: supabase
-                .table("courses")
-                .select("course_rating, slope_rating")
-                .eq("name", course)
-                .single()
-                .execute()
-            )
-            course_rating = float(course_data.data.get("course_rating", 72))
-            slope_rating = float(course_data.data.get("slope_rating", 113))
+        if not course.data:
+            await interaction.response.send_message(f"❌ Course not found!", ephemeral=True)
+            return
 
-            # ✅ USGA Differential
-            differential = (score - course_rating) * 113 / slope_rating
-            differential = round(differential, 1)
+        rating = float(course.data["rating"])
+        slope = float(course.data["slope"])
 
-            # ✅ Store in Supabase
-            data = {
+        # Calculate differential
+        diff = round((113 / slope) * (score_value - rating), 1)
+
+        # Save it
+        await run_db(lambda: supabase
+            .table("handicaps")
+            .insert({
                 "player_id": str(interaction.user.id),
-                "course_name": course,
-                "score": score,
-                "course_rating": course_rating,
-                "slope_rating": slope_rating,
-                "handicap_differential": differential
-            }
-            await run_db(lambda: supabase.table("handicaps").upsert(data).execute())
+                "course_name": self.course_name,
+                "score": score_value,
+                "handicap_differential": diff
+            })
+            .execute())
 
-            await interaction.response.send_message(
-                f"✅ **{course}** | Score: **{score}**\n"
-                f"Course Rating: **{course_rating}**, Slope: **{slope_rating}**\n"
-                f"**Handicap Differential:** {differential}",
-                ephemeral=True
-            )
-
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
-
+        await interaction.response.send_message(
+            f"✅ Recorded {score_value} for **{self.course_name}**.\n"
+            f"📐 Differential: `{diff}`",
+            ephemeral=True
+        )
 
 @tree.command(
     name="stats_reset",
@@ -1905,17 +1899,13 @@ async def clear_bet_history(interaction: discord.Interaction, user: discord.User
 
 @tree.command(
     name="submit_score",
-    description="Submit your best score with real handicap calculation"
+    description="Submit your gross score for a course"
 )
-async def submit_score(interaction: Interaction):
-    courses_res = await run_db(lambda: supabase.table("courses").select("name").execute())
-    courses = [c["name"] for c in (courses_res.data or [])]
-
-    if not courses:
-        await interaction.response.send_message("❌ No courses found.", ephemeral=True)
-        return
-
-    await interaction.response.send_modal(SubmitScoreModal(courses))
+@app_commands.describe(
+    course="The course name exactly as stored"
+)
+async def submit_score(interaction: discord.Interaction, course: str):
+    await interaction.response.send_modal(ScoreSubmitModal(course_name=course))
 
 
 @tree.command(
