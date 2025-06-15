@@ -78,11 +78,11 @@ async def save_pending_game(game_type, players, channel_id):
         "game_type": game_type,
         "players": players,
         "channel_id": channel_id
-    }).execute()
+    }).execute())
 
 # ✅ Clear a pending game (async)
 async def clear_pending_game(game_type):
-    await run_db(lambda: supabase.table("pending_games").delete().eq("game_type", game_type).execute()
+    await run_db(lambda: supabase.table("pending_games").delete().eq("game_type", game_type).execute())
 
 # ✅ Load all pending games (async)
 async def load_pending_games():
@@ -118,8 +118,7 @@ async def save_player(user_id: int, player_data: dict):
     await run_db(lambda: supabase
         .table("players")
         .upsert(player_data)
-        .execute()
-    )
+        .execute())
 
 
 async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
