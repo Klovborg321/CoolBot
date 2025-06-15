@@ -101,7 +101,7 @@ async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
     return bool(res.data)
 
 
-async def add_credits(user_id: int, amount: int):
+async def add_credits_internal(user_id: int, amount: int):
     user = await get_player(user_id)
     new_credits = user["credits"] + amount
 
@@ -871,29 +871,33 @@ class RoomView(discord.ui.View):
 
         self.voting_closed = True
 
-        # ✅ Update player stats for draw
+        # ✅ Draw case: update stats + embed + announce
         if winner == "draw":
             for p in self.players:
                 pdata = await get_player(p)
-                pdata["draws"] = pdata.get("draws", 0) + 1
-                pdata["games_played"] = pdata.get("games_played", 0) + 1
+                pdata["draws"] += 1
+                pdata["games_played"] += 1
                 pdata["current_streak"] = 0
                 await save_player(p, pdata)
 
+            embed = await self.game_view.build_embed(self.message.guild, winner=winner)
+            embed.set_footer(text="🎮 Game has ended: 🤝 Draw")
+            await self.message.edit(embed=embed, view=None)
+
             if self.lobby_message:
-                embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner)
-                embed.set_footer(text="🎮 Game has ended. Result: 🤝 Draw")
-                await self.lobby_message.edit(embed=embed, view=self.game_view)
+                lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner)
+                lobby_embed.set_footer(text="🎮 Game has ended: 🤝 Draw")
+                await self.lobby_message.edit(embed=lobby_embed, view=None)
 
             await self.message.channel.send("🤝 Voting ended in a **draw**!")
             await asyncio.sleep(30)
             await self.message.channel.edit(archived=True)
             return
 
-        # ✅ Update player stats for a winner
+        # ✅ Winner case: update stats
         for p in self.players:
             pdata = await get_player(p)
-            pdata["games_played"] = pdata.get("games_played", 0) + 1
+            pdata["games_played"] += 1
 
             is_winner = (
                 winner == p
@@ -902,19 +906,19 @@ class RoomView(discord.ui.View):
             )
 
             if is_winner:
-                pdata["rank"] = pdata.get("rank", 1000) + 10
-                pdata["trophies"] = pdata.get("trophies", 0) + 1
-                pdata["wins"] = pdata.get("wins", 0) + 1
-                pdata["current_streak"] = pdata.get("current_streak", 0) + 1
+                pdata["rank"] += 10
+                pdata["trophies"] += 1
+                pdata["wins"] += 1
+                pdata["current_streak"] += 1
                 pdata["best_streak"] = max(pdata.get("best_streak", 0), pdata["current_streak"])
             else:
-                pdata["rank"] = pdata.get("rank", 1000) - 10
-                pdata["losses"] = pdata.get("losses", 0) + 1
+                pdata["rank"] -= 10
+                pdata["losses"] += 1
                 pdata["current_streak"] = 0
 
             await save_player(p, pdata)
 
-        # ✅ Resolve bets: update `won` and payout credits
+        # ✅ Resolve bets correctly
         for uid, uname, amount, choice in self.game_view.bets:
             won = False
 
@@ -930,47 +934,52 @@ class RoomView(discord.ui.View):
                 except:
                     won = False
 
-            # ✅ Mark the bet in Supabase
+            # ✅ Mark as won in bets table, filter where won IS NULL
             await run_db(lambda: supabase
                 .table("bets")
                 .update({"won": won})
                 .eq("player_id", uid)
                 .eq("game_id", self.game_view.message.id)
                 .eq("choice", choice)
-                .is_("won", None)  # ✅ CORRECT way to filter on NULL
+                .is_("won", None)
                 .execute()
             )
 
-            # ✅ Pay out if won
+            # ✅ Payout if won, with correct helper
             if won:
                 odds = await self.game_view.get_odds(choice)
                 payout = int(amount / odds) if odds > 0 else amount
-                await add_credits(uid, payout)
+                await add_credits_internal(uid, payout)
                 print(f"💰 {uname} won {payout} credits (bet {amount} on {choice})")
 
-        # ✅ Show winner
+        # ✅ Winner name for embed + announce
         if isinstance(winner, int):
             member = self.message.guild.get_member(winner)
             winner_name = member.display_name if member else f"User {winner}"
         else:
             winner_name = winner
 
+        # ✅ Update match embed
         embed = await self.game_view.build_embed(self.message.guild, winner=winner)
-        await self.message.edit(embed=embed, view=self)
+        embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
+        await self.message.edit(embed=embed, view=None)
 
-        if self.game_view.message:
-            lobby_embed = await self.game_view.build_embed(self.game_view.message.guild, winner=winner)
+        # ✅ Update main lobby embed
+        if self.lobby_message:
+            lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner)
             lobby_embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
-            await self.game_view.message.edit(embed=lobby_embed, view=None)
+            await self.lobby_message.edit(embed=lobby_embed, view=None)
 
+        # ✅ Announce in thread
         await self.message.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
         await asyncio.sleep(30)
         await self.message.channel.edit(archived=True)
 
-        # ✅ Tournament hook if needed
+        # ✅ Tournament hook
         if self.game_view and self.game_view.on_tournament_complete:
             if self.game_type == "singles" and isinstance(winner, int):
                 await self.game_view.on_tournament_complete(winner)
+
 
 
 class GameEndedButton(discord.ui.Button):
