@@ -10,17 +10,17 @@ from dotenv import load_dotenv
 import asyncio
 from functools import partial
 
-from supabase.client import create_client, Client
+from supabase._async.client import AsyncClient, acreate_client
 import os
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-supabase: Client = None
+supabase: AsyncClient = None
 
-def setup_supabase():
+async def setup_supabase():
     global supabase
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    supabase = await acreate_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 # ✅ Discord intents
@@ -1631,7 +1631,7 @@ async def setup_supabase():
 
 @bot.event
 async def on_ready():
-    setup_supabase()
+    await setup_supabase()
     await tree.sync()
     print(f"✅ Logged in as {bot.user}")
 
