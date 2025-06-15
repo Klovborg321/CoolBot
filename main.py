@@ -9,7 +9,7 @@ import asyncio
 from dotenv import load_dotenv
 import asyncio
 from functools import partial
-
+from discord import ui, Interaction
 from supabase import create_client, Client
 import os
 
@@ -67,6 +67,18 @@ default_template = {
 }
 
 # Helpers
+async def submit_score(interaction: Interaction):
+    # ✅ Fetch all courses to show user in dropdown in modal
+    courses_res = await run_db(lambda: supabase.table("courses").select("name").execute())
+    courses = [c["name"] for c in (courses_res.data or [])]
+
+    if not courses:
+        await interaction.response.send_message("❌ No courses found.", ephemeral=True)
+        return
+
+    # ✅ Show modal with dynamic courses
+    await interaction.response.send_modal(SubmitScoreModal(courses))
+
 
 async def dm_all_online(guild: discord.Guild, message: str):
     """DM all online members in the given guild with a custom message."""
@@ -129,12 +141,22 @@ async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
 
 
 async def add_credits_internal(user_id: int, amount: int):
+    # ✅ Fetch current player
+    user = await get_player(user_id)
+    current_credits = user.get("credits", 0)
+
+    # ✅ Compute new balance
+    new_credits = current_credits + amount
+
+    # ✅ Update back to Supabase
     await run_db(lambda: supabase
         .table("players")
-        .update({"credits": supabase.py_.sql(f"credits + {amount}")})
+        .update({"credits": new_credits})
         .eq("id", str(user_id))
-        .execute())
+        .execute()
+    )
 
+    return new_credits
 
 
 async def save_player(user_id: int, player_data: dict):
@@ -1429,6 +1451,65 @@ async def leaderboard_local(interaction: discord.Interaction, user: discord.User
     msg = await interaction.response.send_message(embed=first_embed, view=view)
     view.message = await msg.original_response()
 
+class SubmitScoreModal(ui.Modal, title="Submit Best Score"):
+    def __init__(self, courses: list[str]):
+        super().__init__()
+        self.courses = courses
+
+        self.course_dropdown = ui.Select(
+            placeholder="Select a course",
+            options=[discord.SelectOption(label=name, value=name) for name in self.courses]
+        )
+        self.add_item(self.course_dropdown)
+
+        self.score_input = ui.TextInput(
+            label="Your Score",
+            placeholder="e.g. 85",
+            required=True
+        )
+        self.add_item(self.score_input)
+
+    async def on_submit(self, interaction: Interaction):
+        try:
+            course = self.course_dropdown.values[0]
+            score = float(self.score_input.value)
+
+            # Fetch course_rating + slope_rating
+            course_data = await run_db(lambda: supabase
+                .table("courses")
+                .select("course_rating, slope_rating")
+                .eq("name", course)
+                .single()
+                .execute()
+            )
+            course_rating = float(course_data.data.get("course_rating", 72))
+            slope_rating = float(course_data.data.get("slope_rating", 113))
+
+            # ✅ USGA Differential
+            differential = (score - course_rating) * 113 / slope_rating
+            differential = round(differential, 1)
+
+            # ✅ Store in Supabase
+            data = {
+                "player_id": str(interaction.user.id),
+                "course_name": course,
+                "score": score,
+                "course_rating": course_rating,
+                "slope_rating": slope_rating,
+                "handicap_differential": differential
+            }
+            await run_db(lambda: supabase.table("handicaps").upsert(data).execute())
+
+            await interaction.response.send_message(
+                f"✅ **{course}** | Score: **{score}**\n"
+                f"Course Rating: **{course_rating}**, Slope: **{slope_rating}**\n"
+                f"**Handicap Differential:** {differential}",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
+
 
 @tree.command(
     name="stats_reset",
@@ -1789,6 +1870,7 @@ async def tournament(interaction: discord.Interaction, player_count: int):
 @app_commands.describe(user="The user whose bets you want to clear")
 @discord.app_commands.checks.has_permissions(administrator=True)
 async def clear_bet_history(interaction: discord.Interaction, user: discord.User):
+    # ✅ Always check .is_done()
     if not interaction.response.is_done():
         await interaction.response.defer(ephemeral=True)
 
@@ -1801,9 +1883,11 @@ async def clear_bet_history(interaction: discord.Interaction, user: discord.User
             .execute()
         )
 
-        if getattr(res, "status_code", 200) != 200:
+        # ✅ Robust error check
+        if hasattr(res, "status_code") and res.status_code != 200:
+            msg = getattr(res, "data", str(res))
             await interaction.followup.send(
-                f"❌ Failed to clear betting history: {getattr(res, 'data', res)}",
+                f"❌ Failed to clear bet history: {msg}",
                 ephemeral=True
             )
             return
@@ -1815,9 +1899,150 @@ async def clear_bet_history(interaction: discord.Interaction, user: discord.User
 
     except Exception as e:
         await interaction.followup.send(
-            f"❌ Error: {e}",
+            f"❌ Error while clearing bet history: `{e}`",
             ephemeral=True
         )
+
+@tree.command(
+    name="submit_score",
+    description="Submit your best score with real handicap calculation"
+)
+async def submit_score(interaction: Interaction):
+    courses_res = await run_db(lambda: supabase.table("courses").select("name").execute())
+    courses = [c["name"] for c in (courses_res.data or [])]
+
+    if not courses:
+        await interaction.response.send_message("❌ No courses found.", ephemeral=True)
+        return
+
+    await interaction.response.send_modal(SubmitScoreModal(courses))
+
+
+@tree.command(
+    name="handicap_index",
+    description="Calculate your current handicap index (average of your best scores)"
+)
+async def handicap_index(interaction: discord.Interaction, user: discord.User = None):
+    await interaction.response.defer(ephemeral=True)
+
+    target = user or interaction.user
+
+    res = await run_db(lambda: supabase
+        .table("handicaps")
+        .select("handicap_differential")
+        .eq("player_id", str(target.id))
+        .execute()
+    )
+
+    differentials = sorted([row["handicap_differential"] for row in res.data or []])
+    count = min(len(differentials), 8)
+
+    if count == 0:
+        await interaction.followup.send(f"❌ No scores found for {target.display_name}.", ephemeral=True)
+        return
+
+    index = round(sum(differentials[:count]) / count, 1)
+
+    await interaction.followup.send(
+        f"🏌️ **{target.display_name}'s Handicap Index:** `{index}` "
+        f"(average of best {count} differentials)",
+        ephemeral=True
+    )
+
+
+@tree.command(
+    name="my_handicaps",
+    description="See all your submitted scores and handicap differentials"
+)
+async def my_handicaps(interaction: discord.Interaction, user: discord.User = None):
+    await interaction.response.defer(ephemeral=True)
+
+    target = user or interaction.user
+
+    res = await run_db(lambda: supabase
+        .table("handicaps")
+        .select("*")
+        .eq("player_id", str(target.id))
+        .order("score")
+        .execute()
+    )
+
+    if not res.data:
+        await interaction.followup.send(f"❌ No scores found for {target.display_name}.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title=f"🏌️ {target.display_name}'s Handicap Records",
+        color=discord.Color.green()
+    )
+
+    for h in res.data:
+        embed.add_field(
+            name=f"{h['course_name']}",
+            value=(
+                f"Score: **{h['score']}**\n"
+                f"Course Rating: **{h['course_rating']}**\n"
+                f"Slope: **{h['slope_rating']}**\n"
+                f"Differential: **{h['handicap_differential']}**"
+            ),
+            inline=False
+        )
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+@tree.command(
+    name="handicap_leaderboard",
+    description="Show the leaderboard of players ranked by handicap index"
+)
+async def handicap_leaderboard(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    # 1️⃣ Fetch ALL differentials for ALL players
+    res = await run_db(lambda: supabase
+        .table("handicaps")
+        .select("player_id, handicap_differential")
+        .execute()
+    )
+
+    if not res.data:
+        await interaction.followup.send("❌ No handicap data found.", ephemeral=True)
+        return
+
+    # 2️⃣ Group by player and calculate their index
+    from collections import defaultdict
+
+    grouped = defaultdict(list)
+    for row in res.data:
+        grouped[row["player_id"]].append(row["handicap_differential"])
+
+    leaderboard = []
+    for pid, diffs in grouped.items():
+        diffs.sort()
+        count = min(len(diffs), 8)
+        index = round(sum(diffs[:count]) / count, 1)
+        leaderboard.append((pid, index))
+
+    # 3️⃣ Sort by index ascending
+    leaderboard.sort(key=lambda x: x[1])
+
+    # 4️⃣ Build embed
+    embed = discord.Embed(
+        title="🏌️ Handicap Leaderboard",
+        description="Players ranked by handicap index (lower is better!)",
+        color=discord.Color.gold()
+    )
+
+    lines = []
+    for rank, (pid, index) in enumerate(leaderboard, start=1):
+        member = interaction.guild.get_member(int(pid))
+        name = member.display_name if member else f"User {pid}"
+        lines.append(f"**#{rank}** — {name} | Index: `{index}`")
+
+    embed.description = "\n".join(lines)
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 
 @tree.command(name="dm_online")
 @app_commands.describe(msg="Message to send")
