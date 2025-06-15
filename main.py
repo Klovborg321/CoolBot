@@ -1493,7 +1493,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@@tree.command(
+@tree.command(
     name="clear_active",
     description="Admin: Clear all pending games, start buttons, or only a specific user's active state."
 )
