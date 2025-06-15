@@ -1587,14 +1587,6 @@ async def clear_pending(interaction: discord.Interaction):
     user="User to add credits to",
     amount="Amount of credits to add"
 )
-@tree.command(
-    name="add_credits",
-    description="Admin command to add credits to a user"
-)
-@app_commands.describe(
-    user="User to add credits to",
-    amount="Amount of credits to add"
-)
 async def add_credits(interaction: discord.Interaction, user: discord.User, amount: int):
     # ✅ Check admin
     if not interaction.user.guild_permissions.administrator:
