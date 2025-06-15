@@ -10,17 +10,17 @@ from dotenv import load_dotenv
 import asyncio
 from functools import partial
 
-from supabase._async.client import AsyncClient, acreate_client
+from supabase import create_client, Client
 import os
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-supabase: AsyncClient = None
+supabase: Client = None
 
-async def setup_supabase():
+def setup_supabase():
     global supabase
-    supabase = await acreate_client(SUPABASE_URL, SUPABASE_KEY)
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 # ✅ Discord intents
@@ -1619,22 +1619,11 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 
 
 
-supabase: AsyncClient = None
-
-# 2️⃣ Do NOT call await at the top-level.
-# Instead, initialize inside an async function, e.g., on_ready:
-
-from supabase._async.client import AsyncClient, acreate_client
-
-async def setup_supabase():
-    return await acreate_client(SUPABASE_URL, SUPABASE_KEY)
-
 @bot.event
 async def on_ready():
-    await setup_supabase()
+    setup_supabase()  # correct — do NOT await
     await tree.sync()
     print(f"✅ Logged in as {bot.user}")
-
 
     pending = await load_pending_games()
     for pg in pending:
