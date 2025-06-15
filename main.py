@@ -893,7 +893,7 @@ class RoomView(discord.ui.View):
 
         self.voting_closed = True
 
-        # ✅ DRAW CASE — no payout, no loss
+        # ✅ DRAW CASE — refund stake!
         if winner == "draw":
             for p in self.players:
                 pdata = await get_player(p)
@@ -902,21 +902,20 @@ class RoomView(discord.ui.View):
                 pdata["current_streak"] = 0
                 await save_player(p, pdata)
 
-            # ✅ Mark all bets as resolved — no credits change
             for uid, uname, amount, choice in self.game_view.bets:
+                # Refund the original stake
+                await add_credits_internal(uid, amount)
+                # Mark bet as neutral (no win/loss)
                 await run_db(lambda: supabase
                     .table("bets")
-                    .update({"won": None})   # <-- KEY FIX: not False!
+                    .update({"won": None})
                     .eq("player_id", uid)
                     .eq("game_id", self.game_view.message.id)
                     .eq("choice", choice)
-                    .is_("won", None)
                     .execute()
                 )
-            print(f"✅ Bet by {uname} closed as draw (no payout, no loss)")
+                print(f"↩️ Refunded {amount} to {uname} (DRAW)")
 
-
-            # ✅ Update embeds + announce
             embed = await self.game_view.build_embed(self.message.guild, winner=winner)
             embed.set_footer(text="🎮 Game has ended: 🤝 Draw")
             await self.message.edit(embed=embed, view=None)
@@ -926,7 +925,7 @@ class RoomView(discord.ui.View):
                 lobby_embed.set_footer(text="🎮 Game has ended: 🤝 Draw")
                 await self.lobby_message.edit(embed=lobby_embed, view=None)
 
-            await self.message.channel.send("🤝 Voting ended in a **draw**! No payout, no loss.")
+            await self.message.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
             await asyncio.sleep(30)
             await self.message.channel.edit(archived=True)
             return
@@ -955,7 +954,7 @@ class RoomView(discord.ui.View):
 
             await save_player(p, pdata)
 
-        # ✅ Resolve bets: pay out if won
+        # ✅ Resolve bets
         for uid, uname, amount, choice in self.game_view.bets:
             won = False
 
@@ -971,25 +970,27 @@ class RoomView(discord.ui.View):
                 except:
                     won = False
 
-            # ✅ Mark bet outcome
+            # Mark win/loss in bets table
             await run_db(lambda: supabase
                 .table("bets")
                 .update({"won": won})
                 .eq("player_id", uid)
                 .eq("game_id", self.game_view.message.id)
                 .eq("choice", choice)
-                .is_("won", None)
                 .execute()
             )
 
-            # ✅ Pay out if won
             if won:
                 odds = await self.game_view.get_odds(choice)
-                payout = int(amount / odds) if odds > 0 else amount
+                profit = int(amount / odds) if odds > 0 else amount
+                payout = profit + amount  # profit + stake back
                 await add_credits_internal(uid, payout)
-                print(f"💰 {uname} won {payout} credits (bet {amount} on {choice})")
+                print(f"💰 {uname} won! Payout: {payout} (bet {amount}, profit {profit})")
+            else:
+                # Lost — stake was already deducted at bet time
+                print(f"❌ {uname} lost {amount} (stake was upfront)")
 
-        # ✅ Show winner everywhere
+        # ✅ Announce winner
         if isinstance(winner, int):
             member = self.message.guild.get_member(winner)
             winner_name = member.display_name if member else f"User {winner}"
@@ -1009,7 +1010,6 @@ class RoomView(discord.ui.View):
         await asyncio.sleep(30)
         await self.message.channel.edit(archived=True)
 
-        # ✅ Tournament hook
         if self.game_view and self.game_view.on_tournament_complete:
             if self.game_type == "singles" and isinstance(winner, int):
                 await self.game_view.on_tournament_complete(winner)
