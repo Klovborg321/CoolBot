@@ -1274,23 +1274,14 @@ class LeaderboardView(discord.ui.View):
             await self.view_obj.update()
             await interaction.response.defer()
 
-class SubmitScoreView(discord.ui.View):
-    def __init__(self, courses):
-        super().__init__(timeout=120)
-        self.add_item(SubmitScoreSelect(courses))
-
-class SubmitScoreSelect(discord.ui.Select):
-    def __init__(self, courses):
-        self.courses = courses  # ✅ store courses locally, NOT via self.view
-        options = [
-            discord.SelectOption(label=c["name"], value=str(c["id"]))
-            for c in courses
-        ]
+class PaginatedCourseSelect(discord.ui.Select):
+    def __init__(self, options, parent_view):
         super().__init__(placeholder="Select a course", options=options)
+        self.view_obj = parent_view
 
     async def callback(self, interaction: discord.Interaction):
         course_id = self.values[0]
-        selected = next((c for c in self.courses if str(c["id"]) == course_id), None)
+        selected = next((c for c in self.view_obj.courses if str(c["id"]) == course_id), None)
         if not selected:
             await interaction.response.send_message("❌ Course not found.", ephemeral=True)
             return
@@ -1298,6 +1289,57 @@ class SubmitScoreSelect(discord.ui.Select):
         await interaction.response.send_modal(
             SubmitScoreModal(course_name=selected["name"], course_id=course_id)
         )
+
+
+class PaginatedCourseView(discord.ui.View):
+    def __init__(self, courses, per_page=25):
+        super().__init__(timeout=120)
+        self.courses = courses
+        self.per_page = per_page
+        self.page = 0
+        self.message = None
+        self.update_children()
+
+    def update_children(self):
+        self.clear_items()
+        start = self.page * self.per_page
+        end = start + self.per_page
+        page_courses = self.courses[start:end]
+
+        options = [
+            discord.SelectOption(label=c["name"], value=str(c["id"]))
+            for c in page_courses
+        ]
+        self.add_item(PaginatedCourseSelect(options, self))
+
+        if self.page > 0:
+            self.add_item(self.PrevButton(self))
+        if end < len(self.courses):
+            self.add_item(self.NextButton(self))
+
+    async def update(self):
+        self.update_children()
+        await self.message.edit(view=self)
+
+    class PrevButton(discord.ui.Button):
+        def __init__(self, view):
+            super().__init__(label="⬅ Previous", style=discord.ButtonStyle.secondary)
+            self.view_obj = view
+
+        async def callback(self, interaction: discord.Interaction):
+            self.view_obj.page -= 1
+            await self.view_obj.update()
+            await interaction.response.defer()
+
+    class NextButton(discord.ui.Button):
+        def __init__(self, view):
+            super().__init__(label="Next ➡", style=discord.ButtonStyle.secondary)
+            self.view_obj = view
+
+        async def callback(self, interaction: discord.Interaction):
+            self.view_obj.page += 1
+            await self.view_obj.update()
+            await interaction.response.defer()
 
 
 class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
@@ -1351,21 +1393,19 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
 
 @tree.command(name="submit_score", description="Submit your best score for a course")
 async def submit_score(interaction: discord.Interaction):
-    res = await run_db(lambda: supabase
-        .table("courses")
-        .select("id, name")
-        .execute()
-    )
+    res = await run_db(lambda: supabase.table("courses").select("id, name").execute())
     if not res.data:
         await interaction.response.send_message("⚠️ No courses found.", ephemeral=True)
         return
 
-    view = SubmitScoreView(res.data)
-    await interaction.response.send_message(
-        "🏌️ Select a course to submit your best score:",
+    view = PaginatedCourseView(res.data)
+    msg = await interaction.response.send_message(
+        "🏌️‍♂️ Select a course to submit your score (use Next/Prev if needed):",
         view=view,
         ephemeral=True
     )
+    view.message = await msg.original_response()
+
 
 
 @tree.command(name="init_singles")
