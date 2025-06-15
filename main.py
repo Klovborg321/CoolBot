@@ -937,7 +937,7 @@ class RoomView(discord.ui.View):
                 .eq("player_id", uid)
                 .eq("game_id", self.game_view.message.id)
                 .eq("choice", choice)
-                .eq("won", None)
+                .is_("won", None)  # ✅ CORRECT way to filter on NULL
                 .execute()
             )
 
@@ -1226,11 +1226,9 @@ class LeaderboardView(discord.ui.View):
 
 @tree.command(name="init_singles")
 async def init_singles(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True)
 
-    # ✅ Block if:
-    # 1) There is any pending game of this type
-    # 2) There is ANY start button in this channel (any game type)
     if pending_games["singles"] or any(k[0] == interaction.channel.id for k in start_buttons):
         await interaction.followup.send(
             "⚠️ A game is already pending or a button is active here.",
@@ -1247,7 +1245,8 @@ async def init_singles(interaction: discord.Interaction):
 
 @tree.command(name="init_doubles")
 async def init_doubles(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True)
 
     if pending_games["doubles"] or any(k[0] == interaction.channel.id for k in start_buttons):
         await interaction.followup.send(
@@ -1265,7 +1264,8 @@ async def init_doubles(interaction: discord.Interaction):
 
 @tree.command(name="init_triples")
 async def init_triples(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True)
 
     if pending_games["triples"] or any(k[0] == interaction.channel.id for k in start_buttons):
         await interaction.followup.send(
@@ -1279,7 +1279,6 @@ async def init_triples(interaction: discord.Interaction):
         "✅ Triples game button posted!",
         ephemeral=True
     )
-
 
 
 @tree.command(
@@ -1695,22 +1694,41 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
     )
 
 @tree.command(name="tournament")
-@app_commands.describe(player_count="Number of players (must be power of 2)")
+@app_commands.describe(player_count="Number of players (must be a power of 2)")
 async def tournament(interaction: discord.Interaction, player_count: int):
-    if player_count & (player_count - 1) != 0:
-        await interaction.response.send_message("Player count must be 2, 4, 8, 16...", ephemeral=True)
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True)
+
+    # ✅ Only allow 2, 4, 8, 16, 32, etc.
+    if player_count < 2 or (player_count & (player_count - 1)) != 0:
+        await interaction.followup.send(
+            "❌ Player count must be 2, 4, 8, 16, 32, etc.",
+            ephemeral=True
+        )
         return
 
-    # Collect players: you can make this a real join view.
-    players = [interaction.user.id]  # Add host first
+    # ✅ Collect players — you may want a join view for real users later.
+    players = [interaction.user.id]  # Host is auto-added
 
     while len(players) < player_count:
-        # For now, auto fill with dummy IDs for testing
+        # For testing, fill with dummy IDs (different fake integers)
         players.append(random.randint(100000000000000000, 999999999999999999))
 
-    tourney = Tournament(interaction.user.id, players, interaction.channel)
+    # ✅ Create and start the Tournament
+    tourney = Tournament(
+        creator_id=interaction.user.id,
+        players=players,
+        channel=interaction.channel
+    )
+
     await tourney.start()
-    await interaction.response.send_message("✅ Tournament started!", ephemeral=True)
+
+    # ✅ Confirm to host
+    await interaction.followup.send(
+        f"🏆 Tournament with **{player_count} players** has started!",
+        ephemeral=True
+    )
+
 
 
 
