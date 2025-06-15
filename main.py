@@ -102,17 +102,12 @@ async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
 
 
 async def add_credits_internal(user_id: int, amount: int):
-    user = await get_player(user_id)
-    new_credits = user["credits"] + amount
-
-    # Run the blocking update safely
     await run_db(lambda: supabase
         .table("players")
-        .update({"credits": new_credits})
+        .update({"credits": supabase.py_.sql(f"credits + {amount}")})
         .eq("id", str(user_id))
         .execute())
 
-    return new_credits
 
 
 async def save_player(user_id: int, player_data: dict):
@@ -871,7 +866,7 @@ class RoomView(discord.ui.View):
 
         self.voting_closed = True
 
-        # ✅ Draw case: update stats + embed + announce
+        # ✅ DRAW CASE — no payout, no loss
         if winner == "draw":
             for p in self.players:
                 pdata = await get_player(p)
@@ -880,6 +875,20 @@ class RoomView(discord.ui.View):
                 pdata["current_streak"] = 0
                 await save_player(p, pdata)
 
+            # ✅ Mark all bets as resolved — no credits change
+            for uid, uname, amount, choice in self.game_view.bets:
+                await run_db(lambda: supabase
+                    .table("bets")
+                    .update({"won": False})
+                    .eq("player_id", uid)
+                    .eq("game_id", self.game_view.message.id)
+                    .eq("choice", choice)
+                    .is_("won", None)
+                    .execute()
+                )
+                print(f"✅ Bet by {uname} closed as draw (no payout, no loss)")
+
+            # ✅ Update embeds + announce
             embed = await self.game_view.build_embed(self.message.guild, winner=winner)
             embed.set_footer(text="🎮 Game has ended: 🤝 Draw")
             await self.message.edit(embed=embed, view=None)
@@ -889,12 +898,12 @@ class RoomView(discord.ui.View):
                 lobby_embed.set_footer(text="🎮 Game has ended: 🤝 Draw")
                 await self.lobby_message.edit(embed=lobby_embed, view=None)
 
-            await self.message.channel.send("🤝 Voting ended in a **draw**!")
+            await self.message.channel.send("🤝 Voting ended in a **draw**! No payout, no loss.")
             await asyncio.sleep(30)
             await self.message.channel.edit(archived=True)
             return
 
-        # ✅ Winner case: update stats
+        # ✅ WINNER CASE — update stats
         for p in self.players:
             pdata = await get_player(p)
             pdata["games_played"] += 1
@@ -918,7 +927,7 @@ class RoomView(discord.ui.View):
 
             await save_player(p, pdata)
 
-        # ✅ Resolve bets correctly
+        # ✅ Resolve bets: pay out if won
         for uid, uname, amount, choice in self.game_view.bets:
             won = False
 
@@ -934,7 +943,7 @@ class RoomView(discord.ui.View):
                 except:
                     won = False
 
-            # ✅ Mark as won in bets table, filter where won IS NULL
+            # ✅ Mark bet outcome
             await run_db(lambda: supabase
                 .table("bets")
                 .update({"won": won})
@@ -945,32 +954,29 @@ class RoomView(discord.ui.View):
                 .execute()
             )
 
-            # ✅ Payout if won, with correct helper
+            # ✅ Pay out if won
             if won:
                 odds = await self.game_view.get_odds(choice)
                 payout = int(amount / odds) if odds > 0 else amount
                 await add_credits_internal(uid, payout)
                 print(f"💰 {uname} won {payout} credits (bet {amount} on {choice})")
 
-        # ✅ Winner name for embed + announce
+        # ✅ Show winner everywhere
         if isinstance(winner, int):
             member = self.message.guild.get_member(winner)
             winner_name = member.display_name if member else f"User {winner}"
         else:
             winner_name = winner
 
-        # ✅ Update match embed
         embed = await self.game_view.build_embed(self.message.guild, winner=winner)
         embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
         await self.message.edit(embed=embed, view=None)
 
-        # ✅ Update main lobby embed
         if self.lobby_message:
             lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner)
             lobby_embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
             await self.lobby_message.edit(embed=lobby_embed, view=None)
 
-        # ✅ Announce in thread
         await self.message.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
         await asyncio.sleep(30)
         await self.message.channel.edit(archived=True)
@@ -979,7 +985,6 @@ class RoomView(discord.ui.View):
         if self.game_view and self.game_view.on_tournament_complete:
             if self.game_type == "singles" and isinstance(winner, int):
                 await self.game_view.on_tournament_complete(winner)
-
 
 
 class GameEndedButton(discord.ui.Button):
@@ -1399,36 +1404,40 @@ async def leaderboard_local(interaction: discord.Interaction, user: discord.User
 
 @tree.command(
     name="stats_reset",
-    description="Reset a user's stats (admin only)"
+    description="Admin: Reset a user's stats"
 )
-@app_commands.describe(user="User to reset")
-async def resetstats(interaction: discord.Interaction, user: discord.User):
-    # ✅ Check admin permissions
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message(
-            "⛔ You must be an admin to use this.",
+@app_commands.describe(user="The user to reset")
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def stats_reset(interaction: discord.Interaction, user: discord.User):
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True)
+
+    try:
+        # ✅ Prepare new stats with consistent ID type
+        new_stats = default_template.copy()
+        new_stats["id"] = str(user.id)  # Ensure type matches DB (usually string)
+
+        # ✅ Upsert (update if exists, insert if missing)
+        res = await run_db(lambda: supabase
+            .table("players")
+            .upsert(new_stats)
+            .execute()
+        )
+
+        if getattr(res, "status_code", 200) != 200:
+            await interaction.followup.send(
+                f"❌ Failed to reset stats: {getattr(res, 'data', res)}",
+                ephemeral=True
+            )
+            return
+
+        await interaction.followup.send(
+            f"✅ Stats for {user.display_name} have been reset.",
             ephemeral=True
         )
-        return
 
-    # ✅ Reset player in Supabase
-    res = await run_db(lambda: supabase.table("players").upsert({
-        "id": str(user.id),
-        **default_template
-    }).execute())
-
-    # ✅ Check status_code, not .error
-    if res.status_code not in (200, 201):
-        await interaction.response.send_message(
-            f"⚠️ Failed to reset stats: Status code {res.status_code}",
-            ephemeral=True
-        )
-        return
-
-    await interaction.response.send_message(
-        f"✅ Stats for {user.display_name} have been reset.",
-        ephemeral=True
-    )
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
 
 
 
