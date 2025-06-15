@@ -92,10 +92,13 @@ async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
             "amount": amount
         }).execute()
     )
-    if res.error:
-        print(f"Supabase RPC error: {res.error.message}")
+
+    if res.status_code != 200:
+        print(f"[Supabase RPC Error] Status: {res.status_code} Data: {res.data}")
         return False
+
     return bool(res.data)
+
 
 
 async def add_credits(user_id: int, amount: int):
@@ -148,21 +151,35 @@ async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
 
 async def get_complete_user_data(user_id):
     res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).single().execute())
-    if res.error:
-        # If not found, insert defaults!
+
+    if res.status_code == 406:  # 406 = Not Found (PostgREST)
+        # Not found → insert defaults!
         defaults = default_template.copy()
-        defaults["id"] = user_id
+        defaults["id"] = str(user_id)
         await run_db(lambda: supabase.table("players").insert(defaults).execute())
         return defaults
+
+    if res.status_code != 200:
+        # Some other error → log and fallback
+        print(f"[Supabase] Unexpected error in get_complete_user_data: Status {res.status_code}")
+        return default_template.copy()
+
     return res.data
+
 
 
 async def update_user_stat(user_id, key, value, mode="set"):
     res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).single().execute())
-    if res.error:
+
+    if res.status_code == 406:
         # Player missing, create fresh
         data = default_template.copy()
-        data["id"] = user_id
+        data["id"] = str(user_id)
+    elif res.status_code != 200:
+        # Unexpected error: fallback
+        print(f"[Supabase] Unexpected status in update_user_stat: {res.status_code}")
+        data = default_template.copy()
+        data["id"] = str(user_id)
     else:
         data = res.data
 
@@ -172,6 +189,7 @@ async def update_user_stat(user_id, key, value, mode="set"):
         data[key] = data.get(key, 0) + value
 
     await save_player(user_id, data)
+
 
 
 # Load ALL players as a dict
@@ -1209,7 +1227,7 @@ async def init_triples(interaction: discord.Interaction):
 async def leaderboard_local(interaction: discord.Interaction, user: discord.User = None):
     # 1️⃣ Fetch all players ordered by rank descending
     res = await run_db(lambda: supabase.table("players").select("*").order("rank", desc=True).execute())
-    if res.error or not res.data:
+    if res.status_code != 200 or not res.data:
         await interaction.response.send_message("📭 No players have stats yet.", ephemeral=True)
         return
 
@@ -1323,20 +1341,23 @@ async def resetstats(interaction: discord.Interaction, user: discord.User):
 
     # ✅ Reset player in Supabase
     res = await run_db(lambda: supabase.table("players").upsert({
-        "id": user.id,
+        "id": str(user.id),
         **default_template
     }).execute())
 
-    if res.error:
+    # ✅ Check status_code, not .error
+    if res.status_code not in (200, 201):
         await interaction.response.send_message(
-            f"⚠️ Failed to reset stats: {res.error.message}",
+            f"⚠️ Failed to reset stats: Status code {res.status_code}",
             ephemeral=True
         )
-    else:
-        await interaction.response.send_message(
-            f"✅ Stats for {user.display_name} have been reset.",
-            ephemeral=True
-        )
+        return
+
+    await interaction.response.send_message(
+        f"✅ Stats for {user.display_name} have been reset.",
+        ephemeral=True
+    )
+
 
 
 @tree.command(
@@ -1354,14 +1375,15 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
 
     res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(target_user.id)).single().execute())
 
-    if res.error and res.status_code != 406:
-        await interaction.followup.send(f"⚠️ Error fetching stats: {res.error.message}", ephemeral=True)
+    # ✅ Correct: check status_code instead of .error
+    if res.status_code not in (200, 406):
+        await interaction.followup.send(f"⚠️ Error fetching stats. Status code: {res.status_code}", ephemeral=True)
         return
 
     player = res.data or default_template.copy()
 
     wins = player.get("wins", 0)
-    losses = player.get("losses", 0)  # ✅ fixed typo here!
+    losses = player.get("losses", 0)
     draws = player.get("draws", 0)
     games = player.get("games_played", 0)
     trophies = player.get("trophies", 0)
@@ -1410,6 +1432,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
             await interaction.followup.send("⚠️ Could not send DM.", ephemeral=True)
     else:
         await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 
 @tree.command(
@@ -1488,12 +1511,12 @@ async def stats_edit(interaction: discord.Interaction, user: discord.User, field
         return
 
     # ✅ Upsert in Supabase
-    update = { "id": str(user.id), field: value }
+    update = {"id": str(user.id), field: value}
     res = await run_db(lambda: supabase.table("players").upsert(update).execute())
 
-    if res.error:
+    if res.status_code != 201 and res.status_code != 200:
         await interaction.response.send_message(
-            f"❌ Error updating: {res.error.message}",
+            f"❌ Error updating stats. Status code: {res.status_code}",
             ephemeral=True
         )
         return
