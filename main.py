@@ -5,19 +5,22 @@ from discord import app_commands
 import asyncio
 import random
 import json
-import os
 import asyncio
 from dotenv import load_dotenv
-from supabase import create_client, Client
 import asyncio
 from functools import partial
 
-load_dotenv()
+from supabase.client import create_client, Client
+import os
 
-# ✅ Supabase config
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-supabase: AsyncClient = None  # will be created async
+
+supabase: Client = None
+
+def setup_supabase():
+    global supabase
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ✅ Discord intents
 intents = discord.Intents.default()
