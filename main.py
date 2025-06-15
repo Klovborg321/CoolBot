@@ -1277,22 +1277,20 @@ class LeaderboardView(discord.ui.View):
 class SubmitScoreView(discord.ui.View):
     def __init__(self, courses):
         super().__init__(timeout=120)
-        self.courses = courses
-        self.add_item(SubmitScoreSelect(self))
+        self.add_item(SubmitScoreSelect(courses))
 
 class SubmitScoreSelect(discord.ui.Select):
-    def __init__(self, view: SubmitScoreView):
-        self.view = view
+    def __init__(self, courses):
+        self.courses = courses  # ✅ store courses locally, NOT via self.view
         options = [
             discord.SelectOption(label=c["name"], value=str(c["id"]))
-            for c in view.courses
+            for c in courses
         ]
         super().__init__(placeholder="Select a course", options=options)
 
-    async def callback(self, interaction: Interaction):
-        # Get the selected course directly from self.view.courses
+    async def callback(self, interaction: discord.Interaction):
         course_id = self.values[0]
-        selected = next((c for c in self.view.courses if str(c["id"]) == course_id), None)
+        selected = next((c for c in self.courses if str(c["id"]) == course_id), None)
         if not selected:
             await interaction.response.send_message("❌ Course not found.", ephemeral=True)
             return
@@ -1300,6 +1298,7 @@ class SubmitScoreSelect(discord.ui.Select):
         await interaction.response.send_modal(
             SubmitScoreModal(course_name=selected["name"], course_id=course_id)
         )
+
 
 class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
     def __init__(self, course_name, course_id):
