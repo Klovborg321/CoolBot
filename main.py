@@ -93,11 +93,13 @@ async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
         }).execute()
     )
 
-    if res.status_code != 200:
-        print(f"[Supabase RPC Error] Status: {res.status_code} Data: {res.data}")
+    if res.data is None:
+        # RPC failed or returned false
+        print(f"[Supabase RPC Error] Data: {res.data}")
         return False
 
     return bool(res.data)
+
 
 
 
@@ -152,32 +154,21 @@ async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
 async def get_complete_user_data(user_id):
     res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).single().execute())
 
-    if res.status_code == 406:  # 406 = Not Found (PostgREST)
-        # Not found → insert defaults!
+    if res.data is None:
+        # Not found → insert defaults
         defaults = default_template.copy()
         defaults["id"] = str(user_id)
         await run_db(lambda: supabase.table("players").insert(defaults).execute())
         return defaults
 
-    if res.status_code != 200:
-        # Some other error → log and fallback
-        print(f"[Supabase] Unexpected error in get_complete_user_data: Status {res.status_code}")
-        return default_template.copy()
-
     return res.data
-
 
 
 async def update_user_stat(user_id, key, value, mode="set"):
     res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).single().execute())
 
-    if res.status_code == 406:
+    if res.data is None:
         # Player missing, create fresh
-        data = default_template.copy()
-        data["id"] = str(user_id)
-    elif res.status_code != 200:
-        # Unexpected error: fallback
-        print(f"[Supabase] Unexpected status in update_user_stat: {res.status_code}")
         data = default_template.copy()
         data["id"] = str(user_id)
     else:
@@ -192,13 +183,14 @@ async def update_user_stat(user_id, key, value, mode="set"):
 
 
 
+
 # Load ALL players as a dict
 # ✅ Safe get_player: always upsert if not exists
 async def get_player(user_id: int) -> dict:
     # Safely select
     res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).execute())
 
-    if not res.data:
+    if res.data is None:
         # No row found → create one
         new_data = default_template.copy()
         new_data["id"] = str(user_id)
@@ -594,7 +586,7 @@ class GameView(discord.ui.View):
 
         # ✅ Pick a random course
         res = await run_db(lambda: supabase.table("courses").select("name", "image_url").execute())
-        if res.status_code != 200 or not res.data:
+        if res.data is None:
             course_name = "Unknown"
             course_image = ""
         else:
@@ -1275,7 +1267,7 @@ async def init_triples(interaction: discord.Interaction):
 async def leaderboard_local(interaction: discord.Interaction, user: discord.User = None):
     # 1️⃣ Fetch all players ordered by rank descending
     res = await run_db(lambda: supabase.table("players").select("*").order("rank", desc=True).execute())
-    if res.status_code != 200 or not res.data:
+    if res.data is None:
         await interaction.response.send_message("📭 No players have stats yet.", ephemeral=True)
         return
 
@@ -1423,12 +1415,10 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
 
     res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(target_user.id)).single().execute())
 
-    # ✅ Correct: check status_code instead of .error
-    if res.status_code not in (200, 406):
-        await interaction.followup.send(f"⚠️ Error fetching stats. Status code: {res.status_code}", ephemeral=True)
-        return
-
-    player = res.data or default_template.copy()
+    if res.data is None:
+        player = default_template.copy()
+    else:
+        player = res.data
 
     wins = player.get("wins", 0)
     losses = player.get("losses", 0)
@@ -1480,7 +1470,6 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
             await interaction.followup.send("⚠️ Could not send DM.", ephemeral=True)
     else:
         await interaction.followup.send(embed=embed, ephemeral=True)
-
 
 
 @tree.command(
