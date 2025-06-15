@@ -1413,12 +1413,11 @@ async def stats_reset(interaction: discord.Interaction, user: discord.User):
         await interaction.response.defer(ephemeral=True)
 
     try:
-        # ✅ Prepare new stats with cleared bet_history too!
+        # ✅ Prepare new stats — DO NOT add 'bet_history' because it does not exist
         new_stats = default_template.copy()
         new_stats["id"] = str(user.id)
-        new_stats["bet_history"] = []  # explicit clear if you store it in the player record
 
-        # ✅ Upsert new player record
+        # ✅ Upsert new stats
         res = await run_db(lambda: supabase
             .table("players")
             .upsert(new_stats)
@@ -1432,7 +1431,7 @@ async def stats_reset(interaction: discord.Interaction, user: discord.User):
             )
             return
 
-        # ✅ Delete all rows from bets table for this user
+        # ✅ Clear ALL bets in `bets` table for this user
         bets_res = await run_db(lambda: supabase
             .table("bets")
             .delete()
@@ -1442,13 +1441,13 @@ async def stats_reset(interaction: discord.Interaction, user: discord.User):
 
         if getattr(bets_res, "status_code", 200) != 200:
             await interaction.followup.send(
-                f"⚠️ Stats reset but failed to clear bets table: {getattr(bets_res, 'data', bets_res)}",
+                f"⚠️ Stats reset but failed to clear bets: {getattr(bets_res, 'data', bets_res)}",
                 ephemeral=True
             )
             return
 
         await interaction.followup.send(
-            f"✅ Stats and **all betting history** for {user.display_name} have been fully reset.",
+            f"✅ Stats and **all betting history** for {user.display_name} have been reset.",
             ephemeral=True
         )
 
