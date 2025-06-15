@@ -88,19 +88,17 @@ async def load_pending_games():
 async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
     res = await run_db(
         lambda: supabase.rpc("deduct_credits_atomic", {
-            "user_id": str(user_id),
+            "user_id": user_id,  # ✅ pass as INT
             "amount": amount
         }).execute()
     )
 
-    if res.data is None:
-        # RPC failed or returned false
-        print(f"[Supabase RPC Error] Data: {res.data}")
+    # 📌 Use `getattr` fallback to avoid AttributeError
+    if getattr(res, "status_code", 200) != 200:
+        print(f"[Supabase RPC Error] Status: {getattr(res, 'status_code', '??')} Data: {res.data}")
         return False
 
     return bool(res.data)
-
-
 
 
 async def add_credits(user_id: int, amount: int):
