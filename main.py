@@ -1399,12 +1399,12 @@ async def submit_score(interaction: discord.Interaction):
         return
 
     view = PaginatedCourseView(res.data)
-    msg = await interaction.response.send_message(
+    await interaction.response.send_message(
         "🏌️‍♂️ Select a course to submit your score (use Next/Prev if needed):",
         view=view,
         ephemeral=True
     )
-    view.message = await msg.original_response()
+    view.message = await interaction.original_response()
 
 
 
