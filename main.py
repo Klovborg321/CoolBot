@@ -1404,7 +1404,7 @@ async def leaderboard_local(interaction: discord.Interaction, user: discord.User
 
 @tree.command(
     name="stats_reset",
-    description="Admin: Reset a user's stats and clear their betting history"
+    description="Admin: Reset a user's stats"
 )
 @app_commands.describe(user="The user to reset")
 @discord.app_commands.checks.has_permissions(administrator=True)
@@ -1413,11 +1413,11 @@ async def stats_reset(interaction: discord.Interaction, user: discord.User):
         await interaction.response.defer(ephemeral=True)
 
     try:
-        # ✅ Prepare new stats — DO NOT add 'bet_history' because it does not exist
+        # ✅ Create fresh default stats
         new_stats = default_template.copy()
-        new_stats["id"] = str(user.id)
+        new_stats["id"] = str(user.id)  # Make sure ID type matches your table
 
-        # ✅ Upsert new stats
+        # ✅ Upsert: insert or overwrite in `players` table
         res = await run_db(lambda: supabase
             .table("players")
             .upsert(new_stats)
@@ -1431,31 +1431,14 @@ async def stats_reset(interaction: discord.Interaction, user: discord.User):
             )
             return
 
-        # ✅ Clear ALL bets in `bets` table for this user
-        bets_res = await run_db(lambda: supabase
-            .table("bets")
-            .delete()
-            .eq("player_id", str(user.id))
-            .execute()
-        )
-
-        if getattr(bets_res, "status_code", 200) != 200:
-            await interaction.followup.send(
-                f"⚠️ Stats reset but failed to clear bets: {getattr(bets_res, 'data', bets_res)}",
-                ephemeral=True
-            )
-            return
-
         await interaction.followup.send(
-            f"✅ Stats and **all betting history** for {user.display_name} have been reset.",
+            f"✅ Stats for {user.display_name} have been reset (bet history untouched).",
             ephemeral=True
         )
 
     except Exception as e:
-        await interaction.followup.send(
-            f"❌ Error: {e}",
-            ephemeral=True
-        )
+        await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
+
 
 
 @tree.command(
@@ -1761,6 +1744,43 @@ async def tournament(interaction: discord.Interaction, player_count: int):
         f"🏆 Tournament with **{player_count} players** has started!",
         ephemeral=True
     )
+
+@tree.command(
+    name="clear_bet_history",
+    description="Admin: Clear a user's entire betting history without changing other stats"
+)
+@app_commands.describe(user="The user whose bets you want to clear")
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def clear_bet_history(interaction: discord.Interaction, user: discord.User):
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True)
+
+    try:
+        # ✅ Delete all bets for this user
+        res = await run_db(lambda: supabase
+            .table("bets")
+            .delete()
+            .eq("player_id", str(user.id))
+            .execute()
+        )
+
+        if getattr(res, "status_code", 200) != 200:
+            await interaction.followup.send(
+                f"❌ Failed to clear betting history: {getattr(res, 'data', res)}",
+                ephemeral=True
+            )
+            return
+
+        await interaction.followup.send(
+            f"✅ Cleared **all betting history** for {user.display_name}.",
+            ephemeral=True
+        )
+
+    except Exception as e:
+        await interaction.followup.send(
+            f"❌ Error: {e}",
+            ephemeral=True
+        )
 
 
 
