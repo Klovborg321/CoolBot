@@ -108,7 +108,6 @@ async def add_credits(user_id: int, amount: int):
         .update({"credits": new_credits})
         .eq("id", str(user_id))
         .execute())
-    )
 
     return new_credits
 
