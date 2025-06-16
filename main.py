@@ -250,9 +250,9 @@ async def start_new_game_button(channel, game_type):
             pass
 
     if game_type == "tournament":
-        # For tournament, use the TournamentStartButton to prompt for player selection first
-        view = TournamentView(creator=channel.guild.owner, max_players=None)  # max_players will be set later
-        msg = await channel.send(f"🎮 Start a new {game_type} tournament:", view=view)
+        # For tournament, we create the Start Tournament button
+        view = TournamentStartButtonView()
+        msg = await channel.send("🎮 Click to start a new tournament:", view=view)
     else:
         # For other game types, continue using the GameJoinView
         view = GameJoinView(game_type)
@@ -1113,13 +1113,12 @@ class VoteButton(discord.ui.Button):
             await self.view_obj.finalize_game()
 
 # Tournament View Class
-# Tournament View
 class TournamentView(discord.ui.View):
     def __init__(self, creator, max_players=None):
         super().__init__(timeout=None)
         self.creator = creator
         self.players = [creator]
-        self.max_players = max_players  # Set max players dynamically
+        self.max_players = max_players
         self.message = None
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
         self.bets = []  # Store bets for the tournament
@@ -1191,9 +1190,9 @@ class TournamentView(discord.ui.View):
             for item in to_remove:
                 self.remove_item(item)
 
-            # Show Join button after max players are reached
-            if len(self.players) >= self.max_players:
-                self.add_item(TournamentStartButton(self))  # Start button should appear after player count
+            if len(self.players) < self.max_players:
+                self.add_item(TournamentJoinButton(self))
+            
             await self.message.edit(embed=embed, view=self)
 
     @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success)
@@ -1225,7 +1224,6 @@ class TournamentView(discord.ui.View):
         if self.abandon_task:
             self.abandon_task.cancel()
 
-        # Remove all buttons and reset game
         await start_new_game_button(self.message.channel, "tournament")
         pending_games["tournament"] = None
 
@@ -1260,23 +1258,20 @@ class TournamentView(discord.ui.View):
         await self.update_message()
 
 
-# Tournament Start Button to prompt for number of players
-class TournamentStartButton(discord.ui.Button):
-    def __init__(self, tournament_view):
-        super().__init__(label="Start Tournament", style=discord.ButtonStyle.primary)
-        self.tournament_view = tournament_view
+class TournamentStartButtonView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
 
-    async def callback(self, interaction: discord.Interaction):
-        """When the button is clicked, open the modal to enter the number of players"""
-        # Show the modal to select the number of players
-        await interaction.response.send_modal(PlayerCountModal(self.tournament_view))  # Modal to select player count
-
-
-# Modal for player count selection
+    @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary)
+    async def start_tournament(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle the start of tournament button click"""
+        # Create a modal to select the number of players
+        await interaction.response.send_modal(PlayerCountModal())
+        
+# Modal to select the number of players for the tournament
 class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
-    def __init__(self, tournament_view):
+    def __init__(self):
         super().__init__()
-        self.tournament_view = tournament_view
         self.player_count = discord.ui.TextInput(
             label="Enter the number of players (e.g., 2, 4, 8, etc.)",
             placeholder="2, 4, 8...",
@@ -1294,12 +1289,16 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
             await interaction.response.send_message("❌ Invalid player count. Must be a power of 2.", ephemeral=True)
             return
 
-        # Set the max players for the tournament view
-        self.tournament_view.max_players = count
-        await self.tournament_view.update_message()
+        # Initialize Tournament View with max players set
+        tournament_view = TournamentView(creator=interaction.user, max_players=count)
+        await tournament_view.update_message()  # Update to show players joining
+        
+        # Send a confirmation that tournament is ready
+        await interaction.response.send_message(f"✅ Tournament will have **{count} players**! Players can now join.", ephemeral=True)
+        
+        # Send the message for players to join
+        await interaction.channel.send(f"🏆 **Tournament started!** Players can now join. {count} players needed.", view=tournament_view)
 
-        # Notify the user
-        await interaction.response.send_message(f"✅ Tournament will have **{count} players**!", ephemeral=True)
 
 
 class Tournament:
