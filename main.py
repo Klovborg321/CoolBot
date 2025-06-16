@@ -2023,7 +2023,12 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 @tree.command(name="init_tournament")
 @app_commands.describe(player_count="Number of players (must be a power of 2)")
 async def init_tournament(interaction: discord.Interaction, player_count: int):
-    await interaction.response.defer(ephemeral=True)
+    try:
+        # ⏱️ Defer immediately
+        await interaction.response.defer(ephemeral=True)
+    except discord.errors.NotFound:
+        # If the interaction has expired, gracefully exit
+        return
 
     # ✅ Validate power of 2 and minimum size
     if player_count < 2 or (player_count & (player_count - 1)) != 0:
