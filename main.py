@@ -221,14 +221,15 @@ async def get_player(user_id: int) -> dict:
     # Safely select
     res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).execute())
 
-    if res.data is None:
+    if not res.data:  # If no player is found, return a default template
         # No row found → create one
         new_data = default_template.copy()
         new_data["id"] = str(user_id)
         await run_db(lambda: supabase.table("players").insert(new_data).execute())
         return new_data
 
-    return res.data[0]
+    return res.data[0]  # Return the first player record found
+
 
 
 def calculate_elo(elo1, elo2, result):
