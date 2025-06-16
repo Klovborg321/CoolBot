@@ -343,7 +343,7 @@ class GameJoinView(discord.ui.View):
     def __init__(self, game_type, max_players):
         super().__init__(timeout=None)
         self.game_type = game_type
-        self.max_players = max_players  # Ensure this is passed and set
+        self.max_players = max_players
 
     @discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
     async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1638,32 +1638,16 @@ async def init_singles(interaction: discord.Interaction):
     # 3️⃣ Create the button
     await start_new_game_button(interaction.channel, "singles")
 
+    max_players = 2
+
     # 4️⃣ Create the GameView with max_players set to 2 for singles
-    game_view = GameView(game_type="singles", creator=interaction.user.id, max_players=2)
+    game_view = GameView(game_type="singles", creator=interaction.user.id, max_players)
 
     # 5️⃣ Send confirmation
     await interaction.followup.send(
         "✅ Singles game button posted and ready for players to join!",
         ephemeral=True
     )
-
-
-
-@tree.command(name="init_doubles")
-async def init_doubles(interaction: discord.Interaction):
-    if pending_games["doubles"] or any(k[0] == interaction.channel.id for k in start_buttons):
-        await interaction.response.send_message(
-            "⚠️ A doubles game is already pending or a button is active here.",
-            ephemeral=True
-        )
-        return
-
-    await interaction.response.defer(ephemeral=True)
-    await start_new_game_button(interaction.channel, "doubles")
-    await interaction.followup.send(
-        "✅ Doubles game button posted!",
-        ephemeral=True
-    )@tree.command(name="init_doubles")
 
 
 async def init_doubles(interaction: discord.Interaction):
@@ -1683,8 +1667,9 @@ async def init_doubles(interaction: discord.Interaction):
     # 3️⃣ Create the button
     await start_new_game_button(interaction.channel, "doubles")
 
+    max_players = 4
     # 4️⃣ Create the GameView with max_players set to 2 for doubles
-    game_view = GameView(game_type="doubles", creator=interaction.user.id, max_players=4)
+    game_view = GameView(game_type="doubles", creator=interaction.user.id, max_players)
 
     # 5️⃣ Send confirmation
     await interaction.followup.send(
@@ -1711,8 +1696,10 @@ async def init_triples(interaction: discord.Interaction):
     # 3️⃣ Create the button
     await start_new_game_button(interaction.channel, "triples")
 
+    max_players = 3
+
     # 4️⃣ Create the GameView with max_players set to 2 for triples
-    game_view = GameView(game_type="triples", creator=interaction.user.id, max_players=3)
+    game_view = GameView(game_type="triples", creator=interaction.user.id, max_players)
 
     # 5️⃣ Send confirmation
     await interaction.followup.send(
