@@ -435,7 +435,7 @@ class GameView(discord.ui.View):
         await start_new_game_button(self.message.channel, self.game_type)
 
     async def abandon_if_not_filled(self):
-        await asyncio.sleep(300)
+        await asyncio.sleep(1000)
         if len(self.players) < self.max_players and not self.betting_closed:
             await self.abandon_game("⏰ Game timed out due to inactivity.")
             await clear_pending_game(self.game_type)
@@ -885,7 +885,7 @@ class RoomView(discord.ui.View):
         self.vote_timeout = asyncio.create_task(self.end_voting_after_timeout())
 
     async def end_voting_after_timeout(self):
-        await asyncio.sleep(300)
+        await asyncio.sleep(600)
         await self.finalize_game()
 
     async def finalize_game(self):
@@ -1135,7 +1135,7 @@ class TournamentView(discord.ui.View):
 
     async def abandon_if_not_filled(self):
         """Automatically abandon the tournament if it's not filled within 5 minutes"""
-        await asyncio.sleep(300)
+        await asyncio.sleep(1000)
         if len(self.players) < self.max_players:
             await self.abandon_tournament("⏰ Tournament timed out due to inactivity.")
             await clear_pending_game("tournament")
@@ -1247,15 +1247,45 @@ class TournamentView(discord.ui.View):
         await self.update_message()
 
 
-# Button to handle the number of players and start tournament
-class StartTournamentButton(discord.ui.Button):
+class TournamentStartButton(discord.ui.Button):
     def __init__(self, tournament_view):
         super().__init__(label="Start Tournament", style=discord.ButtonStyle.primary)
         self.tournament_view = tournament_view
 
     async def callback(self, interaction: discord.Interaction):
         """Handles the start of the tournament and sets the player count"""
+        # Show the modal to select the number of players
         await interaction.response.send_modal(PlayerCountModal(self.tournament_view))  # Modal to select player count
+
+
+class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
+    def __init__(self, tournament_view):
+        super().__init__()
+        self.tournament_view = tournament_view
+        self.player_count = discord.ui.TextInput(
+            label="Enter the number of players (e.g., 2, 4, 8, etc.)",
+            placeholder="2, 4, 8...",
+            max_length=2
+        )
+        self.add_item(self.player_count)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        """Submit the number of players"""
+        try:
+            count = int(self.player_count.value.strip())
+            if count < 2 or (count & (count - 1)) != 0:  # Must be a power of 2
+                raise ValueError("Invalid player count. Must be a power of 2.")
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid player count. Must be a power of 2.", ephemeral=True)
+            return
+
+        # Set the max players for the tournament view
+        self.tournament_view.max_players = count
+        await self.tournament_view.update_message()
+
+        # Notify the user
+        await interaction.response.send_message(f"✅ Tournament will have **{count} players**!", ephemeral=True)
+
 
 
 # Modal to let the host choose the number of players
@@ -2089,27 +2119,16 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 
 @tree.command(name="init_tournament")
 async def init_tournament(interaction: discord.Interaction):
-    """Creates a tournament lobby without specifying player count yet"""
+    """Creates a tournament lobby with the start button"""
+    # Defer the response so the bot can process the interaction
     await interaction.response.defer(ephemeral=True)
 
-    # Create TournamentView lobby
-    view = TournamentView(creator=interaction.user.id)  # No player count yet
-    embed = await view.build_embed(interaction.guild)
+    # Create the "Start Tournament" button
+    await start_new_game_button(interaction.channel, "tournament")
 
-    # Send lobby embed with buttons
-    msg = await interaction.channel.send(embed=embed, view=view)
-    view.message = msg
-
-    # Register player as active
-    player_manager.activate(interaction.user.id)
-
-    # Mark pending tournament in your global state
-    global pending_game
-    pending_games["tournament"] = view
-
-    # Confirm to host privately
+    # Confirm the action to the user
     await interaction.followup.send(
-        f"✅ Tournament lobby created. Share this link so others can join!",
+        "✅ Tournament lobby created. Click 'Start Tournament' to set up player count and begin the tournament!",
         ephemeral=True
     )
 
