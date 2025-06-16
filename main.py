@@ -240,14 +240,27 @@ def player_display(user_id, data):
     return f"<@{user_id}> | Rank: {player['rank']} | Trophies: {player['trophies']}"
 
 async def start_new_game_button(channel, game_type, max_players=None):
+    key = (channel.id, game_type)
+    old = start_buttons.get(key)
+
+    if old:
+        try:
+            await old.delete()  # Ensure the old button is deleted
+        except discord.NotFound:
+            pass
+
+    # Create the appropriate view based on game type
     if game_type == "tournament":
         # For tournament, we create the Start Tournament button
         view = TournamentStartButtonView()
-        await channel.send("🎮 Click to start a new tournament:", view=view)
+        msg = await channel.send("🎮 Click to start a new tournament:", view=view)
     else:
+        # For other game types, create the GameJoinView with max_players passed
         view = GameJoinView(game_type, max_players)
-        await channel.send(content=f"🎮 Start a new {game_type} game:", view=view)
+        msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
 
+    start_buttons[key] = msg
+    return msg  # Return the new message with the button
 
 
 async def show_betting_phase(self):
@@ -427,6 +440,7 @@ class GameView(discord.ui.View):
         for p in self.players:
             player_manager.deactivate(p)
 
+        # Send a message indicating the game has been abandoned
         embed = discord.Embed(
             title="❌ Game Abandoned",
             description=reason,
@@ -434,10 +448,20 @@ class GameView(discord.ui.View):
         )
         await self.message.edit(embed=embed, view=None)
 
+        # Clear the old game view and any existing buttons
+        await self.message.clear_reactions()
+
+        # Post a new start button for the game
         await start_new_game_button(self.message.channel, self.game_type, self.max_players)
 
     async def abandon_if_not_filled(self):
-        await asyncio.sleep(1000)
+        # This checks periodically if the game is filled; if not, it abandons the game after 1000 seconds.
+        timeout_duration = 1000  # Set timeout duration for 1000 seconds or use a custom duration
+        elapsed_time = 0
+        while len(self.players) < self.max_players and not self.betting_closed and elapsed_time < timeout_duration:
+            await asyncio.sleep(30)  # Check every 30 seconds
+            elapsed_time += 30  # Increment elapsed time by 30 seconds
+
         if len(self.players) < self.max_players and not self.betting_closed:
             await self.abandon_game("⏰ Game timed out due to inactivity.")
             await clear_pending_game(self.game_type)
@@ -2330,13 +2354,21 @@ async def dm_online(interaction: discord.Interaction, msg: str):
 
 @bot.event
 async def on_ready():
+    # Sync the slash commands with Discord
     await tree.sync()
     print(f"✅ Logged in as {bot.user}")
 
+    # Fetch and load any pending games
     pending = await load_pending_games()
+    
+    # Iterate over each pending game and start a new button if the channel exists
     for pg in pending:
-        channel = bot.get_channel(pg["channel_id"])
+        channel = bot.get_channel(pg["channel_id"])  # Fetch the channel where the game was pending
         if channel:
-            await start_new_game_button(channel, pg["game_type"])
+            # Call start_new_game_button with game_type and max_players from pending game
+            # Ensure max_players is fetched correctly for each pending game
+            max_players = pg.get("max_players", 2)  # Default to 2 players if max_players is not found
+            await start_new_game_button(channel, pg["game_type"], max_players=max_players)
+
 
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
