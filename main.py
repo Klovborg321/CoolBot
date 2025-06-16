@@ -343,7 +343,7 @@ class GameJoinView(discord.ui.View):
     def __init__(self, game_type, max_players):
         super().__init__(timeout=None)
         self.game_type = game_type
-        self.max_players = max_players  # Accept max_players as a parameter
+        self.max_players = max_players  # Ensure this is passed and set
 
     @discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
     async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -362,8 +362,8 @@ class GameJoinView(discord.ui.View):
         # ✅ OK! Activate and start
         player_manager.activate(interaction.user.id)
 
-        # Pass the max_players to GameView
-        view = GameView(self.game_type, interaction.user.id, max_players=self.max_players)
+        # Pass max_players to the GameView initialization
+        view = GameView(self.game_type, interaction.user.id, self.max_players)
         embed = await view.build_embed(interaction.guild)
         view.message = await interaction.channel.send(embed=embed, view=view)
         pending_games[self.game_type] = view
@@ -374,6 +374,7 @@ class GameJoinView(discord.ui.View):
             pass
 
         await interaction.response.send_message("✅ Game started!", ephemeral=True)
+
 
 
 class LeaveGameButton(discord.ui.Button):
