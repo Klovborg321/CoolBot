@@ -714,69 +714,92 @@ class BettingButton(discord.ui.Button):
             return
         await interaction.response.send_modal(BetModal(self.game_view))
 
-# ✅ Updated BetModal with bet_history fix
 class BetModal(discord.ui.Modal, title="Place Your Bet"):
-    def __init__(self, game_view):
+    def __init__(self, game_view, preselected=None):
         super().__init__()
         self.game_view = game_view
 
         self.bet_choice = discord.ui.TextInput(
-            label="Choose (A/B/1/2)",
+            label="Choice (A/B/1/2)",
             placeholder="A, B, 1 or 2",
-            max_length=1
+            max_length=1,
+            default=preselected or ""
         )
         self.bet_amount = discord.ui.TextInput(
-            label="Bet Amount", placeholder="Enter a positive number"
+            label="Bet Amount",
+            placeholder="Enter a positive number"
         )
+
         self.add_item(self.bet_choice)
         self.add_item(self.bet_amount)
 
     async def on_submit(self, interaction: discord.Interaction):
-        user_id = interaction.user.id
-        choice = self.bet_choice.value.strip().upper()
-
         try:
-            amount = int(self.bet_amount.value.strip())
-            if amount <= 0:
-                raise ValueError()
-        except ValueError:
-            await interaction.response.send_message("❌ Invalid amount.", ephemeral=True)
-            return
+            user_id = interaction.user.id
+            choice = self.bet_choice.value.strip().upper()
+            amount_raw = self.bet_amount.value.strip()
 
-        # ✅ Compute odds and payout
-        odds = await self.game_view.get_odds(choice)
-        payout = int(amount / odds) if odds > 0 else amount
+            # ✅ Validate amount
+            try:
+                amount = int(amount_raw)
+                if amount <= 0:
+                    raise ValueError()
+            except ValueError:
+                await interaction.response.send_message("❌ Invalid amount. Please enter a positive integer.", ephemeral=True)
+                return
 
-        # ✅ Atomic deduction
-        success = await deduct_credits_atomic(user_id, amount)
-        if not success:
-            await interaction.response.send_message("❌ Not enough credits.", ephemeral=True)
-            return
+            # ✅ Validate choice
+            valid_choices = {"A", "B", "1", "2"}
+            if choice not in valid_choices:
+                await interaction.response.send_message(f"❌ Invalid choice. Use one of: {', '.join(valid_choices)}.", ephemeral=True)
+                return
 
-        # ✅ Log bet in bets table
-        await run_db(lambda: supabase.table("bets").insert({
-            "player_id": str(user_id),
-            "game_id": self.game_view.message.id,
-            "choice": choice,
-            "amount": amount,
-            "payout": payout,
-            "won": None
-        }).execute())
+            # ✅ Compute odds & payout safely
+            odds = await self.game_view.get_odds(choice)
+            payout = max(1, int(amount / odds)) if odds > 0 else amount
 
-        # ✅ Update live bets in GameView
-        await self.game_view.add_bet(user_id, interaction.user.display_name, amount, choice)
+            # ✅ Atomic balance deduction
+            success = await deduct_credits_atomic(user_id, amount)
+            if not success:
+                await interaction.response.send_message("❌ Not enough credits to place this bet.", ephemeral=True)
+                return
 
-        await interaction.response.send_message(
-            f"✅ Bet of **{amount}** on **{choice}** placed!\n📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
-            ephemeral=True
-        )
+            # ✅ Insert bet in DB
+            await run_db(lambda: supabase
+                .table("bets")
+                .insert({
+                    "player_id": str(user_id),
+                    "game_id": self.game_view.message.id,
+                    "choice": choice,
+                    "amount": amount,
+                    "payout": payout,
+                    "won": None
+                })
+                .execute()
+            )
+
+            # ✅ Add to live bets
+            await self.game_view.add_bet(user_id, interaction.user.display_name, amount, choice)
+
+            # ✅ One guaranteed response
+            await interaction.response.send_message(
+                f"✅ Bet placed!\n• Choice: **{choice}**\n• Bet: **{amount}**\n• Odds: **{odds * 100:.1f}%**\n• Payout: **{payout}**",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            # Failsafe: if interaction already used, fallback
+            try:
+                await interaction.followup.send(f"❌ Bet failed: {e}", ephemeral=True)
+            except:
+                pass
 
 
 
 class BetDropdown(discord.ui.Select):
     def __init__(self, game_view):
         self.game_view = game_view
-        self.options_built = False  # Flag for lazy rebuild
+        self.options_built = False  # Lazy flag
         super().__init__(
             placeholder="Select who to bet on...",
             min_values=1,
@@ -785,71 +808,77 @@ class BetDropdown(discord.ui.Select):
         )
 
     async def build_options(self):
-        players = self.game_view.players
+        players = self.game_view.players or []
         game_type = self.game_view.game_type
         guild = self.game_view.message.guild if self.game_view.message else None
 
         options = []
 
-        if game_type == "singles":
-            ranks = []
-            for p in players:
-                pdata = await get_player(p)
-                ranks.append(pdata.get("rank", 1000))
-
-            e1, e2 = ranks
+        if game_type == "singles" and len(players) >= 2:
+            ranks = [await get_player(p) for p in players]
+            e1, e2 = [p.get("rank", 1000) for p in ranks]
             p1_odds = 1 / (1 + 10 ** ((e2 - e1) / 400))
             p2_odds = 1 - p1_odds
 
             for i, (player_id, odds) in enumerate(zip(players, [p1_odds, p2_odds]), start=1):
                 member = guild.get_member(player_id) if guild else None
                 name = member.display_name if member else f"Player {i}"
-                label = f"{name} ({odds * 100:.1f}%)"
-                options.append(discord.SelectOption(label=label, value=str(i)))
+                options.append(discord.SelectOption(
+                    label=f"{name} ({odds * 100:.1f}%)", value=str(i)
+                ))
 
-        elif game_type == "doubles":
-            ranks = []
-            for p in players:
-                pdata = await get_player(p)
-                ranks.append(pdata.get("rank", 1000))
-
-            e1 = sum(ranks[:2]) / 2
-            e2 = sum(ranks[2:]) / 2
-            a_odds = 1 / (1 + 10 ** ((e2 - e1) / 400))
+        elif game_type == "doubles" and len(players) >= 4:
+            ranks = [await get_player(p) for p in players]
+            team1 = sum([p.get("rank", 1000) for p in ranks[:2]]) / 2
+            team2 = sum([p.get("rank", 1000) for p in ranks[2:]]) / 2
+            a_odds = 1 / (1 + 10 ** ((team2 - team1) / 400))
             b_odds = 1 - a_odds
 
-            options = [
+            options.extend([
                 discord.SelectOption(label=f"Team A ({a_odds * 100:.1f}%)", value="A"),
                 discord.SelectOption(label=f"Team B ({b_odds * 100:.1f}%)", value="B")
-            ]
+            ])
 
-        elif game_type == "triples":
-            ranks = []
-            for p in players:
-                pdata = await get_player(p)
-                ranks.append(pdata.get("rank", 1000))
-
-            exp = [10 ** (e / 400) for e in ranks]
+        elif game_type == "triples" and len(players) >= 3:
+            ranks = [await get_player(p) for p in players]
+            exp = [10 ** (p.get("rank", 1000) / 400) for p in ranks]
             total = sum(exp)
             odds = [v / total for v in exp]
 
             for i, (player_id, o) in enumerate(zip(players, odds), start=1):
                 member = guild.get_member(player_id) if guild else None
                 name = member.display_name if member else f"Player {i}"
-                label = f"{name} ({o * 100:.1f}%)"
-                options.append(discord.SelectOption(label=label, value=str(i)))
+                options.append(discord.SelectOption(
+                    label=f"{name} ({o * 100:.1f}%)", value=str(i)
+                ))
 
-        # ✅ Assign options safely
-        self.options = options
+        # ✅ Always fallback option if empty
+        if not options:
+            options = [
+                discord.SelectOption(label="⚠️ No valid choices", value="none")
+            ]
+
+        # ✅ Clear & replace safely
+        self.options.clear()
+        self.options.extend(options)
         self.options_built = True
 
     async def callback(self, interaction: discord.Interaction):
-        # ✅ Always safe: make sure options are built
         if not self.options_built:
             await self.build_options()
 
         choice = self.values[0]
-        await interaction.response.send_modal(BetAmountModal(choice, self.game_view))
+
+        if choice == "none":
+            await interaction.response.send_message(
+                "⚠️ No valid bet choices available.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_modal(
+            BetAmountModal(choice, self.game_view)
+        )
+
 
 
 class RoomView(discord.ui.View):
@@ -1437,7 +1466,7 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
 
 class BettingDropdownView(discord.ui.View):
     def __init__(self, game_view):
-        super().__init__(timeout=60)
+        super().__init__(timeout=120)
         self.dropdown = BetDropdown(game_view)
         self.add_item(self.dropdown)
 
