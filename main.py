@@ -1576,7 +1576,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
             await interaction.response.send_message("❌ Invalid number.", ephemeral=True)
             return
 
-        # ✅ Fetch course info from DB
+        # ✅ ✅ ✅ ALWAYS GET THE LATEST FROM COURSES TABLE
         course = await run_db(lambda: supabase
             .table("courses")
             .select("*")
@@ -1585,15 +1585,13 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
             .execute()
         )
 
-        # ✅ Get course_rating & slope_rating with safe defaults
-        course_rating = float(course.data.get("course_rating", 72.0))
-        slope_rating = float(course.data.get("slope_rating", 113.0))
+        course_rating = float(course.data.get("rating") or 72.0)
+        slope_rating = float(course.data.get("slope_rating") or 113.0)
 
-        # ✅ Calculate differential using official formula:
-        # (Score - Course Rating) * 113 / Slope Rating
+        # ✅ Official calculation
         differential = round((score - course_rating) * 113 / slope_rating, 1)
 
-        # ✅ Upsert full data to `handicaps` table
+        # ✅ Save
         await run_db(lambda: supabase
             .table("handicaps")
             .upsert({
@@ -1601,7 +1599,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
                 "course_id": self.course_id,
                 "course_name": self.course_name,
                 "score": score,
-                "course_rating": course_rating,
+                "rating": course_rating,
                 "slope_rating": slope_rating,
                 "handicap_differential": differential
             })
@@ -1614,6 +1612,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
             f"📊 Differential: `{differential}`",
             ephemeral=True
         )
+
 
 class CourseSelect(discord.ui.Select):
     def __init__(self, courses, callback_fn):
