@@ -1610,10 +1610,13 @@ async def submit_score(interaction: discord.Interaction):
 @tree.command(name="init_singles")
 async def init_singles(interaction: discord.Interaction):
     """Creates a singles game lobby with the start button"""
-    
+
+    # Defer the interaction immediately to avoid timeout
+    await interaction.response.defer(ephemeral=True)
+
     # Fast check if a game is already pending
     if pending_games.get("singles") or any(k[0] == interaction.channel.id for k in start_buttons):
-        await interaction.response.send_message(
+        await interaction.followup.send(
             "⚠️ A singles game is already pending or a button is active here.",
             ephemeral=True
         )
@@ -1622,10 +1625,7 @@ async def init_singles(interaction: discord.Interaction):
     # Set max_players for singles game
     max_players = 2
 
-    # Defer the interaction to show the response is in progress
-    await interaction.response.defer(ephemeral=True)
-
-    # Create the button with max_players set
+    # Create the button
     await start_new_game_button(interaction.channel, "singles", max_players=max_players)
 
     # Send confirmation to the user
@@ -1633,7 +1633,6 @@ async def init_singles(interaction: discord.Interaction):
         "✅ Singles game button posted and ready for players to join!",
         ephemeral=True
     )
-
 
 
 async def init_doubles(interaction: discord.Interaction):
