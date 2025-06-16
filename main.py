@@ -97,12 +97,14 @@ async def dm_all_online(guild: discord.Guild, message: str):
 
 
 # ✅ Save a pending game (async)
-async def save_pending_game(game_type, players, channel_id):
+async def save_pending_game(game_type, players, channel_id, max_players):
     await run_db(lambda: supabase.table("pending_games").upsert({
         "game_type": game_type,
         "players": players,
-        "channel_id": channel_id
+        "channel_id": channel_id,
+        "max_players": max_players  # ✅ store it!
     }).execute())
+
 
 # ✅ Clear a pending game (async)
 async def clear_pending_game(game_type):
@@ -644,7 +646,7 @@ class GameView(discord.ui.View):
         # ✅ This button resets the start button for new games
         await start_new_game_button(self.message.channel, self.game_type, self.max_players)
         pending_games[self.game_type] = None
-        await save_pending_game(self.game_type, self.players, self.message.channel.id)
+        await save_pending_game(self.game_type, self.players, self.message.channel.id, self.max_players)
 
         # ✅ Pick a random course
         res = await run_db(lambda: supabase.table("courses").select("name", "image_url").execute())
@@ -1289,8 +1291,8 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
     def __init__(self):
         super().__init__()
         self.player_count = discord.ui.TextInput(
-            label="Enter the number of players (4, 6 or 8.)",
-            placeholder="4, 6, 8",
+            label="Enter the number of players (4, 8, 16...)",
+            placeholder="4, 8, 16...",
             max_length=4
         )
         self.add_item(self.player_count)
@@ -1299,10 +1301,10 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
         """Submit the number of players"""
         try:
             count = int(self.player_count.value.strip())
-            if count < 2 or (count & (count - 1)) != 0:  # Must be a power of 2
-                raise ValueError("Invalid player count. Must be a power of 2.")
+            if count < 4 or (count & (count - 1)) != 0:  # Must be a power of 4
+                raise ValueError("Invalid player count. Must be a power of 4.")
         except ValueError:
-            await interaction.response.send_message("❌ Invalid player count. Must be a power of 2.", ephemeral=True)
+            await interaction.response.send_message("❌ Invalid player count. Must be a power of 4.", ephemeral=True)
             return
 
         # Initialize Tournament View with max_players set dynamically
@@ -2275,15 +2277,16 @@ async def my_handicaps(interaction: discord.Interaction, user: discord.User = No
 
     for h in res.data:
         embed.add_field(
-            name=f"{h['course_name']}",
-            value=(
-                f"Score: **{h['score']}**\n"
-                f"Course Rating: **{h['course_rating']}**\n"
-                f"Slope: **{h['slope_rating']}**\n"
-                f"Differential: **{h['handicap_differential']}**"
-            ),
-            inline=False
-        )
+        name=f"{h['course_name']}",
+        value=(
+            f"Score: **{h['score']}**\n"
+            f"Course Rating: **{h.get('course_rating', 'N/A')}**\n"
+            f"Slope: **{h.get('slope_rating', 'N/A')}**\n"
+            f"Differential: **{h.get('handicap_differential', 'N/A')}**"
+        ),
+        inline=False
+    )
+
 
     await interaction.followup.send(embed=embed, ephemeral=True)
 
