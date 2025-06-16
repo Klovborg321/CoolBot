@@ -1643,7 +1643,14 @@ async def init_singles(interaction: discord.Interaction):
     # 4️⃣ Create the GameView with max_players set to 2 for singles
     game_view = GameView(game_type="singles", creator=interaction.user.id, max_players=max_players)
 
-    # 5️⃣ Send confirmation
+    # 5️⃣ Send the GameView to the channel
+    embed = await game_view.build_embed(interaction.guild)  # Build embed to send to the channel
+    game_view.message = await interaction.channel.send(embed=embed, view=game_view)  # Send the message with the game view
+
+    # 6️⃣ Store the game view in pending games
+    pending_games["singles"] = game_view
+
+    # 7️⃣ Send confirmation
     await interaction.followup.send(
         "✅ Singles game button posted and ready for players to join!",
         ephemeral=True
