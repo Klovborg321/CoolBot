@@ -1115,11 +1115,11 @@ class VoteButton(discord.ui.Button):
 # Tournament View Class
 # Tournament View
 class TournamentView(discord.ui.View):
-    def __init__(self, creator):
+    def __init__(self, creator, max_players=None):
         super().__init__(timeout=None)
         self.creator = creator
         self.players = [creator]
-        self.max_players = None  # We’ll set this after the player count is chosen
+        self.max_players = max_players  # Set max players dynamically
         self.message = None
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
         self.bets = []  # Store bets for the tournament
