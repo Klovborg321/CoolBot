@@ -1619,10 +1619,13 @@ async def init_singles(interaction: discord.Interaction):
         )
         return
 
+    # Set max_players for singles game
+    max_players = 2
+
     # Defer the interaction to show the response is in progress
     await interaction.response.defer(ephemeral=True)
 
-    # Create the button
+    # Create the button with max_players set
     await start_new_game_button(interaction.channel, "singles", max_players=max_players)
 
     # Send confirmation to the user
