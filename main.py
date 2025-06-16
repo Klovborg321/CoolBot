@@ -2110,7 +2110,7 @@ async def init_tournament(interaction: discord.Interaction):
 
     # Confirm the action to the user
     await interaction.followup.send(
-        "✅ Tournament lobby created. Click 'Start Tournament' to set up player count and begin the tournament!",
+        "✅ Click 'Start Tournament' to set up player count and begin the tournament!",
         ephemeral=True
     )
 
