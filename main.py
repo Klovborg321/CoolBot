@@ -1102,6 +1102,126 @@ class VoteButton(discord.ui.Button):
         if len(self.view_obj.votes) == len(self.view_obj.players):
             await self.view_obj.finalize_game()
 
+class TournamentView(discord.ui.View):
+    def __init__(self, creator, max_players):
+        super().__init__(timeout=None)
+        self.creator = creator
+        self.players = [creator]
+        self.max_players = max_players
+        self.message = None
+        self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
+
+        self.add_item(LeaveGameButton(self))
+
+    async def abandon_tournament(self, reason):
+        global pending_game
+        pending_games["tournament"] = None
+
+        for p in self.players:
+            player_manager.deactivate(p)
+
+        embed = discord.Embed(
+            title="❌ Tournament Abandoned",
+            description=reason,
+            color=discord.Color.red()
+        )
+        await self.message.edit(embed=embed, view=None)
+
+        await start_new_game_button(self.message.channel, "tournament")
+
+    async def abandon_if_not_filled(self):
+        await asyncio.sleep(300)
+        if len(self.players) < self.max_players:
+            await self.abandon_tournament("⏰ Tournament timed out due to inactivity.")
+            await clear_pending_game("tournament")
+
+    async def build_embed(self, guild=None):
+        embed = discord.Embed(
+            title=f"🏆 Tournament Lobby",
+            description="Players joining the tournament...",
+            color=discord.Color.gold()
+        )
+        embed.set_author(
+            name="LEAGUE OF EXTRAORDINARY MISFITS",
+            icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
+        )
+        embed.timestamp = discord.utils.utcnow()
+
+        player_lines = []
+        for idx in range(self.max_players):
+            if idx < len(self.players):
+                user_id = self.players[idx]
+                member = guild.get_member(user_id) if guild else None
+                name = f"**{member.display_name}**" if member else f"**User {user_id}**"
+                line = f"● Player {idx + 1}: {name}"
+            else:
+                line = f"○ Player {idx + 1}: [Waiting...]"
+            player_lines.append(line)
+
+        embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
+
+        return embed
+
+    async def update_message(self):
+        if self.message:
+            embed = await self.build_embed(self.message.guild)
+            to_remove = [item for item in self.children if isinstance(item, LeaveGameButton)]
+            for item in to_remove:
+                self.remove_item(item)
+            if len(self.players) < self.max_players:
+                self.add_item(LeaveGameButton(self))
+            await self.message.edit(embed=embed, view=self)
+
+    @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success)
+    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id in self.players:
+            await interaction.response.send_message("✅ You already joined.", ephemeral=True)
+            return
+        if len(self.players) >= self.max_players:
+            await interaction.response.send_message("🚫 Tournament is full.", ephemeral=True)
+            return
+        if player_manager.is_active(interaction.user.id):
+            await interaction.response.send_message("🚫 You’re already in another game.", ephemeral=True)
+            return
+
+        player_manager.activate(interaction.user.id)
+        self.players.append(interaction.user.id)
+        await self.update_message()
+        await interaction.response.defer()
+
+        if len(self.players) == self.max_players:
+            await self.update_message()
+            await self.tournament_full(interaction)
+
+    async def tournament_full(self, interaction):
+        global pending_game
+        self.clear_items()
+        if self.abandon_task:
+            self.abandon_task.cancel()
+
+        await start_new_game_button(self.message.channel, "tournament")
+        pending_games["tournament"] = None
+
+        # Here you can build & start bracket threads or phases:
+        await self.start_tournament(interaction)
+
+    async def start_tournament(self, interaction):
+        embed = discord.Embed(
+            title="🏁 Tournament Started!",
+            description="Bracket generation and matches will begin shortly.",
+            color=discord.Color.green()
+        )
+        await self.message.edit(embed=embed, view=None)
+
+        # ✅ Example: Call your Tournament logic here:
+        tourney = Tournament(
+            host_id=self.creator,
+            players=self.players,
+            channel=interaction.channel
+        )
+        await tourney.start()
+
+
 class Tournament:
     def __init__(self, host_id, players, channel, game_type="singles"):
         self.host_id = host_id
@@ -1902,36 +2022,47 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 
 @tree.command(name="init_tournament")
 @app_commands.describe(player_count="Number of players (must be a power of 2)")
-async def tournament(interaction: discord.Interaction, player_count: int):
-    # ✅ Always defer: multi async steps + views
+async def init_tournament(interaction: discord.Interaction, player_count: int):
     await interaction.response.defer(ephemeral=True)
 
-    # ✅ Validate power of 2
+    # ✅ Validate power of 2 and minimum size
     if player_count < 2 or (player_count & (player_count - 1)) != 0:
         await interaction.followup.send(
-            "❌ Player count must be 2, 4, 8, 16, 32, etc.",
+            "❌ Player count must be a power of 2 (2, 4, 8, 16, 32, etc.)",
             ephemeral=True
         )
         return
 
-    # ✅ Collect players (host + dummy for now)
-    players = [interaction.user.id]
-    while len(players) < player_count:
-        players.append(random.randint(100000000000000000, 999999999999999999))
+    # ✅ Check if the user is already in an active game
+    if player_manager.is_active(interaction.user.id):
+        await interaction.followup.send(
+            "🚫 You are already in another active game.",
+            ephemeral=True
+        )
+        return
 
-    # ✅ Create & start the Tournament
-    tourney = Tournament(
-        host_id=interaction.user.id,  # ✅ correct name!
-        players=players,
-        channel=interaction.channel
-    )
-    await tourney.start()
+    # ✅ Create TournamentView lobby
+    view = TournamentView(creator=interaction.user.id, max_players=player_count)
+    embed = await view.build_embed(interaction.guild)
 
-    # ✅ Confirm to host
+    # ✅ Send lobby embed with buttons
+    msg = await interaction.channel.send(embed=embed, view=view)
+    view.message = msg
+
+    # ✅ Register player as active
+    player_manager.activate(interaction.user.id)
+
+    # ✅ Mark pending tournament in your global state
+    global pending_game
+    pending_games["tournament"] = view
+
+    # ✅ Confirm to host privately
     await interaction.followup.send(
-        f"🏆 Tournament with **{player_count} players** has started!",
+        f"✅ Tournament lobby for **{player_count} players** created.\n"
+        f"Share this link so others can join!",
         ephemeral=True
     )
+
 
 @tree.command(
     name="clear_bet_history",
