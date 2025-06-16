@@ -2393,7 +2393,7 @@ async def init_tournament(interaction: discord.Interaction):
     max_players = 4
 
     # Create the button
-    await start_new_game_button(interaction.channel, "tournament", max_players=max_players)
+    await start_new_game_button(interaction.channel, "singles", max_players=max_players)
 
     # Send confirmation to the user
     await interaction.followup.send(
