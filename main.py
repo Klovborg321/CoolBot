@@ -1703,7 +1703,7 @@ async def init_triples(interaction: discord.Interaction):
         return
 
     # Set max_players for triples game
-    max_players = 4
+    max_players = 3
 
     # Create the button
     await start_new_game_button(interaction.channel, "triples", max_players=max_players)
