@@ -68,6 +68,12 @@ default_template = {
 }
 
 # Helpers
+def normalize_team(self, v):
+    if v.upper() == "A":
+        return "Team A"
+    if v.upper() == "B":
+        return "Team B"
+    return v
 
 async def dm_all_online(guild: discord.Guild, message: str):
     """DM all online members in the given guild with a custom message."""
@@ -930,6 +936,8 @@ class RoomView(discord.ui.View):
         else:
             winner = most_common[0][0]
 
+        winner = self.normalize_team(winner)
+
         self.voting_closed = True
 
         # ✅ DRAW CASE — refund bets
@@ -975,11 +983,11 @@ class RoomView(discord.ui.View):
             # ✅ Correct winner logic per mode
             if self.game_type == "singles":
                 is_winner = (winner == p)
-            elif self.game_type == "doubles":
-                is_winner = (
-                    (winner == "Team A" and p in self.players[:2]) or
-                    (winner == "Team B" and p in self.players[2:])
-                )
+            winner_team = self.normalize_team(winner)
+            is_winner = (
+                (winner_team == "Team A" and p in self.players[:2]) or
+                (winner_team == "Team B" and p in self.players[2:])
+            )
             elif self.game_type == "triples":
                 is_winner = (winner == p)
             else:
@@ -1008,7 +1016,7 @@ class RoomView(discord.ui.View):
                 )
             elif self.game_type == "doubles":
                 # ✅ Only compare winner team vs bet choice
-                won = winner == choice.upper()
+                won = self.normalize_team(winner) == self.normalize_team(choice)
             elif self.game_type == "triples":
                 try:
                     index = int(choice) - 1
