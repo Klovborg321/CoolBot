@@ -347,8 +347,8 @@ class GameJoinView(discord.ui.View):
 
     @discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
     async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # ✅ Block duplicate games of same type
-        if pending_games[self.game_type]:
+        # ✅ Block duplicate games of the same type
+        if self.game_type in pending_games and pending_games[self.game_type]:
             await interaction.response.send_message(
                 "A game of this type is already pending.", ephemeral=True)
             return
@@ -359,22 +359,22 @@ class GameJoinView(discord.ui.View):
                 "🚫 You are already in another game or have not voted yet.", ephemeral=True)
             return
 
-        # ✅ OK! Activate and start
+        # ✅ OK! Activate and start the game
         player_manager.activate(interaction.user.id)
 
         # Pass max_players to the GameView initialization
         view = GameView(self.game_type, interaction.user.id, self.max_players)
         embed = await view.build_embed(interaction.guild)
         view.message = await interaction.channel.send(embed=embed, view=view)
-        pending_games[self.game_type] = view
+        pending_games[self.game_type] = view  # Update pending game with the current view
 
+        # Remove the "Start new game" button after the game has started
         try:
             await interaction.message.delete()
         except discord.NotFound:
             pass
 
         await interaction.response.send_message("✅ Game started!", ephemeral=True)
-
 
 
 class LeaveGameButton(discord.ui.Button):
