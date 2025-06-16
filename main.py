@@ -1268,12 +1268,11 @@ class TournamentStartButtonView(discord.ui.View):
         # Create a modal to select the number of players
         await interaction.response.send_modal(PlayerCountModal())
         
-# Modal to select the number of players for the tournament
 class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
     def __init__(self):
         super().__init__()
         self.player_count = discord.ui.TextInput(
-            label="Enter the number of players (e.g., 2, 4, 8, etc.)",
+            label="Enter number of players (2, 4, 8, etc.)",  # Shortened label
             placeholder="2, 4, 8...",
             max_length=2
         )
