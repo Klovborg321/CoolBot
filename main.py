@@ -2410,6 +2410,57 @@ async def add_course(
         await interaction.followup.send(f"❌ Error: `{e}`", ephemeral=True)
 
 
+@tree.command(
+    name="set_course_rating",
+    description="Admin: Update the course rating and slope rating for a course"
+)
+@app_commands.describe(
+    course_name="Exact name of the course to update",
+    course_rating="New course rating",
+    slope_rating="New slope rating"
+)
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def set_course_rating(
+    interaction: discord.Interaction,
+    course_name: str,
+    course_rating: float,
+    slope_rating: float
+):
+    """Admin command to update ratings for a course."""
+
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        # ✅ Update the row with matching course name
+        res = await run_db(lambda: supabase
+            .table("courses")
+            .update({
+                "course_rating": course_rating,
+                "slope_rating": slope_rating
+            })
+            .eq("name", course_name)
+            .execute()
+        )
+
+        # ✅ If no row matched, inform admin
+        if not res.data:
+            await interaction.followup.send(
+                f"⚠️ No course found with name **{course_name}**.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.followup.send(
+            f"✅ Updated **{course_name}**:\n"
+            f"• Course Rating: **{course_rating}**\n"
+            f"• Slope Rating: **{slope_rating}**",
+            ephemeral=True
+        )
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error: `{e}`", ephemeral=True)
+
+
 @bot.event
 async def on_ready():
     # Sync the slash commands with Discord
