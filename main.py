@@ -1664,72 +1664,48 @@ class AddCourseModal(discord.ui.Modal, title="Add New Course (Easy & Hard)"):
             placeholder="https://..."
         )
 
-        # Easy version fields
+        # Easy version rating only
         self.easy_rating = discord.ui.TextInput(
             label="Easy Course Rating",
             placeholder="e.g. 72.0",
             required=False
         )
-        self.easy_slope = discord.ui.TextInput(
-            label="Easy Slope Rating",
-            placeholder="e.g. 113",
-            required=False
-        )
 
-        # Hard version fields
+        # Hard version rating only
         self.hard_rating = discord.ui.TextInput(
             label="Hard Course Rating",
             placeholder="e.g. 75.0",
-            required=False
-        )
-        self.hard_slope = discord.ui.TextInput(
-            label="Hard Slope Rating",
-            placeholder="e.g. 125",
             required=False
         )
 
         self.add_item(self.name)
         self.add_item(self.image_url)
         self.add_item(self.easy_rating)
-        self.add_item(self.easy_slope)
         self.add_item(self.hard_rating)
-        self.add_item(self.hard_slope)
 
     async def on_submit(self, interaction: discord.Interaction):
         base_name = self.name.value.strip()
         image_url = self.image_url.value.strip()
 
-        # Parse easy values
+        # Parse easy rating
         try:
             easy_rating = float(self.easy_rating.value.strip()) if self.easy_rating.value.strip() else None
         except ValueError:
             return await interaction.response.send_message(
-                "❌ Invalid Easy Course Rating. Must be a number.", ephemeral=True
+                "❌ Invalid Easy Course Rating. Must be a number.",
+                ephemeral=True
             )
 
-        try:
-            easy_slope = float(self.easy_slope.value.strip()) if self.easy_slope.value.strip() else None
-        except ValueError:
-            return await interaction.response.send_message(
-                "❌ Invalid Easy Slope Rating. Must be a number.", ephemeral=True
-            )
-
-        # Parse hard values
+        # Parse hard rating
         try:
             hard_rating = float(self.hard_rating.value.strip()) if self.hard_rating.value.strip() else None
         except ValueError:
             return await interaction.response.send_message(
-                "❌ Invalid Hard Course Rating. Must be a number.", ephemeral=True
+                "❌ Invalid Hard Course Rating. Must be a number.",
+                ephemeral=True
             )
 
-        try:
-            hard_slope = float(self.hard_slope.value.strip()) if self.hard_slope.value.strip() else None
-        except ValueError:
-            return await interaction.response.send_message(
-                "❌ Invalid Hard Slope Rating. Must be a number.", ephemeral=True
-            )
-
-        # Build both records
+        # Build both records — no slope_rating
         records = []
 
         easy = {
@@ -1738,8 +1714,6 @@ class AddCourseModal(discord.ui.Modal, title="Add New Course (Easy & Hard)"):
         }
         if easy_rating is not None:
             easy["rating"] = easy_rating
-        if easy_slope is not None:
-            easy["slope_rating"] = easy_slope
 
         hard = {
             "name": f"{base_name} Hard",
@@ -1747,8 +1721,6 @@ class AddCourseModal(discord.ui.Modal, title="Add New Course (Easy & Hard)"):
         }
         if hard_rating is not None:
             hard["rating"] = hard_rating
-        if hard_slope is not None:
-            hard["slope_rating"] = hard_slope
 
         records.append(easy)
         records.append(hard)
@@ -1758,12 +1730,13 @@ class AddCourseModal(discord.ui.Modal, title="Add New Course (Easy & Hard)"):
 
         if hasattr(res, "status_code") and res.status_code not in (200, 201):
             await interaction.response.send_message(
-                f"❌ Failed to add courses: {res}", ephemeral=True
+                f"❌ Failed to add courses: {res}",
+                ephemeral=True
             )
             return
 
         await interaction.response.send_message(
-            f"✅ Added **{base_name} Easy** and **{base_name} Hard** with separate ratings!",
+            f"✅ Added **{base_name} Easy** and **{base_name} Hard** with ratings!",
             ephemeral=True
         )
 
