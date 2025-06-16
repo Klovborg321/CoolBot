@@ -2102,17 +2102,24 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 
 
 @tree.command(name="init_tournament")
-async def init_tournament(interaction: discord.Interaction):
-    """Creates a tournament lobby with the start button"""
-    # Immediately defer the response so the bot can process the interaction
+async def init_singles(interaction: discord.Interaction):
+    # 1️⃣ Fast RAM check FIRST:
+    if pending_games["tournament"] or any(k[0] == interaction.channel.id for k in start_buttons):
+        await interaction.response.send_message(
+            "⚠️ A tournament game is already pending or a button is active here.",
+            ephemeral=True
+        )
+        return
+
+    # 2️⃣ Safe: defer because View is coming
     await interaction.response.defer(ephemeral=True)
 
-    # Create the "Start Tournament" button
+    # 3️⃣ Create the button
     await start_new_game_button(interaction.channel, "tournament")
 
-    # Confirm the action to the user
+    # 4️⃣ Confirm
     await interaction.followup.send(
-        "✅ Click 'Start Tournament' to set up player count and begin the tournament!",
+        "✅ Tournament game button posted!",
         ephemeral=True
     )
 
