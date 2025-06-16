@@ -2356,6 +2356,60 @@ async def dm_online(interaction: discord.Interaction, msg: str):
     await dm_all_online(interaction.guild, msg)
     await interaction.followup.send("✅ All online members have been messaged.", ephemeral=True)
 
+@tree.command(
+    name="add_course",
+    description="Admin: Add a new course with image and ratings"
+)
+@app_commands.describe(
+    name="Course name",
+    image_url="Image URL for the course",
+    course_rating="Course rating (optional)",
+    slope_rating="Slope rating (optional)"
+)
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def add_course(
+    interaction: discord.Interaction,
+    name: str,
+    image_url: str,
+    course_rating: float = None,
+    slope_rating: float = None
+):
+    """Admin command to add a new golf course to the Supabase table."""
+
+    await interaction.response.defer(ephemeral=True)
+
+    # Build the new course data
+    course_data = {
+        "name": name,
+        "image_url": image_url,
+    }
+
+    # Include optional ratings if provided
+    if course_rating is not None:
+        course_data["course_rating"] = course_rating
+    if slope_rating is not None:
+        course_data["slope_rating"] = slope_rating
+
+    try:
+        # Insert into Supabase
+        res = await run_db(lambda: supabase.table("courses").insert(course_data).execute())
+
+        if hasattr(res, "status_code") and res.status_code not in (200, 201):
+            await interaction.followup.send(
+                f"❌ Failed to add course. Response: {res}",
+                ephemeral=True
+            )
+            return
+
+        await interaction.followup.send(
+            f"✅ Course **{name}** added successfully!",
+            ephemeral=True
+        )
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error: `{e}`", ephemeral=True)
+
+
 @bot.event
 async def on_ready():
     # Sync the slash commands with Discord
