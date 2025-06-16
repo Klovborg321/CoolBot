@@ -1634,63 +1634,122 @@ class CourseSelectView(discord.ui.View):
         super().__init__(timeout=120)
         self.add_item(CourseSelect(courses, callback_fn))
 
-# ✅ Modal for adding a new course with `rating` and `slope_rating`
-class AddCourseModal(discord.ui.Modal, title="Add New Course"):
+class AddCourseModal(discord.ui.Modal, title="Add New Course (Easy & Hard)"):
     def __init__(self):
         super().__init__()
-        self.name = discord.ui.TextInput(label="Course Name")
-        self.image_url = discord.ui.TextInput(label="Image URL")
-        self.rating = discord.ui.TextInput(
-            label="Course Rating (optional)",
-            placeholder="e.g. 72.5",
+
+        self.name = discord.ui.TextInput(
+            label="Base Course Name",
+            placeholder="e.g. Pebble Beach"
+        )
+        self.image_url = discord.ui.TextInput(
+            label="Image URL",
+            placeholder="https://..."
+        )
+
+        # Easy version fields
+        self.easy_rating = discord.ui.TextInput(
+            label="Easy Course Rating",
+            placeholder="e.g. 72.0",
             required=False
         )
-        self.slope_rating = discord.ui.TextInput(
-            label="Slope Rating (optional)",
-            placeholder="e.g. 113.0",
+        self.easy_slope = discord.ui.TextInput(
+            label="Easy Slope Rating",
+            placeholder="e.g. 113",
             required=False
         )
+
+        # Hard version fields
+        self.hard_rating = discord.ui.TextInput(
+            label="Hard Course Rating",
+            placeholder="e.g. 75.0",
+            required=False
+        )
+        self.hard_slope = discord.ui.TextInput(
+            label="Hard Slope Rating",
+            placeholder="e.g. 125",
+            required=False
+        )
+
         self.add_item(self.name)
         self.add_item(self.image_url)
-        self.add_item(self.rating)
-        self.add_item(self.slope_rating)
+        self.add_item(self.easy_rating)
+        self.add_item(self.easy_slope)
+        self.add_item(self.hard_rating)
+        self.add_item(self.hard_slope)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Prepare data with proper keys
-        data = {
-            "name": self.name.value.strip(),
-            "image_url": self.image_url.value.strip()
+        base_name = self.name.value.strip()
+        image_url = self.image_url.value.strip()
+
+        # Parse easy values
+        try:
+            easy_rating = float(self.easy_rating.value.strip()) if self.easy_rating.value.strip() else None
+        except ValueError:
+            return await interaction.response.send_message(
+                "❌ Invalid Easy Course Rating. Must be a number.", ephemeral=True
+            )
+
+        try:
+            easy_slope = float(self.easy_slope.value.strip()) if self.easy_slope.value.strip() else None
+        except ValueError:
+            return await interaction.response.send_message(
+                "❌ Invalid Easy Slope Rating. Must be a number.", ephemeral=True
+            )
+
+        # Parse hard values
+        try:
+            hard_rating = float(self.hard_rating.value.strip()) if self.hard_rating.value.strip() else None
+        except ValueError:
+            return await interaction.response.send_message(
+                "❌ Invalid Hard Course Rating. Must be a number.", ephemeral=True
+            )
+
+        try:
+            hard_slope = float(self.hard_slope.value.strip()) if self.hard_slope.value.strip() else None
+        except ValueError:
+            return await interaction.response.send_message(
+                "❌ Invalid Hard Slope Rating. Must be a number.", ephemeral=True
+            )
+
+        # Build both records
+        records = []
+
+        easy = {
+            "name": f"{base_name} Easy",
+            "image_url": image_url
         }
+        if easy_rating is not None:
+            easy["rating"] = easy_rating
+        if easy_slope is not None:
+            easy["slope_rating"] = easy_slope
 
-        if self.rating.value.strip():
-            try:
-                data["rating"] = float(self.rating.value.strip())
-            except ValueError:
-                return await interaction.response.send_message(
-                    "❌ Invalid course rating. Must be a number.", ephemeral=True
-                )
+        hard = {
+            "name": f"{base_name} Hard",
+            "image_url": image_url
+        }
+        if hard_rating is not None:
+            hard["rating"] = hard_rating
+        if hard_slope is not None:
+            hard["slope_rating"] = hard_slope
 
-        if self.slope_rating.value.strip():
-            try:
-                data["slope_rating"] = float(self.slope_rating.value.strip())
-            except ValueError:
-                return await interaction.response.send_message(
-                    "❌ Invalid slope rating. Must be a number.", ephemeral=True
-                )
+        records.append(easy)
+        records.append(hard)
 
-        # Insert into Supabase
-        res = await run_db(lambda: supabase.table("courses").insert(data).execute())
+        # Insert both at once
+        res = await run_db(lambda: supabase.table("courses").insert(records).execute())
 
         if hasattr(res, "status_code") and res.status_code not in (200, 201):
             await interaction.response.send_message(
-                f"❌ Failed to add course: {res}", ephemeral=True
+                f"❌ Failed to add courses: {res}", ephemeral=True
             )
             return
 
         await interaction.response.send_message(
-            f"✅ New course **{data['name']}** added successfully!",
+            f"✅ Added **{base_name} Easy** and **{base_name} Hard** with separate ratings!",
             ephemeral=True
         )
+
 
 
 class SetCourseRatingModal(discord.ui.Modal, title="Set Course Ratings"):
@@ -2487,7 +2546,7 @@ async def add_course(interaction: discord.Interaction):
 
 @tree.command(
     name="set_course_rating",
-    description="Admin: Update course and slope rating via dropdown"
+    description="Admin: Update course and slope rating via paginated dropdown"
 )
 @discord.app_commands.checks.has_permissions(administrator=True)
 async def set_course_rating(interaction: discord.Interaction):
@@ -2498,14 +2557,46 @@ async def set_course_rating(interaction: discord.Interaction):
         await interaction.followup.send("❌ No courses found.", ephemeral=True)
         return
 
+    # ✅ Provide a custom callback for this use-case:
     async def on_select(inter: discord.Interaction, course_id):
-        selected = next(c for c in res.data if str(c["id"]) == course_id)
+        selected = next((c for c in res.data if str(c["id"]) == course_id), None)
+        if not selected:
+            await inter.response.send_message("❌ Course not found.", ephemeral=True)
+            return
+
         await inter.response.send_modal(SetCourseRatingModal(selected))
 
-    view = CourseSelectView(res.data, on_select)
-    await interaction.followup.send("🎯 Pick a course to update:", view=view, ephemeral=True)
+    # ✅ Monkey-patch your view with this callback:
+    class SetRatingPaginatedCourseSelect(PaginatedCourseSelect):
+        async def callback(self, interaction: discord.Interaction):
+            course_id = self.values[0]
+            await on_select(interaction, course_id)
 
+    class SetRatingPaginatedCourseView(PaginatedCourseView):
+        def update_children(self):
+            self.clear_items()
+            start = self.page * self.per_page
+            end = start + self.per_page
+            page_courses = self.courses[start:end]
 
+            options = [
+                discord.SelectOption(label=c["name"], value=str(c["id"]))
+                for c in page_courses
+            ]
+            self.add_item(SetRatingPaginatedCourseSelect(options, self))
+
+            if self.page > 0:
+                self.add_item(self.PrevButton(self))
+            if end < len(self.courses):
+                self.add_item(self.NextButton(self))
+
+    view = SetRatingPaginatedCourseView(res.data)
+    msg = await interaction.followup.send(
+        "🎯 Pick a course to update:",
+        view=view,
+        ephemeral=True
+    )
+    view.message = await msg
 
 
 @bot.event
