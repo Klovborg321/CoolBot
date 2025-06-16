@@ -1623,7 +1623,7 @@ async def init_singles(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
     # Create the button
-    await start_new_game_button(interaction.channel, "singles", max_players=2)
+    await start_new_game_button(interaction.channel, "singles", max_players=max_players)
 
     # Send confirmation to the user
     await interaction.followup.send(
