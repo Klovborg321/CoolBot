@@ -414,13 +414,17 @@ class BettingButtonDropdown(discord.ui.Button):
 
 
 class GameView(discord.ui.View):
-    def __init__(self, game_type, creator, max_players=None):
+    def __init__(self, game_type, creator):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
         self.players = [creator]
-        # Use max_players passed as argument or set it based on game_type if not provided
-        self.max_players = max_players if max_players else (2 if game_type == "singles" else 4 if game_type == "doubles" else 3)
+        # Set max_players dynamically for tournaments
+        if game_type == "tournament" and max_players is not None:
+            self.max_players = max_players
+        else:
+            # Default values for singles, doubles, etc.
+            self.max_players = 2 if game_type == "singles" else 4 if game_type == "doubles" else 3
         self.message = None
         self.betting_closed = False
         self.bets = []
@@ -1290,7 +1294,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
             return
 
         # Initialize Tournament View with max_players set dynamically
-        game_view = GameView(game_type="tournament", creator=interaction.user, max_players=count)
+        game_view = GameView(game_type="tournament", creator=interaction.user.id, max_players=count)
         embed = await game_view.build_embed(interaction.guild)
         
         # Send the game message with the updated max_players
@@ -2099,26 +2103,18 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 
 @tree.command(name="init_tournament")
 async def init_tournament(interaction: discord.Interaction):
-    # 1️⃣ Fast RAM check FIRST:
-    if pending_games["tournament"] or any(k[0] == interaction.channel.id for k in start_buttons):
-        await interaction.response.send_message(
-            "⚠️ A tournament is already pending or a button is active here.",
-            ephemeral=True
-        )
-        return
-
-    # 2️⃣ Safe: defer because View is coming
+    """Creates a tournament lobby with the start button"""
+    # Immediately defer the response so the bot can process the interaction
     await interaction.response.defer(ephemeral=True)
 
-    # 3️⃣ Create the button
+    # Create the "Start Tournament" button
     await start_new_game_button(interaction.channel, "tournament")
 
-    # 4️⃣ Confirm
+    # Confirm the action to the user
     await interaction.followup.send(
-        "✅ Tournament button posted! Click 'Start Tournament' to set up player count and begin the tournament.",
+        "✅ Click 'Start Tournament' to set up player count and begin the tournament!",
         ephemeral=True
     )
-
 
 
 @tree.command(
