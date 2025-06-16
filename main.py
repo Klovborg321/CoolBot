@@ -240,26 +240,13 @@ def player_display(user_id, data):
     return f"<@{user_id}> | Rank: {player['rank']} | Trophies: {player['trophies']}"
 
 async def start_new_game_button(channel, game_type, max_players=None):
-    key = (channel.id, game_type)
-    old = start_buttons.get(key)
-
-    if old:
-        try:
-            await old.delete()
-        except discord.NotFound:
-            pass
-
     if game_type == "tournament":
         # For tournament, we create the Start Tournament button
         view = TournamentStartButtonView()
-        msg = await channel.send("🎮 Click to start a new tournament:", view=view)
+        await channel.send("🎮 Click to start a new tournament:", view=view)
     else:
-        # For other game types, create the GameJoinView with max_players passed
-        view = GameJoinView(game_type, max_players)
-        msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
-
-    start_buttons[key] = msg
-    return msg  # ✅ return it!
+        view = GameJoinView(game_type)
+        await channel.send(content=f"🎮 Start a new {game_type} game:", view=view)
 
 
 
@@ -1624,37 +1611,26 @@ async def submit_score(interaction: discord.Interaction):
 async def init_singles(interaction: discord.Interaction):
     """Creates a singles game lobby with the start button"""
     
-    # 1️⃣ Fast RAM check FIRST:
-    if pending_games["singles"] or any(k[0] == interaction.channel.id for k in start_buttons):
+    # Fast check if a game is already pending
+    if pending_games.get("singles") or any(k[0] == interaction.channel.id for k in start_buttons):
         await interaction.response.send_message(
             "⚠️ A singles game is already pending or a button is active here.",
             ephemeral=True
         )
         return
 
-    # 2️⃣ Safe: defer because View is coming
+    # Defer the interaction to show the response is in progress
     await interaction.response.defer(ephemeral=True)
 
-    # 3️⃣ Create the button
-    await start_new_game_button(interaction.channel, "singles")
+    # Create the button
+    await start_new_game_button(interaction.channel, "singles", max_players=2)
 
-    max_players = 2
-
-    # 4️⃣ Create the GameView with max_players set to 2 for singles
-    game_view = GameView(game_type="singles", creator=interaction.user.id, max_players=max_players)
-
-    # 5️⃣ Send the GameView to the channel
-    embed = await game_view.build_embed(interaction.guild)  # Build embed to send to the channel
-    game_view.message = await interaction.channel.send(embed=embed, view=game_view)  # Send the message with the game view
-
-    # 6️⃣ Store the game view in pending games
-    pending_games["singles"] = game_view
-
-    # 7️⃣ Send confirmation
+    # Send confirmation to the user
     await interaction.followup.send(
         "✅ Singles game button posted and ready for players to join!",
         ephemeral=True
     )
+
 
 
 async def init_doubles(interaction: discord.Interaction):
