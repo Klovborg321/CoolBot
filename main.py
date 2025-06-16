@@ -2012,17 +2012,23 @@ async def handicap_index(interaction: discord.Interaction, user: discord.User = 
     description="See all your submitted scores and handicap differentials"
 )
 async def my_handicaps(interaction: discord.Interaction, user: discord.User = None):
+    # ⏱️ Defer immediately, before anything slow
     await interaction.response.defer(ephemeral=True)
 
+    # Now safe to do slow things
     target = user or interaction.user
 
-    res = await run_db(lambda: supabase
-        .table("handicaps")
-        .select("*")
-        .eq("player_id", str(target.id))
-        .order("score")
-        .execute()
-    )
+    try:
+        res = await run_db(lambda: supabase
+            .table("handicaps")
+            .select("*")
+            .eq("player_id", str(target.id))
+            .order("score")
+            .execute()
+        )
+    except Exception as e:
+        await interaction.followup.send(f"❌ Database error: {e}", ephemeral=True)
+        return
 
     if not res.data:
         await interaction.followup.send(f"❌ No scores found for {target.display_name}.", ephemeral=True)
@@ -2046,6 +2052,7 @@ async def my_handicaps(interaction: discord.Interaction, user: discord.User = No
         )
 
     await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 @tree.command(
     name="handicap_leaderboard",
