@@ -477,105 +477,105 @@ class GameView(discord.ui.View):
             await clear_pending_game(self.game_type)
 
     async def build_embed(self, guild=None, winner=None):
-    embed = discord.Embed(
-        title=f"🎮 {self.game_type.title()} Match Lobby",
-        description="Awaiting players for a new match...",
-        color=discord.Color.orange() if not winner else discord.Color.dark_gray()
-    )
-    embed.set_author(
-        name="LEAGUE OF EXTRAORDINARY MISFITS",
-        icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
-    )
-    embed.timestamp = discord.utils.utcnow()
+        embed = discord.Embed(
+            title=f"🎮 {self.game_type.title()} Match Lobby",
+            description="Awaiting players for a new match...",
+            color=discord.Color.orange() if not winner else discord.Color.dark_gray()
+        )
+        embed.set_author(
+            name="LEAGUE OF EXTRAORDINARY MISFITS",
+            icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
+        )
+        embed.timestamp = discord.utils.utcnow()
 
-    # ✅ Get player ranks
-    ranks = []
-    for p in self.players:
-        pdata = await get_player(p)
-        ranks.append(pdata.get("rank", 1000))
+        # ✅ Get player ranks
+        ranks = []
+        for p in self.players:
+            pdata = await get_player(p)
+            ranks.append(pdata.get("rank", 1000))
 
-    game_full = len(self.players) == self.max_players
+        game_full = len(self.players) == self.max_players
 
-    # ✅ Precompute odds for doubles / ffa
-    odds = []
-    if self.game_type == "doubles" and game_full:
-        e1 = sum(ranks[:2]) / 2
-        e2 = sum(ranks[2:]) / 2
-        odds_a = 1 / (1 + 10 ** ((e2 - e1) / 400))
-        odds_b = 1 - odds_a
-    elif self.game_type in ("triples", "tournament") and game_full:
-        sum_exp = sum([10 ** (e / 400) for e in ranks])
-        odds = [(10 ** (e / 400)) / sum_exp for e in ranks]
+        # ✅ Precompute odds for doubles / ffa
+        odds = []
+        if self.game_type == "doubles" and game_full:
+            e1 = sum(ranks[:2]) / 2
+            e2 = sum(ranks[2:]) / 2
+            odds_a = 1 / (1 + 10 ** ((e2 - e1) / 400))
+            odds_b = 1 - odds_a
+        elif self.game_type in ("triples", "tournament") and game_full:
+            sum_exp = sum([10 ** (e / 400) for e in ranks])
+            odds = [(10 ** (e / 400)) / sum_exp for e in ranks]
 
-    # ✅ Players section
-    player_lines = []
+        # ✅ Players section
+        player_lines = []
 
-    if self.game_type == "doubles":
-        player_lines.append("\u200b")
-        label = "__**🅰️ Team A**__"
-        if game_full:
-            label += f" • {odds_a * 100:.1f}%"
-        player_lines.append(label)
-
-    for idx in range(self.max_players):
-        if idx < len(self.players):
-            user_id = self.players[idx]
-            member = guild.get_member(user_id) if guild else None
-            name = f"**{member.display_name}**" if member else f"**User {user_id}**"
-            rank = ranks[idx]
-
-            if self.game_type == "singles" and game_full:
-                e1, e2 = ranks
-                o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
-                player_odds = o1 if idx == 0 else 1 - o1
-                line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%"
-
-            elif self.game_type in ("triples", "tournament") and game_full:
-                line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%"
-
-            else:
-                line = f"● Player {idx + 1}: {name} 🏆 ({rank})"
-
-        else:
-            line = f"○ Player {idx + 1}: [Waiting...]"
-
-        player_lines.append(line)
-
-        if self.game_type == "doubles" and idx == 1:
+        if self.game_type == "doubles":
             player_lines.append("\u200b")
-            label = "__**🅱️ Team B**__"
+            label = "__**🅰️ Team A**__"
             if game_full:
-                label += f" • {odds_b * 100:.1f}%"
+                label += f" • {odds_a * 100:.1f}%"
             player_lines.append(label)
 
-    embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
+        for idx in range(self.max_players):
+            if idx < len(self.players):
+                user_id = self.players[idx]
+                member = guild.get_member(user_id) if guild else None
+                name = f"**{member.display_name}**" if member else f"**User {user_id}**"
+                rank = ranks[idx]
 
-    # ✅ Footer for winner
-    if winner == "draw":
-        embed.set_footer(text="🎮 Game has ended. Result: 🤝 Draw")
-    elif isinstance(winner, int):
-        member = guild.get_member(winner) if guild else None
-        winner_name = member.display_name if member else f"User {winner}"
-        embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
-    elif winner in ("Team A", "Team B"):
-        embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}")
+                if self.game_type == "singles" and game_full:
+                    e1, e2 = ranks
+                    o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
+                    player_odds = o1 if idx == 0 else 1 - o1
+                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%"
 
-    # ✅ Bets
-    if self.bets:
-        bet_lines = []
-        for _, uname, amt, ch in self.bets:
-            if self.game_type == "singles":
-                label = "Player 1" if ch == "1" else "Player 2"
-            elif self.game_type == "doubles":
-                label = "Team A" if ch.upper() == "A" else "Team B"
-            elif self.game_type in ("triples", "tournament"):
-                label = f"Player {ch}"
+                elif self.game_type in ("triples", "tournament") and game_full:
+                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%"
+
+                else:
+                    line = f"● Player {idx + 1}: {name} 🏆 ({rank})"
+
             else:
-                label = ch
-            bet_lines.append(f"💰 {uname} bet {amt} on {label}")
-        embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
+                line = f"○ Player {idx + 1}: [Waiting...]"
 
-    return embed
+            player_lines.append(line)
+
+            if self.game_type == "doubles" and idx == 1:
+                player_lines.append("\u200b")
+                label = "__**🅱️ Team B**__"
+                if game_full:
+                    label += f" • {odds_b * 100:.1f}%"
+                player_lines.append(label)
+
+        embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
+
+        # ✅ Footer for winner
+        if winner == "draw":
+            embed.set_footer(text="🎮 Game has ended. Result: 🤝 Draw")
+        elif isinstance(winner, int):
+            member = guild.get_member(winner) if guild else None
+            winner_name = member.display_name if member else f"User {winner}"
+            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
+        elif winner in ("Team A", "Team B"):
+            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}")
+
+        # ✅ Bets
+        if self.bets:
+            bet_lines = []
+            for _, uname, amt, ch in self.bets:
+                if self.game_type == "singles":
+                    label = "Player 1" if ch == "1" else "Player 2"
+                elif self.game_type == "doubles":
+                    label = "Team A" if ch.upper() == "A" else "Team B"
+                elif self.game_type in ("triples", "tournament"):
+                    label = f"Player {ch}"
+                else:
+                    label = ch
+                bet_lines.append(f"💰 {uname} bet {amt} on {label}")
+            embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
+
+        return embed
 
 
 
