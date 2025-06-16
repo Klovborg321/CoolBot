@@ -1622,6 +1622,8 @@ async def submit_score(interaction: discord.Interaction):
 
 @tree.command(name="init_singles")
 async def init_singles(interaction: discord.Interaction):
+    """Creates a singles game lobby with the start button"""
+    
     # 1️⃣ Fast RAM check FIRST:
     if pending_games["singles"] or any(k[0] == interaction.channel.id for k in start_buttons):
         await interaction.response.send_message(
@@ -1636,11 +1638,15 @@ async def init_singles(interaction: discord.Interaction):
     # 3️⃣ Create the button
     await start_new_game_button(interaction.channel, "singles")
 
-    # 4️⃣ Confirm
+    # 4️⃣ Create the GameView with max_players set to 2 for singles
+    game_view = GameView(game_type="singles", creator=interaction.user.id, max_players=2)
+
+    # 5️⃣ Send confirmation
     await interaction.followup.send(
-        "✅ Singles game button posted!",
+        "✅ Singles game button posted and ready for players to join!",
         ephemeral=True
     )
+
 
 
 @tree.command(name="init_doubles")
@@ -1657,11 +1663,41 @@ async def init_doubles(interaction: discord.Interaction):
     await interaction.followup.send(
         "✅ Doubles game button posted!",
         ephemeral=True
+    )@tree.command(name="init_doubles")
+
+
+async def init_doubles(interaction: discord.Interaction):
+    """Creates a doubles game lobby with the start button"""
+    
+    # 1️⃣ Fast RAM check FIRST:
+    if pending_games["doubles"] or any(k[0] == interaction.channel.id for k in start_buttons):
+        await interaction.response.send_message(
+            "⚠️ A doubles game is already pending or a button is active here.",
+            ephemeral=True
+        )
+        return
+
+    # 2️⃣ Safe: defer because View is coming
+    await interaction.response.defer(ephemeral=True)
+
+    # 3️⃣ Create the button
+    await start_new_game_button(interaction.channel, "doubles")
+
+    # 4️⃣ Create the GameView with max_players set to 2 for doubles
+    game_view = GameView(game_type="doubles", creator=interaction.user.id, max_players=2)
+
+    # 5️⃣ Send confirmation
+    await interaction.followup.send(
+        "✅ Doubles game button posted and ready for players to join!",
+        ephemeral=True
     )
 
 
-@tree.command(name="init_triples")
+
 async def init_triples(interaction: discord.Interaction):
+    """Creates a doubles game lobby with the start button"""
+    
+    # 1️⃣ Fast RAM check FIRST:
     if pending_games["triples"] or any(k[0] == interaction.channel.id for k in start_buttons):
         await interaction.response.send_message(
             "⚠️ A triples game is already pending or a button is active here.",
@@ -1669,10 +1705,18 @@ async def init_triples(interaction: discord.Interaction):
         )
         return
 
+    # 2️⃣ Safe: defer because View is coming
     await interaction.response.defer(ephemeral=True)
+
+    # 3️⃣ Create the button
     await start_new_game_button(interaction.channel, "triples")
+
+    # 4️⃣ Create the GameView with max_players set to 2 for triples
+    game_view = GameView(game_type="triples", creator=interaction.user.id, max_players=2)
+
+    # 5️⃣ Send confirmation
     await interaction.followup.send(
-        "✅ Triples game button posted!",
+        "✅ Triples game button posted and ready for players to join!",
         ephemeral=True
     )
 
@@ -2102,7 +2146,7 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 
 
 @tree.command(name="init_tournament")
-async def init_singles(interaction: discord.Interaction):
+async def init_tournament(interaction: discord.Interaction):
     # 1️⃣ Fast RAM check FIRST:
     if pending_games["tournament"] or any(k[0] == interaction.channel.id for k in start_buttons):
         await interaction.response.send_message(
