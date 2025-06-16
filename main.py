@@ -414,7 +414,7 @@ class BettingButtonDropdown(discord.ui.Button):
 
 
 class GameView(discord.ui.View):
-    def __init__(elf, game_type, creator, max_players):
+    def __init__(self, game_type, creator, max_players):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
