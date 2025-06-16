@@ -1114,28 +1114,35 @@ class TournamentView(discord.ui.View):
         self.add_item(LeaveGameButton(self))
 
     async def abandon_tournament(self, reason):
+        """Handle abandonment of the tournament"""
         global pending_game
         pending_games["tournament"] = None
 
+        # Deactivate all players
         for p in self.players:
             player_manager.deactivate(p)
 
+        # Update the tournament message
         embed = discord.Embed(
             title="❌ Tournament Abandoned",
             description=reason,
             color=discord.Color.red()
         )
-        await self.message.edit(embed=embed, view=None)
+        if self.message:
+            await self.message.edit(embed=embed, view=None)
 
+        # Reset the state for new games
         await start_new_game_button(self.message.channel, "tournament")
 
     async def abandon_if_not_filled(self):
-        await asyncio.sleep(300)
+        """Abandon the tournament if it isn't filled within 5 minutes"""
+        await asyncio.sleep(300)  # Wait for 5 minutes
         if len(self.players) < self.max_players:
             await self.abandon_tournament("⏰ Tournament timed out due to inactivity.")
             await clear_pending_game("tournament")
 
     async def build_embed(self, guild=None):
+        """Build the embed to display in the tournament lobby."""
         embed = discord.Embed(
             title=f"🏆 Tournament Lobby",
             description="Players joining the tournament...",
@@ -1163,6 +1170,7 @@ class TournamentView(discord.ui.View):
         return embed
 
     async def update_message(self):
+        """Update the tournament lobby message"""
         if self.message:
             embed = await self.build_embed(self.message.guild)
             to_remove = [item for item in self.children if isinstance(item, LeaveGameButton)]
@@ -1174,6 +1182,7 @@ class TournamentView(discord.ui.View):
 
     @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handles player joining the tournament"""
         if interaction.user.id in self.players:
             await interaction.response.send_message("✅ You already joined.", ephemeral=True)
             return
@@ -1184,6 +1193,7 @@ class TournamentView(discord.ui.View):
             await interaction.response.send_message("🚫 You’re already in another game.", ephemeral=True)
             return
 
+        # Activate player and add them to the players list
         player_manager.activate(interaction.user.id)
         self.players.append(interaction.user.id)
         await self.update_message()
@@ -1194,6 +1204,7 @@ class TournamentView(discord.ui.View):
             await self.tournament_full(interaction)
 
     async def tournament_full(self, interaction):
+        """Trigger when the tournament is full and ready to start"""
         global pending_game
         self.clear_items()
         if self.abandon_task:
@@ -1202,10 +1213,11 @@ class TournamentView(discord.ui.View):
         await start_new_game_button(self.message.channel, "tournament")
         pending_games["tournament"] = None
 
-        # Here you can build & start bracket threads or phases:
+        # Build and start the tournament logic
         await self.start_tournament(interaction)
 
     async def start_tournament(self, interaction):
+        """Starts the tournament and triggers the game logic"""
         embed = discord.Embed(
             title="🏁 Tournament Started!",
             description="Bracket generation and matches will begin shortly.",
@@ -1213,7 +1225,7 @@ class TournamentView(discord.ui.View):
         )
         await self.message.edit(embed=embed, view=None)
 
-        # ✅ Example: Call your Tournament logic here:
+        # Trigger your Tournament logic here
         tourney = Tournament(
             host_id=self.creator,
             players=self.players,
