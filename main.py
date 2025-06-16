@@ -1122,7 +1122,7 @@ class TournamentView(discord.ui.View):
         self.message = None
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
         self.bets = []  # Store bets for the tournament
-        self.add_item(LeaveGameButton(self))
+        self.leave_button_added = False  # Flag to track if the leave button has been added
 
     async def abandon_tournament(self, reason):
         """Handle abandonment of the tournament"""
@@ -1187,11 +1187,16 @@ class TournamentView(discord.ui.View):
         """Update the tournament message."""
         if self.message:
             embed = await self.build_embed(self.message.guild)
-            to_remove = [item for item in self.children if isinstance(item, LeaveGameButton)]
-            for item in to_remove:
-                self.remove_item(item)
-            if len(self.players) < self.max_players:
+            # Add the Leave button only if there are players
+            if len(self.players) > 0 and not self.leave_button_added:
                 self.add_item(LeaveGameButton(self))
+                self.leave_button_added = True
+            elif len(self.players) == 0 and self.leave_button_added:
+                # Remove the Leave button if no players have joined
+                to_remove = [item for item in self.children if isinstance(item, LeaveGameButton)]
+                for item in to_remove:
+                    self.remove_item(item)
+                self.leave_button_added = False
             await self.message.edit(embed=embed, view=self)
 
     @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success)
