@@ -2169,24 +2169,17 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 @tree.command(name="init_tournament")
 async def init_tournament(interaction: discord.Interaction):
     """Creates a tournament lobby with the start button"""
-    # Defer the response immediately so the interaction is acknowledged within the timeout period
+    # Immediately defer the response so the bot can process the interaction
     await interaction.response.defer(ephemeral=True)
 
-    try:
-        # Create the "Start Tournament" button
-        await start_new_game_button(interaction.channel, "tournament")
+    # Create the "Start Tournament" button
+    await start_new_game_button(interaction.channel, "tournament")
 
-        # Confirm the action to the user with a follow-up message
-        await interaction.followup.send(
-            "✅ Tournament lobby created. Click 'Start Tournament' to set up player count and begin the tournament!",
-            ephemeral=True
-        )
-    except Exception as e:
-        # In case something goes wrong, send an error message to the user
-        await interaction.followup.send(
-            f"❌ Error: {str(e)}",
-            ephemeral=True
-        )
+    # Confirm the action to the user
+    await interaction.followup.send(
+        "✅ Tournament lobby created. Click 'Start Tournament' to set up player count and begin the tournament!",
+        ephemeral=True
+    )
 
 
 @tree.command(
