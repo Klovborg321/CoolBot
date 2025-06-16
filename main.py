@@ -1760,13 +1760,13 @@ class SetCourseRatingModal(discord.ui.Modal, title="Set Course Ratings"):
         self.rating = discord.ui.TextInput(
             label="Course Rating",
             placeholder="e.g. 72.5",
-            default=str(course.get("rating", ""))
+            default=str(course.get("rating") or "72.0")
         )
         self.slope_rating = discord.ui.TextInput(
-            label="Slope Rating",
-            placeholder="e.g. 113.0",
-            default=str(course.get("slope_rating", ""))
-        )
+        label="Slope Rating",
+        placeholder="e.g. 113.0",
+        default=str(course.get("slope_rating") or "113.0")
+)
         self.add_item(self.rating)
         self.add_item(self.slope_rating)
 
