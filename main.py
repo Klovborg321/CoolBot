@@ -1641,7 +1641,7 @@ async def init_singles(interaction: discord.Interaction):
     max_players = 2
 
     # 4️⃣ Create the GameView with max_players set to 2 for singles
-    game_view = GameView(game_type="singles", creator=interaction.user.id, max_players)
+    game_view = GameView(game_type="singles", creator=interaction.user.id, max_players=max_players)
 
     # 5️⃣ Send confirmation
     await interaction.followup.send(
@@ -1669,7 +1669,7 @@ async def init_doubles(interaction: discord.Interaction):
 
     max_players = 4
     # 4️⃣ Create the GameView with max_players set to 2 for doubles
-    game_view = GameView(game_type="doubles", creator=interaction.user.id, max_players)
+    game_view = GameView(game_type="doubles", creator=interaction.user.id, max_players=max_players)
 
     # 5️⃣ Send confirmation
     await interaction.followup.send(
