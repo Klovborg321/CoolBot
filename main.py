@@ -414,17 +414,13 @@ class BettingButtonDropdown(discord.ui.Button):
 
 
 class GameView(discord.ui.View):
-    def __init__(self, game_type, creator):
+    def __init__(self, game_type, creator, max_players=None):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
         self.players = [creator]
-        # Set max_players dynamically for tournaments
-        if game_type == "tournament" and max_players is not None:
-            self.max_players = max_players
-        else:
-            # Default values for singles, doubles, etc.
-            self.max_players = 2 if game_type == "singles" else 4 if game_type == "doubles" else 3
+        # Use max_players passed as argument or set it based on game_type if not provided
+        self.max_players = max_players if max_players else (2 if game_type == "singles" else 4 if game_type == "doubles" else 3)
         self.message = None
         self.betting_closed = False
         self.bets = []
