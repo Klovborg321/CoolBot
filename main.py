@@ -46,7 +46,7 @@ games = {}
 pending_games = {
     "singles": None,
     "doubles": None,
-    "triples": None
+    "triples": None,
     "tournament": None
 }
 
