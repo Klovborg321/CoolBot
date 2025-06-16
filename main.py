@@ -250,11 +250,8 @@ async def start_new_game_button(channel, game_type):
             pass
 
     if game_type == "tournament":
-        # Example: dynamically set max_players
-        # Here, you can pass the number of players to the TournamentView (e.g., set to 8 for now or let the creator define it)
-        max_players = 8  # Set to your desired number, or use some dynamic logic here
-        
-        view = TournamentView(creator=channel.guild.owner, max_players=max_players)  # Example: max_players can be set dynamically
+        # For tournament, use the TournamentStartButton to prompt for player selection first
+        view = TournamentView(creator=channel.guild.owner, max_players=None)  # max_players will be set later
         msg = await channel.send(f"🎮 Start a new {game_type} tournament:", view=view)
     else:
         # For other game types, continue using the GameJoinView
@@ -263,7 +260,6 @@ async def start_new_game_button(channel, game_type):
 
     start_buttons[key] = msg
     return msg  # ✅ return it!
-
 
 
 async def show_betting_phase(self):
@@ -1125,7 +1121,7 @@ class TournamentView(discord.ui.View):
         self.message = None
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
         self.bets = []  # Store bets for the tournament
-        self.leave_button_added = False  # Flag to track if the leave button has been added
+        self.add_item(LeaveGameButton(self))  # Leave button will be added once players have joined
 
     async def abandon_tournament(self, reason):
         """Handle abandonment of the tournament"""
@@ -1190,17 +1186,18 @@ class TournamentView(discord.ui.View):
         """Update the tournament message."""
         if self.message:
             embed = await self.build_embed(self.message.guild)
-            # Add the Leave button only if there are players
-            if len(self.players) > 0 and not self.leave_button_added:
+            to_remove = [item for item in self.children if isinstance(item, LeaveGameButton)]
+            for item in to_remove:
+                self.remove_item(item)
+            if len(self.players) < self.max_players:
                 self.add_item(LeaveGameButton(self))
-                self.leave_button_added = True
-            elif len(self.players) == 0 and self.leave_button_added:
-                # Remove the Leave button if no players have joined
-                to_remove = [item for item in self.children if isinstance(item, LeaveGameButton)]
-                for item in to_remove:
-                    self.remove_item(item)
-                self.leave_button_added = False
             await self.message.edit(embed=embed, view=self)
+
+    @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary)
+    async def start_tournament(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """When the button is clicked, open the modal to enter the number of players"""
+        # Show the modal to select the number of players
+        await interaction.response.send_modal(PlayerCountModal(self))  # Modal to select player count
 
     @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -1235,9 +1232,9 @@ class TournamentView(discord.ui.View):
         pending_games["tournament"] = None
 
         # Start tournament after betting phase
-        await self.start_tournament(interaction)
+        await self.start_tournament_logic(interaction)
 
-    async def start_tournament(self, interaction):
+    async def start_tournament_logic(self, interaction):
         """Start the tournament logic"""
         embed = discord.Embed(
             title="🏁 Tournament Started!",
@@ -1263,6 +1260,36 @@ class TournamentView(discord.ui.View):
         self.betting_closed = True
         self.clear_items()
         await self.update_message()
+
+
+class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
+    def __init__(self, tournament_view):
+        super().__init__()
+        self.tournament_view = tournament_view
+        self.player_count = discord.ui.TextInput(
+            label="Enter the number of players (e.g., 2, 4, 8, etc.)",
+            placeholder="2, 4, 8...",
+            max_length=2
+        )
+        self.add_item(self.player_count)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        """Submit the number of players"""
+        try:
+            count = int(self.player_count.value.strip())
+            if count < 2 or (count & (count - 1)) != 0:  # Must be a power of 2
+                raise ValueError("Invalid player count. Must be a power of 2.")
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid player count. Must be a power of 2.", ephemeral=True)
+            return
+
+        # Set the max players for the tournament view
+        self.tournament_view.max_players = count
+        await self.tournament_view.update_message()
+
+        # Notify the user
+        await interaction.response.send_message(f"✅ Tournament will have **{count} players**!", ephemeral=True)
+
 
 
 class TournamentStartButton(discord.ui.Button):
@@ -2142,17 +2169,24 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 @tree.command(name="init_tournament")
 async def init_tournament(interaction: discord.Interaction):
     """Creates a tournament lobby with the start button"""
-    # Defer the response so the bot can process the interaction
+    # Defer the response immediately so the interaction is acknowledged within the timeout period
     await interaction.response.defer(ephemeral=True)
 
-    # Create the "Start Tournament" button without the Leave Game button
-    await start_new_game_button(interaction.channel, "tournament")
+    try:
+        # Create the "Start Tournament" button
+        await start_new_game_button(interaction.channel, "tournament")
 
-    # Confirm the action to the user
-    await interaction.followup.send(
-        "✅ Tournament lobby created. Click 'Start Tournament' to set up player count and begin the tournament!",
-        ephemeral=True
-    )
+        # Confirm the action to the user with a follow-up message
+        await interaction.followup.send(
+            "✅ Tournament lobby created. Click 'Start Tournament' to set up player count and begin the tournament!",
+            ephemeral=True
+        )
+    except Exception as e:
+        # In case something goes wrong, send an error message to the user
+        await interaction.followup.send(
+            f"❌ Error: {str(e)}",
+            ephemeral=True
+        )
 
 
 @tree.command(
