@@ -1338,31 +1338,34 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
     def __init__(self):
         super().__init__()
         self.player_count = discord.ui.TextInput(
-            label="Enter the number of players (4, 8, 16...)",
-            placeholder="4, 8, 16...",
-            max_length=4
+            label="Number of Players (4, 8, 16...)", placeholder="Enter a power of 2", max_length=4
         )
         self.add_item(self.player_count)
 
     async def on_submit(self, interaction: discord.Interaction):
-        """Submit the number of players"""
         try:
             count = int(self.player_count.value.strip())
-            if count < 4 or (count & (count - 1)) != 0:  # Must be a power of 4
-                raise ValueError("Invalid player count. Must be a power of 4.")
+            # Power of 2 check for bracket structure
+            if count < 2 or (count & (count - 1)) != 0:
+                raise ValueError()
         except ValueError:
-            await interaction.response.send_message("❌ Invalid player count. Must be a power of 4.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ Invalid number. Must be a power of 2 (e.g. 4, 8, 16).",
+                ephemeral=True
+            )
             return
 
-        # Initialize Tournament View with max_players set dynamically
-        game_view = GameView(game_type="tournament", creator=interaction.user.id, max_players=count)
-        embed = await game_view.build_embed(interaction.guild)
-        
-        # Send the game message with the updated max_players
-        game_view.message = await interaction.channel.send(embed=embed, view=game_view)
+        # ✅ Spawn the lobby as a singles-style join lobby with your custom count
+        await start_new_game_button(
+            interaction.channel,
+            game_type="tournament",  # use custom type
+            max_players=count
+        )
 
-        await interaction.response.send_message(f"✅ Tournament will have **{count} players**! Players can now join.", ephemeral=True)
-
+        await interaction.response.send_message(
+            f"✅ Tournament lobby created for **{count} players**. Players can now join!",
+            ephemeral=True
+        )
 
 class Tournament:
     def __init__(self, host_id, players, channel, game_type="singles"):
@@ -2390,7 +2393,7 @@ async def init_tournament(interaction: discord.Interaction):
     max_players = 4
 
     # Create the button
-    await start_new_game_button(interaction.channel, "singles", max_players=max_players)
+    await start_new_game_button(interaction.channel, "tournament", max_players=max_players)
 
     # Send confirmation to the user
     await interaction.followup.send(
