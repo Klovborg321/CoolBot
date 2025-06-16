@@ -932,7 +932,7 @@ class RoomView(discord.ui.View):
 
         self.voting_closed = True
 
-        # ✅ DRAW CASE — refund stake!
+        # ✅ DRAW CASE — refund bets
         if winner == "draw":
             for p in self.players:
                 pdata = await get_player(p)
@@ -942,9 +942,7 @@ class RoomView(discord.ui.View):
                 await save_player(p, pdata)
 
             for uid, uname, amount, choice in self.game_view.bets:
-                # Refund the original stake
                 await add_credits_internal(uid, amount)
-                # Mark bet as neutral (no win/loss)
                 await run_db(lambda: supabase
                     .table("bets")
                     .update({"won": None})
@@ -969,16 +967,23 @@ class RoomView(discord.ui.View):
             await self.message.channel.edit(archived=True)
             return
 
-        # ✅ WINNER CASE — update stats
+        # ✅ 1️⃣ Player stats — only actual participants
         for p in self.players:
             pdata = await get_player(p)
             pdata["games_played"] += 1
 
-            is_winner = (
-                winner == p
-                or (winner == "Team A" and p in self.players[:2])
-                or (winner == "Team B" and p in self.players[2:])
-            )
+            # ✅ Correct winner logic per mode
+            if self.game_type == "singles":
+                is_winner = (winner == p)
+            elif self.game_type == "doubles":
+                is_winner = (
+                    (winner == "Team A" and p in self.players[:2]) or
+                    (winner == "Team B" and p in self.players[2:])
+                )
+            elif self.game_type == "triples":
+                is_winner = (winner == p)
+            else:
+                is_winner = False
 
             if is_winner:
                 pdata["rank"] += 10
@@ -993,14 +998,16 @@ class RoomView(discord.ui.View):
 
             await save_player(p, pdata)
 
-        # ✅ Resolve bets
+        # ✅ 2️⃣ Bets — resolve separately, never mix with players
         for uid, uname, amount, choice in self.game_view.bets:
-            won = False
-
             if self.game_type == "singles":
                 winner_id = winner if isinstance(winner, int) else None
-                won = (choice == "1" and self.players[0] == winner_id) or (choice == "2" and self.players[1] == winner_id)
+                won = (
+                    (choice == "1" and self.players[0] == winner_id) or
+                    (choice == "2" and self.players[1] == winner_id)
+                )
             elif self.game_type == "doubles":
+                # ✅ Only compare winner team vs bet choice
                 won = winner == choice.upper()
             elif self.game_type == "triples":
                 try:
@@ -1008,8 +1015,9 @@ class RoomView(discord.ui.View):
                     won = self.players[index] == winner
                 except:
                     won = False
+            else:
+                won = False
 
-            # Mark win/loss in bets table
             await run_db(lambda: supabase
                 .table("bets")
                 .update({"won": won})
@@ -1022,14 +1030,13 @@ class RoomView(discord.ui.View):
             if won:
                 odds = await self.game_view.get_odds(choice)
                 profit = int(amount / odds) if odds > 0 else amount
-                payout = profit + amount  # profit + stake back
+                payout = profit + amount
                 await add_credits_internal(uid, payout)
                 print(f"💰 {uname} won! Payout: {payout} (bet {amount}, profit {profit})")
             else:
-                # Lost — stake was already deducted at bet time
                 print(f"❌ {uname} lost {amount} (stake was upfront)")
 
-        # ✅ Announce winner
+        # ✅ 3️⃣ Announce winner
         if isinstance(winner, int):
             member = self.message.guild.get_member(winner)
             winner_name = member.display_name if member else f"User {winner}"
