@@ -1522,17 +1522,22 @@ class PaginatedCourseView(discord.ui.View):
         self.message = None
         self.update_children()
 
+    def has_options(self):
+        """True if there is at least one course total"""
+        return len(self.courses) > 0
+
     def update_children(self):
         self.clear_items()
         start = self.page * self.per_page
         end = start + self.per_page
         page_courses = self.courses[start:end]
 
-        options = [
-            discord.SelectOption(label=c["name"], value=str(c["id"]))
-            for c in page_courses
-        ]
-        self.add_item(PaginatedCourseSelect(options, self))
+        if page_courses:
+            options = [
+                discord.SelectOption(label=c["name"], value=str(c["id"]))
+                for c in page_courses
+            ]
+            self.add_item(PaginatedCourseSelect(options, self))
 
         if self.page > 0:
             self.add_item(self.PrevButton(self))
