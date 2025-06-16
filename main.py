@@ -1121,7 +1121,7 @@ class TournamentView(discord.ui.View):
         self.message = None
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
         self.bets = []  # Store bets for the tournament
-        self.add_item(LeaveGameButton(self))  # Leave button will be added once players have joined
+        self.leave_button_added = False  # Flag to track if leave button should be added
 
     async def abandon_tournament(self, reason):
         """Handle abandonment of the tournament"""
@@ -1189,8 +1189,9 @@ class TournamentView(discord.ui.View):
             to_remove = [item for item in self.children if isinstance(item, LeaveGameButton)]
             for item in to_remove:
                 self.remove_item(item)
-            if len(self.players) < self.max_players:
+            if len(self.players) < self.max_players and not self.leave_button_added:
                 self.add_item(LeaveGameButton(self))
+                self.leave_button_added = True
             await self.message.edit(embed=embed, view=self)
 
     @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary)
@@ -1289,7 +1290,6 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
 
         # Notify the user
         await interaction.response.send_message(f"✅ Tournament will have **{count} players**!", ephemeral=True)
-
 
 
 class TournamentStartButton(discord.ui.Button):
