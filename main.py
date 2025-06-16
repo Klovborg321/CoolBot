@@ -1699,7 +1699,7 @@ async def init_triples(interaction: discord.Interaction):
     max_players = 3
 
     # 4️⃣ Create the GameView with max_players set to 2 for triples
-    game_view = GameView(game_type="triples", creator=interaction.user.id, max_players)
+    game_view = GameView(game_type="triples", creator=interaction.user.id, max_players=max_players)
 
     # 5️⃣ Send confirmation
     await interaction.followup.send(
