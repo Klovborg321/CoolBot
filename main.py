@@ -1288,22 +1288,23 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
             await interaction.response.send_message("❌ Invalid player count. Must be a power of 2.", ephemeral=True)
             return
 
-        # Initialize GameView with max players set
-        game_view = GameView(game_type="tournament", creator=interaction.user)
+        # Initialize the GameView for this game type (tournament or custom)
+        game_view = GameView(game_type="tournament", creator=interaction.user)  # Use tournament as an example
         game_view.max_players = count  # Set max players based on modal input
         game_view.players = [interaction.user.id]  # Add creator as the first player
 
-        # Send a confirmation that the game is ready
-        await interaction.response.send_message(f"✅ Game will have **{count} players**! Players can now join.", ephemeral=True)
-        
+        # Send confirmation to the user about the player count
+        await interaction.response.send_message(f"✅ Tournament will have **{count} players**! Players can now join.", ephemeral=True)
+
         # Send the message for players to join, just like the other game types
         await interaction.channel.send(
             f"🎮 **Tournament started!** Players can now join. {count} players needed.",
             view=game_view
         )
 
-        # Add game to the pending games dictionary
+        # Add this game to the pending games for tracking
         pending_games["tournament"] = game_view
+
 
 
 class Tournament:
