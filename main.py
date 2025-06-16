@@ -1112,18 +1112,17 @@ class VoteButton(discord.ui.Button):
         if len(self.view_obj.votes) == len(self.view_obj.players):
             await self.view_obj.finalize_game()
 
+# Tournament View Class
+# Tournament View
 class TournamentView(discord.ui.View):
-    def __init__(self, creator, max_players=None):
+    def __init__(self, creator):
         super().__init__(timeout=None)
         self.creator = creator
         self.players = [creator]
-        self.max_players = max_players  # Set max players dynamically
+        self.max_players = None  # We’ll set this after the player count is chosen
         self.message = None
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
         self.bets = []  # Store bets for the tournament
-
-        # Only add the "Start Tournament" button when the tournament is being initialized
-        self.add_item(TournamentStartButton(self))
 
     async def abandon_tournament(self, reason):
         """Handle abandonment of the tournament"""
@@ -1188,12 +1187,13 @@ class TournamentView(discord.ui.View):
         """Update the tournament message."""
         if self.message:
             embed = await self.build_embed(self.message.guild)
-            to_remove = [item for item in self.children if isinstance(item, TournamentStartButton)]
+            to_remove = [item for item in self.children if isinstance(item, discord.ui.Button)]
             for item in to_remove:
                 self.remove_item(item)
-            # Once the tournament is full, add the Join button
+
+            # Show Join button after max players are reached
             if len(self.players) >= self.max_players:
-                self.add_item(JoinTournamentButton(self))
+                self.add_item(TournamentStartButton(self))  # Start button should appear after player count
             await self.message.edit(embed=embed, view=self)
 
     @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success)
@@ -1225,6 +1225,7 @@ class TournamentView(discord.ui.View):
         if self.abandon_task:
             self.abandon_task.cancel()
 
+        # Remove all buttons and reset game
         await start_new_game_button(self.message.channel, "tournament")
         pending_games["tournament"] = None
 
@@ -1259,36 +1260,7 @@ class TournamentView(discord.ui.View):
         await self.update_message()
 
 
-
-class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
-    def __init__(self, tournament_view):
-        super().__init__()
-        self.tournament_view = tournament_view
-        self.player_count = discord.ui.TextInput(
-            label="Enter number of players",  # Keep this label short to fit under 45 characters
-            placeholder="e.g., 2, 4, 8",
-            max_length=2
-        )
-        self.add_item(self.player_count)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            count = int(self.player_count.value.strip())
-            if count < 2 or (count & (count - 1)) != 0:  # Must be a power of 2
-                raise ValueError("Invalid player count. Must be a power of 2.")
-        except ValueError:
-            await interaction.response.send_message("❌ Invalid player count. Must be a power of 2.", ephemeral=True)
-            return
-
-        # Set the max players for the tournament view
-        self.tournament_view.max_players = count
-        await self.tournament_view.update_message()
-
-        # Notify the user
-        await interaction.response.send_message(f"✅ Tournament will have **{count} players**!", ephemeral=True)
-
-
-
+# Tournament Start Button to prompt for number of players
 class TournamentStartButton(discord.ui.Button):
     def __init__(self, tournament_view):
         super().__init__(label="Start Tournament", style=discord.ButtonStyle.primary)
@@ -1300,68 +1272,7 @@ class TournamentStartButton(discord.ui.Button):
         await interaction.response.send_modal(PlayerCountModal(self.tournament_view))  # Modal to select player count
 
 
-class JoinTournamentButton(discord.ui.Button):
-    def __init__(self, tournament_view):
-        super().__init__(label="Join Tournament", style=discord.ButtonStyle.success)
-        self.tournament_view = tournament_view
-
-    async def callback(self, interaction: discord.Interaction):
-        """Handles player joining the tournament"""
-        if interaction.user.id in self.tournament_view.players:
-            await interaction.response.send_message("✅ You already joined.", ephemeral=True)
-            return
-        if len(self.tournament_view.players) >= self.tournament_view.max_players:
-            await interaction.response.send_message("🚫 Tournament is full.", ephemeral=True)
-            return
-        if player_manager.is_active(interaction.user.id):
-            await interaction.response.send_message("🚫 You’re already in another game.", ephemeral=True)
-            return
-
-        player_manager.activate(interaction.user.id)
-        self.tournament_view.players.append(interaction.user.id)
-        await self.tournament_view.update_message()
-        await interaction.response.defer()
-
-        if len(self.tournament_view.players) == self.tournament_view.max_players:
-            await self.tournament_view.update_message()
-            await self.tournament_view.tournament_full(interaction)
-
-
-class PlayerCountModal(discord.ui.Modal, title="Enter Number of Players"):
-    def __init__(self, tournament_view):
-        super().__init__()
-        self.tournament_view = tournament_view
-
-        self.player_count = discord.ui.TextInput(
-            label="Number of players (must be a power of 2, e.g., 2, 4, 8)",
-            placeholder="Enter a number (e.g. 4)",
-            max_length=2,
-            required=True
-        )
-        self.add_item(self.player_count)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        """Submit the number of players"""
-        try:
-            count = int(self.player_count.value.strip())
-            if count < 2 or (count & (count - 1)) != 0:  # Must be a power of 2
-                raise ValueError("Invalid player count. Must be a power of 2.")
-        except ValueError as e:
-            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
-            return
-
-        # Set the player count for the tournament
-        self.tournament_view.max_players = count
-
-        # Update the tournament view with the number of players
-        await self.tournament_view.update_message()
-
-        # Notify the user
-        await interaction.response.send_message(f"✅ Tournament set to **{count}** players!", ephemeral=True)
-
-
-
-# Modal to let the host choose the number of players
+# Modal for player count selection
 class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
     def __init__(self, tournament_view):
         super().__init__()
@@ -1389,7 +1300,6 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
 
         # Notify the user
         await interaction.response.send_message(f"✅ Tournament will have **{count} players**!", ephemeral=True)
-
 
 
 class Tournament:
