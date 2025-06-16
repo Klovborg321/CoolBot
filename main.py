@@ -1634,80 +1634,107 @@ class CourseSelectView(discord.ui.View):
         super().__init__(timeout=120)
         self.add_item(CourseSelect(courses, callback_fn))
 
+# ✅ Modal for adding a new course with `rating` and `slope_rating`
 class AddCourseModal(discord.ui.Modal, title="Add New Course"):
     def __init__(self):
         super().__init__()
         self.name = discord.ui.TextInput(label="Course Name")
         self.image_url = discord.ui.TextInput(label="Image URL")
-        self.course_rating = discord.ui.TextInput(label="Course Rating (optional)", required=False)
-        self.slope_rating = discord.ui.TextInput(label="Slope Rating (optional)", required=False)
+        self.rating = discord.ui.TextInput(
+            label="Course Rating (optional)",
+            placeholder="e.g. 72.5",
+            required=False
+        )
+        self.slope_rating = discord.ui.TextInput(
+            label="Slope Rating (optional)",
+            placeholder="e.g. 113.0",
+            required=False
+        )
         self.add_item(self.name)
         self.add_item(self.image_url)
-        self.add_item(self.course_rating)
+        self.add_item(self.rating)
         self.add_item(self.slope_rating)
 
     async def on_submit(self, interaction: discord.Interaction):
+        # Prepare data with proper keys
         data = {
-            "name": self.name.value,
-            "image_url": self.image_url.value
+            "name": self.name.value.strip(),
+            "image_url": self.image_url.value.strip()
         }
-        if self.course_rating.value:
-            try:
-                data["course_rating"] = float(self.course_rating.value)
-            except ValueError:
-                pass
-        if self.slope_rating.value:
-            try:
-                data["slope_rating"] = float(self.slope_rating.value)
-            except ValueError:
-                pass
 
-        await run_db(lambda: supabase.table("courses").insert(data).execute())
+        if self.rating.value.strip():
+            try:
+                data["rating"] = float(self.rating.value.strip())
+            except ValueError:
+                return await interaction.response.send_message(
+                    "❌ Invalid course rating. Must be a number.", ephemeral=True
+                )
+
+        if self.slope_rating.value.strip():
+            try:
+                data["slope_rating"] = float(self.slope_rating.value.strip())
+            except ValueError:
+                return await interaction.response.send_message(
+                    "❌ Invalid slope rating. Must be a number.", ephemeral=True
+                )
+
+        # Insert into Supabase
+        res = await run_db(lambda: supabase.table("courses").insert(data).execute())
+
+        if hasattr(res, "status_code") and res.status_code not in (200, 201):
+            await interaction.response.send_message(
+                f"❌ Failed to add course: {res}", ephemeral=True
+            )
+            return
 
         await interaction.response.send_message(
-            f"✅ Added new course: **{data['name']}**",
+            f"✅ New course **{data['name']}** added successfully!",
             ephemeral=True
         )
+
 
 class SetCourseRatingModal(discord.ui.Modal, title="Set Course Ratings"):
     def __init__(self, course):
         super().__init__()
         self.course = course
 
-        self.course_rating = discord.ui.TextInput(
+        self.rating = discord.ui.TextInput(
             label="Course Rating",
-            placeholder="e.g. 72.0",
-            default=str(course.get("course_rating", ""))
+            placeholder="e.g. 72.5",
+            default=str(course.get("rating", ""))
         )
         self.slope_rating = discord.ui.TextInput(
             label="Slope Rating",
-            placeholder="e.g. 113",
+            placeholder="e.g. 113.0",
             default=str(course.get("slope_rating", ""))
         )
-        self.add_item(self.course_rating)
+        self.add_item(self.rating)
         self.add_item(self.slope_rating)
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            cr = float(self.course_rating.value)
-            sr = float(self.slope_rating.value)
+            rating = float(self.rating.value)
+            slope_rating = float(self.slope_rating.value)
         except ValueError:
-            await interaction.response.send_message("❌ Invalid numbers.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ Invalid numbers.", ephemeral=True
+            )
             return
 
         await run_db(lambda: supabase
             .table("courses")
-            .update({"course_rating": cr, "slope_rating": sr})
+            .update({"rating": rating, "slope_rating": slope_rating})
             .eq("id", self.course["id"])
             .execute()
         )
 
         await interaction.response.send_message(
             f"✅ Updated **{self.course['name']}**:\n"
-            f"• Course Rating: **{cr}**\n"
-            f"• Slope Rating: **{sr}**",
+            f"• Rating: **{rating}**\n"
+            f"• Slope Rating: **{slope_rating}**",
             ephemeral=True
         )
+
 
 
 @tree.command(name="submit_score", description="Submit your best score for a course")
