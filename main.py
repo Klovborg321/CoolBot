@@ -926,6 +926,7 @@ class RoomView(discord.ui.View):
     async def finalize_game(self):
         from collections import Counter
 
+        # Count votes
         vote_counts = Counter(self.votes.values())
         most_common = vote_counts.most_common()
 
@@ -937,10 +938,9 @@ class RoomView(discord.ui.View):
             winner = most_common[0][0]
 
         winner = self.normalize_team(winner)
-
         self.voting_closed = True
 
-        # ✅ DRAW CASE — refund bets
+        # ✅ 1️⃣ Handle DRAW — refund all bets
         if winner == "draw":
             for p in self.players:
                 pdata = await get_player(p)
@@ -975,19 +975,20 @@ class RoomView(discord.ui.View):
             await self.message.channel.edit(archived=True)
             return
 
-        # ✅ 1️⃣ Player stats — only actual participants
+        # ✅ 2️⃣ Player stats — proper win check
+        winner_team = self.normalize_team(winner)
+
         for p in self.players:
             pdata = await get_player(p)
             pdata["games_played"] += 1
 
-            # ✅ Correct winner logic per mode
             if self.game_type == "singles":
                 is_winner = (winner == p)
-            winner_team = self.normalize_team(winner)
-            is_winner = (
-                (winner_team == "Team A" and p in self.players[:2]) or
-                (winner_team == "Team B" and p in self.players[2:])
-            )
+            elif self.game_type == "doubles":
+                is_winner = (
+                    (winner_team == "Team A" and p in self.players[:2]) or
+                    (winner_team == "Team B" and p in self.players[2:])
+                )
             elif self.game_type == "triples":
                 is_winner = (winner == p)
             else:
@@ -1006,7 +1007,7 @@ class RoomView(discord.ui.View):
 
             await save_player(p, pdata)
 
-        # ✅ 2️⃣ Bets — resolve separately, never mix with players
+        # ✅ 3️⃣ Resolve bets correctly
         for uid, uname, amount, choice in self.game_view.bets:
             if self.game_type == "singles":
                 winner_id = winner if isinstance(winner, int) else None
@@ -1015,7 +1016,6 @@ class RoomView(discord.ui.View):
                     (choice == "2" and self.players[1] == winner_id)
                 )
             elif self.game_type == "doubles":
-                # ✅ Only compare winner team vs bet choice
                 won = self.normalize_team(winner) == self.normalize_team(choice)
             elif self.game_type == "triples":
                 try:
@@ -1044,7 +1044,7 @@ class RoomView(discord.ui.View):
             else:
                 print(f"❌ {uname} lost {amount} (stake was upfront)")
 
-        # ✅ 3️⃣ Announce winner
+        # ✅ 4️⃣ Final announce and archive
         if isinstance(winner, int):
             member = self.message.guild.get_member(winner)
             winner_name = member.display_name if member else f"User {winner}"
@@ -1067,6 +1067,7 @@ class RoomView(discord.ui.View):
         if self.game_view and self.game_view.on_tournament_complete:
             if self.game_type == "singles" and isinstance(winner, int):
                 await self.game_view.on_tournament_complete(winner)
+
 
 
 class GameEndedButton(discord.ui.Button):
