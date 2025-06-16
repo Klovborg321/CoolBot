@@ -239,10 +239,10 @@ def player_display(user_id, data):
     player = data.get(str(user_id), {"rank": 1000, "trophies": 0})
     return f"<@{user_id}> | Rank: {player['rank']} | Trophies: {player['trophies']}"
 
-async def start_new_game_button(channel, game_type):
+async def start_new_game_button(channel, game_type, max_players=None):
     key = (channel.id, game_type)
     old = start_buttons.get(key)
-    
+
     if old:
         try:
             await old.delete()
@@ -254,12 +254,13 @@ async def start_new_game_button(channel, game_type):
         view = TournamentStartButtonView()
         msg = await channel.send("🎮 Click to start a new tournament:", view=view)
     else:
-        # For other game types, continue using the GameJoinView
-        view = GameJoinView(game_type)
+        # For other game types, create the GameJoinView with max_players passed
+        view = GameJoinView(game_type, max_players)
         msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
 
     start_buttons[key] = msg
     return msg  # ✅ return it!
+
 
 
 async def show_betting_phase(self):
@@ -339,9 +340,10 @@ room_name_generator = RoomNameGenerator()
 
 
 class GameJoinView(discord.ui.View):
-    def __init__(self, game_type):
+    def __init__(self, game_type, max_players):
         super().__init__(timeout=None)
         self.game_type = game_type
+        self.max_players = max_players  # Accept max_players as a parameter
 
     @discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
     async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -360,7 +362,8 @@ class GameJoinView(discord.ui.View):
         # ✅ OK! Activate and start
         player_manager.activate(interaction.user.id)
 
-        view = GameView(self.game_type, interaction.user.id)
+        # Pass the max_players to GameView
+        view = GameView(self.game_type, interaction.user.id, max_players=self.max_players)
         embed = await view.build_embed(interaction.guild)
         view.message = await interaction.channel.send(embed=embed, view=view)
         pending_games[self.game_type] = view
@@ -371,6 +374,7 @@ class GameJoinView(discord.ui.View):
             pass
 
         await interaction.response.send_message("✅ Game started!", ephemeral=True)
+
 
 class LeaveGameButton(discord.ui.Button):
     def __init__(self, game_view):
@@ -419,12 +423,7 @@ class GameView(discord.ui.View):
         self.game_type = game_type
         self.creator = creator
         self.players = [creator]
-        # Set max_players dynamically for tournaments
-        if game_type == "tournament" and max_players is not None:
-            self.max_players = max_players
-        else:
-            # Default values for singles, doubles, etc.
-            self.max_players = 2 if game_type == "singles" else 4 if game_type == "doubles" else 3
+        self.max_players = max_players
         self.message = None
         self.betting_closed = False
         self.bets = []
@@ -1684,7 +1683,7 @@ async def init_doubles(interaction: discord.Interaction):
     await start_new_game_button(interaction.channel, "doubles")
 
     # 4️⃣ Create the GameView with max_players set to 2 for doubles
-    game_view = GameView(game_type="doubles", creator=interaction.user.id, max_players=2)
+    game_view = GameView(game_type="doubles", creator=interaction.user.id, max_players=4)
 
     # 5️⃣ Send confirmation
     await interaction.followup.send(
@@ -1712,7 +1711,7 @@ async def init_triples(interaction: discord.Interaction):
     await start_new_game_button(interaction.channel, "triples")
 
     # 4️⃣ Create the GameView with max_players set to 2 for triples
-    game_view = GameView(game_type="triples", creator=interaction.user.id, max_players=2)
+    game_view = GameView(game_type="triples", creator=interaction.user.id, max_players=3)
 
     # 5️⃣ Send confirmation
     await interaction.followup.send(
