@@ -242,15 +242,25 @@ def player_display(user_id, data):
 async def start_new_game_button(channel, game_type):
     key = (channel.id, game_type)
     old = start_buttons.get(key)
+    
     if old:
         try:
             await old.delete()
         except discord.NotFound:
             pass
-    view = GameJoinView(game_type)
-    msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
+
+    if game_type == "tournament":
+        # For tournament, use the TournamentView that includes a start button and modal
+        view = TournamentView(creator=channel.guild.owner, max_players=None)  # or dynamically set max_players
+        msg = await channel.send(f"🎮 Start a new {game_type} tournament:", view=view)
+    else:
+        # For other game types, continue using the GameJoinView
+        view = GameJoinView(game_type)
+        msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
+
     start_buttons[key] = msg
     return msg  # ✅ return it!
+
 
 
 async def show_betting_phase(self):
@@ -1111,7 +1121,6 @@ class TournamentView(discord.ui.View):
         self.max_players = max_players  # Set max players dynamically
         self.message = None
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
-
         self.bets = []  # Store bets for the tournament
         self.add_item(LeaveGameButton(self))
 
@@ -1136,7 +1145,7 @@ class TournamentView(discord.ui.View):
 
     async def abandon_if_not_filled(self):
         """Automatically abandon the tournament if it's not filled within 5 minutes"""
-        await asyncio.sleep(1000)
+        await asyncio.sleep(300)
         if len(self.players) < self.max_players:
             await self.abandon_tournament("⏰ Tournament timed out due to inactivity.")
             await clear_pending_game("tournament")
@@ -1254,19 +1263,21 @@ class TournamentStartButton(discord.ui.Button):
         self.tournament_view = tournament_view
 
     async def callback(self, interaction: discord.Interaction):
-        """Handles the start of the tournament and sets the player count"""
+        """When the button is clicked, open the modal to enter the number of players"""
         # Show the modal to select the number of players
         await interaction.response.send_modal(PlayerCountModal(self.tournament_view))  # Modal to select player count
 
 
-class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
+class PlayerCountModal(discord.ui.Modal, title="Enter Number of Players"):
     def __init__(self, tournament_view):
         super().__init__()
         self.tournament_view = tournament_view
+
         self.player_count = discord.ui.TextInput(
-            label="Enter the number of players (e.g., 2, 4, 8, etc.)",
-            placeholder="2, 4, 8...",
-            max_length=2
+            label="Number of players (must be a power of 2, e.g., 2, 4, 8)",
+            placeholder="Enter a number (e.g. 4)",
+            max_length=2,
+            required=True
         )
         self.add_item(self.player_count)
 
@@ -1276,16 +1287,18 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
             count = int(self.player_count.value.strip())
             if count < 2 or (count & (count - 1)) != 0:  # Must be a power of 2
                 raise ValueError("Invalid player count. Must be a power of 2.")
-        except ValueError:
-            await interaction.response.send_message("❌ Invalid player count. Must be a power of 2.", ephemeral=True)
+        except ValueError as e:
+            await interaction.response.send_message(f"❌ Error: {e}", ephemeral=True)
             return
 
-        # Set the max players for the tournament view
+        # Set the player count for the tournament
         self.tournament_view.max_players = count
+
+        # Update the tournament view with the number of players
         await self.tournament_view.update_message()
 
         # Notify the user
-        await interaction.response.send_message(f"✅ Tournament will have **{count} players**!", ephemeral=True)
+        await interaction.response.send_message(f"✅ Tournament set to **{count}** players!", ephemeral=True)
 
 
 
