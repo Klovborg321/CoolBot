@@ -1889,13 +1889,14 @@ async def init_singles(interaction: discord.Interaction):
 async def init_doubles(interaction: discord.Interaction):
     """Creates a doubles game lobby with the start button"""
 
-    # ✅ 1️⃣ Defer immediately — to give you 15 minutes to respond
-    await interaction.response.defer(ephemeral=True)
+    try:
+        # ✅ 1️⃣ IMMEDIATELY defer to get 15 min
+        await interaction.response.defer(ephemeral=True)
+    except discord.errors.NotFound:
+        # ⚠️ If it's already expired, just exit — don't crash
+        return
 
-    # ✅ 2️⃣ DO NOT DO LONG DB OR NETWORK WORK before deferring!
-    # (You did it correctly)
-
-    # ✅ 3️⃣ Now do your checks
+    # ✅ 2️⃣ Do checks
     if pending_games.get("doubles") or any(
         k[0] == interaction.channel.id for k in start_buttons
     ):
@@ -1905,19 +1906,17 @@ async def init_doubles(interaction: discord.Interaction):
         )
         return
 
-    # ✅ 4️⃣ Create the new start button (this may take time)
-    max_players = 4
+    # ✅ 3️⃣ Create the start button safely
     try:
-        await start_new_game_button(interaction.channel, "doubles", max_players=max_players)
+        await start_new_game_button(interaction.channel, "doubles", max_players=4)
     except Exception as e:
-        # If anything fails — fallback followup so you don't get a silent failure
         await interaction.followup.send(
             f"❌ Failed to create start button: {e}",
             ephemeral=True
         )
         return
 
-    # ✅ 5️⃣ Followup response to the user
+    # ✅ 4️⃣ Confirm
     await interaction.followup.send(
         "✅ Doubles game button posted and ready for players to join!",
         ephemeral=True
