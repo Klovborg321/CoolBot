@@ -250,8 +250,11 @@ async def start_new_game_button(channel, game_type):
             pass
 
     if game_type == "tournament":
-        # For tournament, use the TournamentView that includes a start button and modal
-        view = TournamentView(creator=channel.guild.owner, max_players=None)  # or dynamically set max_players
+        # Example: dynamically set max_players
+        # Here, you can pass the number of players to the TournamentView (e.g., set to 8 for now or let the creator define it)
+        max_players = 8  # Set to your desired number, or use some dynamic logic here
+        
+        view = TournamentView(creator=channel.guild.owner, max_players=max_players)  # Example: max_players can be set dynamically
         msg = await channel.send(f"🎮 Start a new {game_type} tournament:", view=view)
     else:
         # For other game types, continue using the GameJoinView
@@ -2139,24 +2142,17 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 @tree.command(name="init_tournament")
 async def init_tournament(interaction: discord.Interaction):
     """Creates a tournament lobby with the start button"""
-    # Defer the response immediately so the interaction is acknowledged within the timeout period
+    # Defer the response so the bot can process the interaction
     await interaction.response.defer(ephemeral=True)
 
-    try:
-        # Create the "Start Tournament" button
-        await start_new_game_button(interaction.channel, "tournament")
+    # Create the "Start Tournament" button without the Leave Game button
+    await start_new_game_button(interaction.channel, "tournament")
 
-        # Confirm the action to the user with a follow-up message
-        await interaction.followup.send(
-            "✅ Tournament lobby created. Click 'Start Tournament' to set up player count and begin the tournament!",
-            ephemeral=True
-        )
-    except Exception as e:
-        # In case something goes wrong, send an error message to the user
-        await interaction.followup.send(
-            f"❌ Error: {str(e)}",
-            ephemeral=True
-        )
+    # Confirm the action to the user
+    await interaction.followup.send(
+        "✅ Tournament lobby created. Click 'Start Tournament' to set up player count and begin the tournament!",
+        ephemeral=True
+    )
 
 
 @tree.command(
