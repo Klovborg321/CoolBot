@@ -68,17 +68,14 @@ default_template = {
 }
 
 # Helpers
-def normalize_team(value):
-    """ Normalizes team labels like 'A', 'B', 'TEAM A', 'Team A' """
-    if not isinstance(value, str):
-        return value
-    v = value.strip().upper()
-    if v in ["A", "TEAM A"]:
-        return "Team A"
-    elif v in ["B", "TEAM B"]:
-        return "Team B"
-    else:
-        return value
+def normalize_team(name):
+    if isinstance(name, str):
+        name = name.lower()
+        if "a" in name:
+            return "A"
+        if "b" in name:
+            return "B"
+    return name  # fallback:
 
 async def dm_all_online(guild: discord.Guild, message: str):
     """DM all online members in the given guild with a custom message."""
@@ -960,7 +957,6 @@ class RoomView(discord.ui.View):
     async def finalize_game(self):
         from collections import Counter
 
-        # Count votes
         vote_counts = Counter(self.votes.values())
         most_common = vote_counts.most_common()
 
@@ -971,10 +967,9 @@ class RoomView(discord.ui.View):
         else:
             winner = most_common[0][0]
 
-        winner = normalize_team(winner)
         self.voting_closed = True
 
-        # ✅ 1️⃣ Handle DRAW — refund all bets
+        # ✅ DRAW CASE — refund bets & update stats
         if winner == "draw":
             for p in self.players:
                 pdata = await get_player(p)
@@ -1009,9 +1004,7 @@ class RoomView(discord.ui.View):
             await self.message.channel.edit(archived=True)
             return
 
-        # ✅ 2️⃣ Player stats — proper win check
-        winner_team = normalize_team(winner)
-
+        # ✅ 1️⃣ Update player stats properly
         for p in self.players:
             pdata = await get_player(p)
             pdata["games_played"] += 1
@@ -1019,9 +1012,10 @@ class RoomView(discord.ui.View):
             if self.game_type == "singles":
                 is_winner = (winner == p)
             elif self.game_type == "doubles":
+                winner_team = normalize_team(winner)
                 is_winner = (
-                    (winner_team == "Team A" and p in self.players[:2]) or
-                    (winner_team == "Team B" and p in self.players[2:])
+                    (winner_team == "TEAM A" and p in self.players[:2]) or
+                    (winner_team == "TEAM B" and p in self.players[2:])
                 )
             elif self.game_type == "triples":
                 is_winner = (winner == p)
@@ -1041,8 +1035,10 @@ class RoomView(discord.ui.View):
 
             await save_player(p, pdata)
 
-        # ✅ 3️⃣ Resolve bets correctly
+        # ✅ 2️⃣ Resolve bets — CORRECTED
         for uid, uname, amount, choice in self.game_view.bets:
+            won = False
+
             if self.game_type == "singles":
                 winner_id = winner if isinstance(winner, int) else None
                 won = (
@@ -1050,7 +1046,10 @@ class RoomView(discord.ui.View):
                     (choice == "2" and self.players[1] == winner_id)
                 )
             elif self.game_type == "doubles":
-                won = normalize_team(winner) == normalize_team(choice)
+                winner_team = normalize_team(winner)
+                bet_team = normalize_team(choice)
+                won = winner_team == bet_team
+            elif self.game_type == "triples":
                 try:
                     index = int(choice) - 1
                     won = self.players[index] == winner
@@ -1077,7 +1076,7 @@ class RoomView(discord.ui.View):
             else:
                 print(f"❌ {uname} lost {amount} (stake was upfront)")
 
-        # ✅ 4️⃣ Final announce and archive
+        # ✅ 3️⃣ Announce final result
         if isinstance(winner, int):
             member = self.message.guild.get_member(winner)
             winner_name = member.display_name if member else f"User {winner}"
@@ -1100,7 +1099,6 @@ class RoomView(discord.ui.View):
         if self.game_view and self.game_view.on_tournament_complete:
             if self.game_type == "singles" and isinstance(winner, int):
                 await self.game_view.on_tournament_complete(winner)
-
 
 
 class GameEndedButton(discord.ui.Button):
