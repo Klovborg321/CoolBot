@@ -1615,6 +1615,99 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
             ephemeral=True
         )
 
+class CourseSelect(discord.ui.Select):
+    def __init__(self, courses, callback_fn):
+        options = [
+            discord.SelectOption(label=c["name"], value=str(c["id"]))
+            for c in courses
+        ]
+        super().__init__(placeholder="Select a course...", options=options)
+        self.callback_fn = callback_fn
+
+    async def callback(self, interaction: discord.Interaction):
+        selected_id = self.values[0]
+        await self.callback_fn(interaction, selected_id)
+
+
+class CourseSelectView(discord.ui.View):
+    def __init__(self, courses, callback_fn):
+        super().__init__(timeout=120)
+        self.add_item(CourseSelect(courses, callback_fn))
+
+class AddCourseModal(discord.ui.Modal, title="Add New Course"):
+    def __init__(self):
+        super().__init__()
+        self.name = discord.ui.TextInput(label="Course Name")
+        self.image_url = discord.ui.TextInput(label="Image URL")
+        self.course_rating = discord.ui.TextInput(label="Course Rating (optional)", required=False)
+        self.slope_rating = discord.ui.TextInput(label="Slope Rating (optional)", required=False)
+        self.add_item(self.name)
+        self.add_item(self.image_url)
+        self.add_item(self.course_rating)
+        self.add_item(self.slope_rating)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        data = {
+            "name": self.name.value,
+            "image_url": self.image_url.value
+        }
+        if self.course_rating.value:
+            try:
+                data["course_rating"] = float(self.course_rating.value)
+            except ValueError:
+                pass
+        if self.slope_rating.value:
+            try:
+                data["slope_rating"] = float(self.slope_rating.value)
+            except ValueError:
+                pass
+
+        await run_db(lambda: supabase.table("courses").insert(data).execute())
+
+        await interaction.response.send_message(
+            f"✅ Added new course: **{data['name']}**",
+            ephemeral=True
+        )
+
+class SetCourseRatingModal(discord.ui.Modal, title="Set Course Ratings"):
+    def __init__(self, course):
+        super().__init__()
+        self.course = course
+
+        self.course_rating = discord.ui.TextInput(
+            label="Course Rating",
+            placeholder="e.g. 72.0",
+            default=str(course.get("course_rating", ""))
+        )
+        self.slope_rating = discord.ui.TextInput(
+            label="Slope Rating",
+            placeholder="e.g. 113",
+            default=str(course.get("slope_rating", ""))
+        )
+        self.add_item(self.course_rating)
+        self.add_item(self.slope_rating)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            cr = float(self.course_rating.value)
+            sr = float(self.slope_rating.value)
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid numbers.", ephemeral=True)
+            return
+
+        await run_db(lambda: supabase
+            .table("courses")
+            .update({"course_rating": cr, "slope_rating": sr})
+            .eq("id", self.course["id"])
+            .execute()
+        )
+
+        await interaction.response.send_message(
+            f"✅ Updated **{self.course['name']}**:\n"
+            f"• Course Rating: **{cr}**\n"
+            f"• Slope Rating: **{sr}**",
+            ephemeral=True
+        )
 
 
 @tree.command(name="submit_score", description="Submit your best score for a course")
@@ -2366,99 +2459,37 @@ async def dm_online(interaction: discord.Interaction, msg: str):
     course_rating="Course rating (optional)",
     slope_rating="Slope rating (optional)"
 )
+@tree.command(
+    name="add_course",
+    description="Admin: Add a new course with image and optional ratings"
+)
 @discord.app_commands.checks.has_permissions(administrator=True)
-async def add_course(
-    interaction: discord.Interaction,
-    name: str,
-    image_url: str,
-    course_rating: float = None,
-    slope_rating: float = None
-):
-    """Admin command to add a new golf course to the Supabase table."""
+async def add_course(interaction: discord.Interaction):
+    await interaction.response.send_modal(AddCourseModal())
 
-    await interaction.response.defer(ephemeral=True)
-
-    # Build the new course data
-    course_data = {
-        "name": name,
-        "image_url": image_url,
-    }
-
-    # Include optional ratings if provided
-    if course_rating is not None:
-        course_data["course_rating"] = course_rating
-    if slope_rating is not None:
-        course_data["slope_rating"] = slope_rating
-
-    try:
-        # Insert into Supabase
-        res = await run_db(lambda: supabase.table("courses").insert(course_data).execute())
-
-        if hasattr(res, "status_code") and res.status_code not in (200, 201):
-            await interaction.followup.send(
-                f"❌ Failed to add course. Response: {res}",
-                ephemeral=True
-            )
-            return
-
-        await interaction.followup.send(
-            f"✅ Course **{name}** added successfully!",
-            ephemeral=True
-        )
-
-    except Exception as e:
-        await interaction.followup.send(f"❌ Error: `{e}`", ephemeral=True)
 
 
 @tree.command(
     name="set_course_rating",
-    description="Admin: Update the course rating and slope rating for a course"
-)
-@app_commands.describe(
-    course_name="Exact name of the course to update",
-    course_rating="New course rating",
-    slope_rating="New slope rating"
+    description="Admin: Update course and slope rating via dropdown"
 )
 @discord.app_commands.checks.has_permissions(administrator=True)
-async def set_course_rating(
-    interaction: discord.Interaction,
-    course_name: str,
-    course_rating: float,
-    slope_rating: float
-):
-    """Admin command to update ratings for a course."""
-
+async def set_course_rating(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
-    try:
-        # ✅ Update the row with matching course name
-        res = await run_db(lambda: supabase
-            .table("courses")
-            .update({
-                "course_rating": course_rating,
-                "slope_rating": slope_rating
-            })
-            .eq("name", course_name)
-            .execute()
-        )
+    res = await run_db(lambda: supabase.table("courses").select("*").execute())
+    if not res.data:
+        await interaction.followup.send("❌ No courses found.", ephemeral=True)
+        return
 
-        # ✅ If no row matched, inform admin
-        if not res.data:
-            await interaction.followup.send(
-                f"⚠️ No course found with name **{course_name}**.",
-                ephemeral=True
-            )
-            return
+    async def on_select(inter: discord.Interaction, course_id):
+        selected = next(c for c in res.data if str(c["id"]) == course_id)
+        await inter.response.send_modal(SetCourseRatingModal(selected))
 
-        await interaction.followup.send(
-            f"✅ Updated **{course_name}**:\n"
-            f"• Course Rating: **{course_rating}**\n"
-            f"• Slope Rating: **{slope_rating}**",
-            ephemeral=True
-        )
+    view = CourseSelectView(res.data, on_select)
+    await interaction.followup.send("🎯 Pick a course to update:", view=view, ephemeral=True)
 
-    except Exception as e:
-        await interaction.followup.send(f"❌ Error: `{e}`", ephemeral=True)
+
 
 
 @bot.event
