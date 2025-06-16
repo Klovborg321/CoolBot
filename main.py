@@ -47,6 +47,7 @@ pending_games = {
     "singles": None,
     "doubles": None,
     "triples": None
+    "tournament": None
 }
 
 players_data = "players.json"
