@@ -68,12 +68,17 @@ default_template = {
 }
 
 # Helpers
-def normalize_team(self, v):
-    if v.upper() == "A":
+def normalize_team(value):
+    """ Normalizes team labels like 'A', 'B', 'TEAM A', 'Team A' """
+    if not isinstance(value, str):
+        return value
+    v = value.strip().upper()
+    if v in ["A", "TEAM A"]:
         return "Team A"
-    if v.upper() == "B":
+    elif v in ["B", "TEAM B"]:
         return "Team B"
-    return v
+    else:
+        return value
 
 async def dm_all_online(guild: discord.Guild, message: str):
     """DM all online members in the given guild with a custom message."""
@@ -966,7 +971,7 @@ class RoomView(discord.ui.View):
         else:
             winner = most_common[0][0]
 
-        winner = self.normalize_team(winner)
+        winner = normalize_team(winner)
         self.voting_closed = True
 
         # ✅ 1️⃣ Handle DRAW — refund all bets
@@ -1005,7 +1010,7 @@ class RoomView(discord.ui.View):
             return
 
         # ✅ 2️⃣ Player stats — proper win check
-        winner_team = self.normalize_team(winner)
+        winner_team = normalize_team(winner)
 
         for p in self.players:
             pdata = await get_player(p)
@@ -1045,8 +1050,7 @@ class RoomView(discord.ui.View):
                     (choice == "2" and self.players[1] == winner_id)
                 )
             elif self.game_type == "doubles":
-                won = self.normalize_team(winner) == self.normalize_team(choice)
-            elif self.game_type == "triples":
+                won = normalize_team(winner) == normalize_team(choice)
                 try:
                     index = int(choice) - 1
                     won = self.players[index] == winner
