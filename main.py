@@ -1268,14 +1268,13 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
         super().__init__()
         self.tournament_view = tournament_view
         self.player_count = discord.ui.TextInput(
-            label="Enter the number of players (e.g., 2, 4, 8, etc.)",
-            placeholder="2, 4, 8...",
+            label="Enter number of players",  # Keep this label short to fit under 45 characters
+            placeholder="e.g., 2, 4, 8",
             max_length=2
         )
         self.add_item(self.player_count)
 
     async def on_submit(self, interaction: discord.Interaction):
-        """Submit the number of players"""
         try:
             count = int(self.player_count.value.strip())
             if count < 2 or (count & (count - 1)) != 0:  # Must be a power of 2
@@ -1290,6 +1289,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
 
         # Notify the user
         await interaction.response.send_message(f"✅ Tournament will have **{count} players**!", ephemeral=True)
+
 
 
 class TournamentStartButton(discord.ui.Button):
