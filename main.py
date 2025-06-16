@@ -1563,6 +1563,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
         self.course_name = course_name
         self.course_id = course_id
 
+        # ✅ Only 1 input: the score
         self.add_item(discord.ui.TextInput(
             label=f"Best score for {course_name}",
             placeholder="Enter your best score (e.g. 72.5)",
@@ -1573,25 +1574,43 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
         try:
             score = float(self.children[0].value)
         except ValueError:
-            await interaction.response.send_message("❌ Invalid number.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ Invalid number — please enter a valid score.",
+                ephemeral=True
+            )
             return
 
-        # ✅ ✅ ✅ ALWAYS GET THE LATEST FROM COURSES TABLE
+        # ✅ 1️⃣ Always get the latest rating/slope from `courses`
         course = await run_db(lambda: supabase
             .table("courses")
-            .select("*")
+            .select("rating, slope_rating")
             .eq("id", self.course_id)
             .single()
             .execute()
         )
 
-        course_rating = float(course.data.get("rating") or 72.0)
-        slope_rating = float(course.data.get("slope_rating") or 113.0)
+        if not course.data:
+            await interaction.response.send_message(
+                "❌ Could not find the course in the database.",
+                ephemeral=True
+            )
+            return
 
-        # ✅ Official calculation
+        # ✅ 2️⃣ Extract safely with fallback defaults
+        try:
+            course_rating = float(course.data.get("rating") or 72.0)
+        except (TypeError, ValueError):
+            course_rating = 72.0
+
+        try:
+            slope_rating = float(course.data.get("slope_rating") or 113.0)
+        except (TypeError, ValueError):
+            slope_rating = 113.0
+
+        # ✅ 3️⃣ Calculate official differential
         differential = round((score - course_rating) * 113 / slope_rating, 1)
 
-        # ✅ Save
+        # ✅ 4️⃣ Store only clean fields — NOT rating/slope
         await run_db(lambda: supabase
             .table("handicaps")
             .upsert({
@@ -1599,17 +1618,16 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
                 "course_id": self.course_id,
                 "course_name": self.course_name,
                 "score": score,
-                "rating": course_rating,
-                "slope_rating": slope_rating,
                 "handicap_differential": differential
             })
             .execute()
         )
 
+        # ✅ 5️⃣ Confirm to user
         await interaction.response.send_message(
-            f"✅ Submitted **{score}** for **{self.course_name}**\n"
+            f"✅ **Score submitted!**\n"
             f"📏 Course Rating: `{course_rating}` | Slope: `{slope_rating}`\n"
-            f"📊 Differential: `{differential}`",
+            f"📊 Your Differential: `{differential}`",
             ephemeral=True
         )
 
