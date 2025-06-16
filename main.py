@@ -2088,50 +2088,28 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 
 
 @tree.command(name="init_tournament")
-@app_commands.describe(player_count="Number of players (must be a power of 2)")
-async def init_tournament(interaction: discord.Interaction, player_count: int):
-    try:
-        # ⏱️ Defer immediately
-        await interaction.response.defer(ephemeral=True)
-    except discord.errors.NotFound:
-        # If the interaction has expired, gracefully exit
-        return
+async def init_tournament(interaction: discord.Interaction):
+    """Creates a tournament lobby without specifying player count yet"""
+    await interaction.response.defer(ephemeral=True)
 
-    # ✅ Validate power of 2 and minimum size
-    if player_count < 2 or (player_count & (player_count - 1)) != 0:
-        await interaction.followup.send(
-            "❌ Player count must be a power of 2 (2, 4, 8, 16, 32, etc.)",
-            ephemeral=True
-        )
-        return
-
-    # ✅ Check if the user is already in an active game
-    if player_manager.is_active(interaction.user.id):
-        await interaction.followup.send(
-            "🚫 You are already in another active game.",
-            ephemeral=True
-        )
-        return
-
-    # ✅ Create TournamentView lobby
-    view = TournamentView(creator=interaction.user.id, max_players=player_count)
+    # Create TournamentView lobby
+    view = TournamentView(creator=interaction.user.id)  # No player count yet
     embed = await view.build_embed(interaction.guild)
 
-    # ✅ Send lobby embed with buttons
+    # Send lobby embed with buttons
     msg = await interaction.channel.send(embed=embed, view=view)
     view.message = msg
 
-    # ✅ Register player as active
+    # Register player as active
     player_manager.activate(interaction.user.id)
 
-    # ✅ Mark pending tournament in your global state
+    # Mark pending tournament in your global state
     global pending_game
     pending_games["tournament"] = view
 
-    # ✅ Confirm to host privately
+    # Confirm to host privately
     await interaction.followup.send(
-        f"✅ Tournament lobby for **{player_count} players** created.\n"
-        f"Share this link so others can join!",
+        f"✅ Tournament lobby created. Share this link so others can join!",
         ephemeral=True
     )
 
