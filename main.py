@@ -419,7 +419,12 @@ class GameView(discord.ui.View):
         self.game_type = game_type
         self.creator = creator
         self.players = [creator]
-        self.max_players = 2 if game_type == "singles" else 4 if game_type == "doubles" else 3
+        # Set max_players dynamically for tournaments
+        if game_type == "tournament" and max_players is not None:
+            self.max_players = max_players
+        else:
+            # Default values for singles, doubles, etc.
+            self.max_players = 2 if game_type == "singles" else 4 if game_type == "doubles" else 3
         self.message = None
         self.betting_closed = False
         self.bets = []
@@ -1272,7 +1277,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
     def __init__(self):
         super().__init__()
         self.player_count = discord.ui.TextInput(
-            label="Enter number of players (e.g. 2, 4, 8)",
+            label="Enter the number of players (e.g., 2, 4, 8, etc.)",
             placeholder="2, 4, 8...",
             max_length=2
         )
@@ -1288,24 +1293,14 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
             await interaction.response.send_message("❌ Invalid player count. Must be a power of 2.", ephemeral=True)
             return
 
-        # Create the GameView with the correct player count and type
-        game_view = GameView(game_type="tournament", creator=interaction.user)  # Change game_type as needed
-        game_view.max_players = count  # Set max_players based on the modal input
-        game_view.players = [interaction.user.id]  # Add the creator as the first player
+        # Initialize Tournament View with max_players set dynamically
+        game_view = GameView(game_type="tournament", creator=interaction.user, max_players=count)
+        embed = await game_view.build_embed(interaction.guild)
         
-        # Send a message to let the users know the tournament has started
+        # Send the game message with the updated max_players
+        game_view.message = await interaction.channel.send(embed=embed, view=game_view)
+
         await interaction.response.send_message(f"✅ Tournament will have **{count} players**! Players can now join.", ephemeral=True)
-
-        # Send the game lobby message with the join button
-        await interaction.channel.send(
-            f"🎮 **Tournament started!** Players can now join. {count} players needed.",
-            view=game_view
-        )
-
-        # Keep track of this game in the pending games
-        pending_games["tournament"] = game_view  # You can modify the key as necessary based on your game type
-
-
 
 
 class Tournament:
