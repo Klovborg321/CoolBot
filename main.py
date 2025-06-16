@@ -245,7 +245,7 @@ async def start_new_game_button(channel, game_type, max_players=None):
         view = TournamentStartButtonView()
         await channel.send("🎮 Click to start a new tournament:", view=view)
     else:
-        view = GameJoinView(game_type)
+        view = GameJoinView(game_type, max_players)
         await channel.send(content=f"🎮 Start a new {game_type} game:", view=view)
 
 
