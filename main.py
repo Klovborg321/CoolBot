@@ -2480,20 +2480,9 @@ async def dm_online(interaction: discord.Interaction, msg: str):
     name="add_course",
     description="Admin: Add a new course with image and ratings"
 )
-@app_commands.describe(
-    name="Course name",
-    image_url="Image URL for the course",
-    course_rating="Course rating (optional)",
-    slope_rating="Slope rating (optional)"
-)
-@tree.command(
-    name="add_course",
-    description="Admin: Add a new course with image and optional ratings"
-)
 @discord.app_commands.checks.has_permissions(administrator=True)
 async def add_course(interaction: discord.Interaction):
     await interaction.response.send_modal(AddCourseModal())
-
 
 
 @tree.command(
