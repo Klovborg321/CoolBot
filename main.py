@@ -1277,9 +1277,9 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
     def __init__(self):
         super().__init__()
         self.player_count = discord.ui.TextInput(
-            label="Enter the number of players (e.g., 2, 4, 8, etc.)",
-            placeholder="2, 4, 8...",
-            max_length=2
+            label="Enter the number of players (4, 6 or 8.)",
+            placeholder="4, 6, 8",
+            max_length=4
         )
         self.add_item(self.player_count)
 
