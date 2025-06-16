@@ -1796,7 +1796,7 @@ class SetCourseRatingModal(discord.ui.Modal, title="Set Course Ratings"):
 
 
 
-@tree.command(name="submit_score", description="Submit your best score for a course")
+@tree.command(name="set_user_handicap", description="Submit your best score for a course")
 async def submit_score(interaction: discord.Interaction):
     res = await run_db(lambda: supabase.table("courses").select("id, name").execute())
     if not res.data:
