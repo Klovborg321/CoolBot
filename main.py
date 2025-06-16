@@ -1899,7 +1899,8 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
         ephemeral=True
     )
 
-@tree.command(name="tournament")
+
+@tree.command(name="init_tournament")
 @app_commands.describe(player_count="Number of players (must be a power of 2)")
 async def tournament(interaction: discord.Interaction, player_count: int):
     # ✅ Always defer: multi async steps + views
@@ -1920,7 +1921,7 @@ async def tournament(interaction: discord.Interaction, player_count: int):
 
     # ✅ Create & start the Tournament
     tourney = Tournament(
-        creator_id=interaction.user.id,
+        host_id=interaction.user.id,  # ✅ correct name!
         players=players,
         channel=interaction.channel
     )
