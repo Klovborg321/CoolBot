@@ -253,25 +253,24 @@ def player_display(user_id, data):
 async def start_new_game_button(channel, game_type, max_players=None):
     key = (channel.id, game_type)
     old = start_buttons.get(key)
-
     if old:
         try:
-            await old.delete()  # Ensure the old button is deleted
+            await old.delete()
         except discord.NotFound:
             pass
 
-    # Create the appropriate view based on game type
     if game_type == "tournament":
-        # For tournament, we create the Start Tournament button
+        # Show the tournament start button — user picks # of players later
         view = TournamentStartButtonView()
-        msg = await channel.send("🎮 Click to start a new tournament:", view=view)
+        msg = await channel.send("🏆 Click to start a **Tournament**:", view=view)
     else:
-        # For other game types, create the GameJoinView with max_players passed
+        # Normal game join view
         view = GameJoinView(game_type, max_players)
         msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
 
     start_buttons[key] = msg
-    return msg  # Return the new message with the button
+    return msg
+
 
 
 async def show_betting_phase(self):
@@ -478,231 +477,106 @@ class GameView(discord.ui.View):
             await clear_pending_game(self.game_type)
 
     async def build_embed(self, guild=None, winner=None):
-        embed = discord.Embed(
-            title=f"🎮 {self.game_type.title()} Match Lobby",
-            description="Awaiting players for a new match...",
-            color=discord.Color.orange() if not winner else discord.Color.dark_gray()
-        )
-        embed.set_author(
-            name="LEAGUE OF EXTRAORDINARY MISFITS",
-            icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
-        )
+    embed = discord.Embed(
+        title=f"🎮 {self.game_type.title()} Match Lobby",
+        description="Awaiting players for a new match...",
+        color=discord.Color.orange() if not winner else discord.Color.dark_gray()
+    )
+    embed.set_author(
+        name="LEAGUE OF EXTRAORDINARY MISFITS",
+        icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
+    )
+    embed.timestamp = discord.utils.utcnow()
 
-        embed.timestamp = discord.utils.utcnow()  # ✅ Add timestamp
+    # ✅ Get player ranks
+    ranks = []
+    for p in self.players:
+        pdata = await get_player(p)
+        ranks.append(pdata.get("rank", 1000))
 
-        # ✅ Get ranks from Supabase
-        ranks = []
-        for p in self.players:
-            pdata = await get_player(p)
-            ranks.append(pdata.get("rank", 1000))
+    game_full = len(self.players) == self.max_players
 
-        game_full = len(self.players) == self.max_players
+    # ✅ Precompute odds for doubles / ffa
+    odds = []
+    if self.game_type == "doubles" and game_full:
+        e1 = sum(ranks[:2]) / 2
+        e2 = sum(ranks[2:]) / 2
+        odds_a = 1 / (1 + 10 ** ((e2 - e1) / 400))
+        odds_b = 1 - odds_a
+    elif self.game_type in ("triples", "tournament") and game_full:
+        sum_exp = sum([10 ** (e / 400) for e in ranks])
+        odds = [(10 ** (e / 400)) / sum_exp for e in ranks]
 
-        if self.game_type == "doubles" and game_full:
-            e1 = sum(ranks[:2]) / 2
-            e2 = sum(ranks[2:]) / 2
-            odds_a = 1 / (1 + 10 ** ((e2 - e1) / 400))
-            odds_b = 1 - odds_a
-        elif self.game_type == "triples" and game_full:
-            sum_exp = sum([10 ** (e / 400) for e in ranks])
-            odds = [(10 ** (e / 400)) / sum_exp for e in ranks]
+    # ✅ Players section
+    player_lines = []
 
-        player_lines = []
+    if self.game_type == "doubles":
+        player_lines.append("\u200b")
+        label = "__**🅰️ Team A**__"
+        if game_full:
+            label += f" • {odds_a * 100:.1f}%"
+        player_lines.append(label)
 
-        if self.game_type == "doubles":
+    for idx in range(self.max_players):
+        if idx < len(self.players):
+            user_id = self.players[idx]
+            member = guild.get_member(user_id) if guild else None
+            name = f"**{member.display_name}**" if member else f"**User {user_id}**"
+            rank = ranks[idx]
+
+            if self.game_type == "singles" and game_full:
+                e1, e2 = ranks
+                o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
+                player_odds = o1 if idx == 0 else 1 - o1
+                line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%"
+
+            elif self.game_type in ("triples", "tournament") and game_full:
+                line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%"
+
+            else:
+                line = f"● Player {idx + 1}: {name} 🏆 ({rank})"
+
+        else:
+            line = f"○ Player {idx + 1}: [Waiting...]"
+
+        player_lines.append(line)
+
+        if self.game_type == "doubles" and idx == 1:
             player_lines.append("\u200b")
-            label = "__**🅰️ Team A**__"
+            label = "__**🅱️ Team B**__"
             if game_full:
-                label += f" • {odds_a * 100:.1f}%"
+                label += f" • {odds_b * 100:.1f}%"
             player_lines.append(label)
 
-        for idx in range(self.max_players):
-            if idx < len(self.players):
-                user_id = self.players[idx]
-                member = guild.get_member(user_id) if guild else None
-                name = f"**{member.display_name}**" if member else f"**User {user_id}**"
-                rank = ranks[idx]
-                if self.game_type == "singles" and game_full:
-                    e1, e2 = ranks
-                    o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
-                    player_odds = o1 if idx == 0 else 1 - o1
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%"
-                elif self.game_type == "triples" and game_full:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%"
-                else:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank})"
+    embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
+
+    # ✅ Footer for winner
+    if winner == "draw":
+        embed.set_footer(text="🎮 Game has ended. Result: 🤝 Draw")
+    elif isinstance(winner, int):
+        member = guild.get_member(winner) if guild else None
+        winner_name = member.display_name if member else f"User {winner}"
+        embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
+    elif winner in ("Team A", "Team B"):
+        embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}")
+
+    # ✅ Bets
+    if self.bets:
+        bet_lines = []
+        for _, uname, amt, ch in self.bets:
+            if self.game_type == "singles":
+                label = "Player 1" if ch == "1" else "Player 2"
+            elif self.game_type == "doubles":
+                label = "Team A" if ch.upper() == "A" else "Team B"
+            elif self.game_type in ("triples", "tournament"):
+                label = f"Player {ch}"
             else:
-                line = f"○ Player {idx + 1}: [Waiting...]"
-            player_lines.append(line)
+                label = ch
+            bet_lines.append(f"💰 {uname} bet {amt} on {label}")
+        embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
 
-            if self.game_type == "doubles" and idx == 1:
-                player_lines.append("\u200b")
-                label = "__**🅱️ Team B**__"
-                if game_full:
-                    label += f" • {odds_b * 100:.1f}%"
-                player_lines.append(label)
+    return embed
 
-        embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
-
-        if winner == "draw":
-            embed.set_footer(text="🎮 Game has ended. Result: 🤝 Draw")
-        elif isinstance(winner, int):
-            member = guild.get_member(winner) if guild else None
-            winner_name = member.display_name if member else f"User {winner}"
-            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
-        elif winner in ("Team A", "Team B"):
-            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}")
-
-        if self.bets:
-            bet_lines = []
-            for _, uname, amt, ch in self.bets:
-                if self.game_type == "singles":
-                    label = "Player 1" if ch == "1" else "Player 2"
-                elif self.game_type == "doubles":
-                    label = "Team A" if ch.upper() == "A" else "Team B"
-                elif self.game_type == "triples":
-                    label = f"Player {ch}"
-                else:
-                    label = ch
-                bet_lines.append(f"💰 {uname} bet {amt} on {label}")
-            embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
-
-        return embed
-
-    async def update_message(self):
-        if self.message:
-            embed = await self.build_embed(self.message.guild)
-            to_remove = [item for item in self.children if isinstance(item, LeaveGameButton)]
-            for item in to_remove:
-                self.remove_item(item)
-            if not self.betting_closed and len(self.players) < self.max_players:
-                self.add_item(LeaveGameButton(self))
-            await self.message.edit(embed=embed, view=self)
-
-    async def get_odds(self, choice):
-        ranks = []
-        for p in self.players:
-            pdata = await get_player(p)
-            ranks.append(pdata.get("rank", 1000))
-
-        if self.game_type == "singles":
-            e1, e2 = ranks
-            o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
-            return o1 if choice in ("1", str(self.players[0])) else (1 - o1)
-        elif self.game_type == "doubles":
-            e1 = sum(ranks[:2]) / 2
-            e2 = sum(ranks[2:]) / 2
-            o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
-            return o1 if choice.upper() == "A" else (1 - o1)
-        elif self.game_type == "triples":
-            exp = [10 ** (e / 400) for e in ranks]
-            total = sum(exp)
-            expected = [v / total for v in exp]
-            if choice in ("1", str(self.players[0])):
-                return expected[0]
-            elif choice in ("2", str(self.players[1])):
-                return expected[1]
-            elif choice in ("3", str(self.players[2])):
-                return expected[2]
-            return 0.5
-
-    async def add_bet(self, user_id, user_name, amount, choice):
-        self.bets.append((user_id, user_name, amount, choice))
-        await self.update_message()
-
-    def get_bet_summary(self):
-        if not self.bets:
-            return "No bets placed yet."
-        return "\n".join(f"**{uname}** bet {amt} on **{ch}**" for _, uname, amt, ch in self.bets)
-
-    @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
-    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id in self.players:
-            await interaction.response.send_message("✅ You have already joined this game.", ephemeral=True)
-            return
-        if len(self.players) >= self.max_players:
-            await interaction.response.send_message("🚫 This game is already full.", ephemeral=True)
-            return
-        if player_manager.is_active(interaction.user.id):
-            await interaction.response.send_message("🚫 You are already in another active game.", ephemeral=True)
-            return
-
-        player_manager.activate(interaction.user.id)
-        self.players.append(interaction.user.id)
-        await self.update_message()
-        await interaction.response.defer()
-
-        if len(self.players) == self.max_players:
-            await self.update_message()
-            await self.game_full(interaction)
-
-    async def show_betting_phase(self):
-        self.clear_items()
-        self.add_item(BettingButtonDropdown(self))
-        await self.update_message()
-        await asyncio.sleep(120)
-        self.betting_closed = True
-        self.clear_items()
-        await self.update_message()
-
-    async def game_full(self, interaction):
-        global pending_game
-        self.clear_items()
-        if self.abandon_task:
-            self.abandon_task.cancel()
-
-        # ✅ This button resets the start button for new games
-        await start_new_game_button(self.message.channel, self.game_type, self.max_players)
-        pending_games[self.game_type] = None
-        await save_pending_game(self.game_type, self.players, self.message.channel.id, self.max_players)
-
-        # ✅ Pick a random course
-        res = await run_db(lambda: supabase.table("courses").select("name", "image_url").execute())
-        if res.data is None:
-            course_name = "Unknown"
-            course_image = ""
-        else:
-            chosen = random.choice(res.data)
-            course_name = chosen["name"]
-            course_image = chosen.get("image_url", "")
-
-        # ✅ FIX: actually store the room name!
-        room_name = await room_name_generator.get_unique_word()
-
-        # ✅ Use the generated room name
-        thread = await interaction.channel.create_thread(name=room_name)
-
-        embed = await self.build_embed(interaction.guild)
-        embed.title = f"Game Room: {room_name}"
-        embed.description = f"Course: {course_name}"
-        if course_image:
-            embed.set_image(url=course_image)
-
-        room_view = RoomView(
-            players=self.players,
-            game_type=self.game_type,
-            room_name=room_name,
-            lobby_message=self.message,
-            lobby_embed=embed,
-            game_view=self
-        )
-        room_view.original_embed = embed.copy()
-
-        mentions = " ".join(f"<@{p}>" for p in self.players)
-        thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=embed, view=room_view)
-        room_view.message = thread_msg
-
-        lobby_embed = await self.build_embed(interaction.guild)
-        lobby_embed.color = discord.Color.orange()
-        lobby_embed.title = f"{self.game_type.title()} Match Created!"
-        lobby_embed.description = f"A match has been created in thread: {thread.mention}"
-        lobby_embed.add_field(name="Room Name", value=room_name)
-        lobby_embed.add_field(name="Course", value=course_name)
-        if course_image:
-            lobby_embed.set_image(url=course_image)
-
-        await self.message.edit(embed=lobby_embed, view=None)
-        await self.show_betting_phase()
 
 
 class BettingButton(discord.ui.Button):
@@ -1330,42 +1204,33 @@ class TournamentStartButtonView(discord.ui.View):
 
     @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary)
     async def start_tournament(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Handle the start of tournament button click"""
-        # Create a modal to select the number of players
         await interaction.response.send_modal(PlayerCountModal())
-        
+
+
 class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
     def __init__(self):
         super().__init__()
         self.player_count = discord.ui.TextInput(
-            label="Number of Players (4, 8, 16...)", placeholder="Enter a power of 2", max_length=4
+            label="Number of players (4, 8, 16...)", placeholder="4, 8, 16...", max_length=4
         )
         self.add_item(self.player_count)
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
             count = int(self.player_count.value.strip())
-            # Power of 2 check for bracket structure
-            if count < 2 or (count & (count - 1)) != 0:
+            if count < 4 or count > 64:
                 raise ValueError()
         except ValueError:
-            await interaction.response.send_message(
-                "❌ Invalid number. Must be a power of 2 (e.g. 4, 8, 16).",
-                ephemeral=True
-            )
+            await interaction.response.send_message("❌ Invalid number.", ephemeral=True)
             return
 
-        # ✅ Spawn the lobby as a singles-style join lobby with your custom count
-        await start_new_game_button(
-            interaction.channel,
-            game_type="tournament",  # use custom type
-            max_players=count
-        )
+        # Start the actual tournament lobby
+        view = GameView("tournament", interaction.user.id, count)
+        embed = await view.build_embed(interaction.guild)
+        view.message = await interaction.channel.send(embed=embed, view=view)
 
-        await interaction.response.send_message(
-            f"✅ Tournament lobby created for **{count} players**. Players can now join!",
-            ephemeral=True
-        )
+        await interaction.response.send_message(f"✅ Tournament lobby created for **{count}** players!", ephemeral=True)
+
 
 class Tournament:
     def __init__(self, host_id, players, channel, game_type="singles"):
