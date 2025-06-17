@@ -1773,16 +1773,15 @@ class PaginatedCourseView(discord.ui.View):
 
 
 class SubmitScoreModal(discord.ui.Modal):
-    def __init__(self, course_name: str):
+    def __init__(self, course_name, course_id):
         super().__init__(title=f"Submit Best Score for {course_name}")
         self.course_name = course_name
+        self.course_id = course_id
 
-        # Input field for score
         self.score_input = discord.ui.TextInput(
-            label="Enter your best score",
-            placeholder="Example: 44",
+            label="Your Best Score",
+            placeholder="e.g. 44",
             style=discord.TextStyle.short,
-            required=True,
             max_length=5
         )
         self.add_item(self.score_input)
@@ -1790,40 +1789,36 @@ class SubmitScoreModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         score_str = self.score_input.value.strip()
 
-        # ✅ Validate that it's a number
         try:
             score_value = float(score_str)
         except ValueError:
-            await interaction.response.send_message(
-                "❌ Invalid score. Please enter a valid number (e.g., 44).",
+            return await interaction.response.send_message(
+                "❌ Invalid score. Please enter a number.",
                 ephemeral=True
             )
-            return
 
-        # ✅ Insert into your Supabase "rounds" table using the submitter's ID
-        try:
-            res = await run_db(lambda: supabase
-                .table("rounds")
-                .insert({
-                    "player_id": str(interaction.user.id),
-                    "course_name": self.course_name,
-                    "score": score_value
-                })
-                .execute()
-            )
-        except Exception as e:
-            print("Error saving score:", e)
-            await interaction.response.send_message(
-                f"❌ Failed to save your score: `{e}`",
-                ephemeral=True
-            )
-            return
-
-        await interaction.response.send_message(
-            f"✅ Your best score of `{score_value}` for `{self.course_name}` has been saved!",
-            ephemeral=True
+        # ✅ Insert round linked to course_id
+        res = await run_db(lambda: supabase
+            .table("rounds")
+            .insert({
+                "player_id": str(interaction.user.id),
+                "course_name": self.course_name,   # store human name too
+                "course_id": self.course_id,
+                "score": score_value
+            })
+            .execute()
         )
 
+        if hasattr(res, "status_code") and res.status_code not in (200, 201):
+            return await interaction.response.send_message(
+                f"❌ Failed to save: {res}",
+                ephemeral=True
+            )
+
+        await interaction.response.send_message(
+            f"✅ Saved: **{self.course_name}** — **{score_value}**",
+            ephemeral=True
+        )
 
 class CourseSelect(discord.ui.Select):
     def __init__(self, courses, callback_fn):
