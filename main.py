@@ -576,7 +576,19 @@ class GameView(discord.ui.View):
             embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
 
         return embed
+    
+    async def update_message(self):
+        if self.message:
+            embed = await self.build_embed(self.message.guild)
+            # ✅ Only manage Leave button dynamically, never Join
+            to_remove = [item for item in self.children if isinstance(item, LeaveGameButton)]
+            for item in to_remove:
+                self.remove_item(item)
 
+            if not self.betting_closed and len(self.players) < self.max_players:
+                self.add_item(LeaveGameButton(self))
+
+            await self.message.edit(embed=embed, view=self)
 
 
 class BettingButton(discord.ui.Button):
