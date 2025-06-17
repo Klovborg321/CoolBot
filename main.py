@@ -606,6 +606,8 @@ class GameView(discord.ui.View):
         elif winner in ("Team A", "Team B"):
             embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}")
 
+        embed.add_field(name="\u200b", value="\u200b", inline=False)
+
         if self.bets:
             bet_lines = []
             for _, uname, amt, ch in self.bets:
