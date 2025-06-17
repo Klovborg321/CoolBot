@@ -322,6 +322,14 @@ async def update_message(self, no_image=True):
         embed = await self.build_embed(self.message.guild, no_image=no_image)
         await self.message.edit(embed=embed, view=self)
 
+def fixed_width_name(name: str, width: int = 20) -> str:
+    """Truncate or pad name to exactly `width` characters."""
+    name = name.strip()
+    if len(name) > width:
+        return name[:width - 3] + "..."
+    return name.ljust(width)
+
+
 class PlayerManager:
     def __init__(self):
         self.active_players = set()
@@ -1807,7 +1815,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
                 "player_id": str(interaction.user.id),
                 "course_id": self.course_id,
                 "course_name": self.course_name,
-                "best_score": best_score
+                "score": best_score
             })
             .execute()
         )
