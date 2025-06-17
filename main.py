@@ -546,7 +546,7 @@ class GameView(discord.ui.View):
                     .maybe_single()
                     .execute()
                 )
-                hcp = round(res.data["handicap"], 1) if res.data and "handicap" in res.data else "-"
+                hcp = round(res.data["handicap"], 1) if (res and res.data and "handicap" in res.data) else "-"
             else:
                 hcp = None
 
