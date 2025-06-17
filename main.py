@@ -70,12 +70,12 @@ default_template = {
 # Helpers
 def normalize_team(name):
     if isinstance(name, str):
-        name = name.lower()
-        if "a" in name:
+        name = name.strip().upper()
+        if name in ("A", "TEAM A"):
             return "A"
-        if "b" in name:
+        if name in ("B", "TEAM B"):
             return "B"
-    return name  # fallback:
+    return name
 
 async def dm_all_online(guild: discord.Guild, message: str):
     """DM all online members in the given guild with a custom message."""
@@ -1005,6 +1005,9 @@ class RoomView(discord.ui.View):
             return
 
         # ✅ 1️⃣ Update player stats properly
+        normalized_winner = normalize_team(winner) if self.game_type == "doubles" else winner
+
+        # ✅ Update stats per player
         for p in self.players:
             pdata = await get_player(p)
             pdata["games_played"] += 1
@@ -1012,11 +1015,12 @@ class RoomView(discord.ui.View):
             if self.game_type == "singles":
                 is_winner = (winner == p)
             elif self.game_type == "doubles":
-                winner_team = normalize_team(winner)
-                is_winner = (
-                    (winner_team == "TEAM A" and p in self.players[:2]) or
-                    (winner_team == "TEAM B" and p in self.players[2:])
-                )
+                if normalized_winner == "A":
+                    is_winner = p in self.players[:2]
+                elif normalized_winner == "B":
+                    is_winner = p in self.players[2:]
+                else:
+                    is_winner = False
             elif self.game_type == "triples":
                 is_winner = (winner == p)
             else:
