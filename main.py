@@ -1541,21 +1541,24 @@ class LeaderboardView(discord.ui.View):
                 stats = entry
                 uid = stats.get("id")
 
-            name = f"<@{uid}>"
+            member = guild.get_member(int(uid))
+            display = member.display_name if member else f"User {uid}"
+            name = display[:18].ljust(18)  # ✅ force exactly 18 chars
+
             rank = stats.get("rank", 1000)
             trophies = stats.get("trophies", 0)
             credits = stats.get("credits", 0)
 
             badge = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else ""
 
-            line = f"#{i:>2} {name:<20} | 🏆 {trophies:<3} | 💰 {credits:<4} | 📈 {rank} {badge}"
+            line = f"#{i:>2} {name} | 🏆 {trophies:<3} | 💰 {credits:<4} | 📈 {rank} {badge}"
             lines.append(line)
 
         if not lines:
-            lines = ["*No entries found.*"]
+            lines = ["No entries found."]
 
         page_info = f"Page {self.page + 1} of {max(1, (len(self.entries) + self.page_size - 1) // self.page_size)}"
-        return "\n".join(lines) + f"\n\n{page_info}"
+        return f"```{chr(10).join(lines)}\n\n{page_info}```"  # ✅ wrap in code block!
 
     async def update(self):
         self.update_buttons()
@@ -1990,18 +1993,28 @@ async def init_triples(interaction: discord.Interaction):
 )
 async def leaderboard_local(interaction: discord.Interaction):
     # 1️⃣ Fetch all players sorted by rank descending
-    res = await run_db(lambda: supabase.table("players").select("*").order("rank", desc=True).execute())
+    res = await run_db(
+        lambda: supabase
+        .table("players")
+        .select("*")
+        .order("rank", desc=True)
+        .execute()
+    )
+
     if not res.data:
-        await interaction.response.send_message("📭 No players found.", ephemeral=True)
+        await interaction.response.send_message(
+            "📭 No players found.",
+            ephemeral=True
+        )
         return
 
-    # 2️⃣ Prepare entries as (id, stats)
+    # 2️⃣ Format as (id, stats) tuples
     entries = [(row["id"], row) for row in res.data]
 
-    # 3️⃣ Create the unified LeaderboardView with pagination
+    # 3️⃣ Create paginated view
     view = LeaderboardView(entries, page_size=10, title="🏆 ELO Leaderboard")
 
-    # 4️⃣ Send the first page
+    # 4️⃣ Send first page
     embed = discord.Embed(
         title=view.title,
         description=view.format_page(interaction.guild),
@@ -2009,8 +2022,9 @@ async def leaderboard_local(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed, view=view)
 
-    # 5️⃣ Bind the view to the sent message for updates
+    # 5️⃣ Bind view.message for updates
     view.message = await interaction.original_response()
+
 
 
 @tree.command(
