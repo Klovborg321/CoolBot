@@ -602,6 +602,10 @@ class GameView(discord.ui.View):
                 bet_lines.append(f"💰 {uname} bet {amt} on {label}")
             embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
 
+        # ✅ Add image if we have one and image is allowed:
+        if not no_image and getattr(self, "course_image", None):
+            embed.set_image(url=self.course_image)
+
         return embed
 
     async def update_message(self):
