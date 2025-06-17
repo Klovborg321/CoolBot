@@ -515,21 +515,46 @@ class GameView(discord.ui.View):
     async def build_embed(self, guild=None, winner=None, no_image=False):
         embed = discord.Embed(
             title=f"🎮 {self.game_type.title()} Match Lobby",
-            description="Awaiting players for a new match...",
-            color=discord.Color.orange() if not winner else discord.Color.dark_gray()
+            description="Awaiting players for a new match..." if not winner else "",
+            color=discord.Color.orange() if not winner else discord.Color.dark_gray(),
+            timestamp=discord.utils.utcnow()
         )
         embed.set_author(
             name="LEAGUE OF EXTRAORDINARY MISFITS",
             icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
         )
-        embed.timestamp = discord.utils.utcnow()
 
+        # ✅ Only attach image if not no_image AND we have one
+        if not no_image and getattr(self, "course_image", None):
+            embed.set_image(url=self.course_image)
+
+        # --- Gather player info ---
         ranks = []
+        handicaps = []
+
         for p in self.players:
             pdata = await get_player(p)
             ranks.append(pdata.get("rank", 1000))
 
+            # Handicap only for match room (i.e. when image shown)
+            if not no_image and getattr(self, "course_name", None):
+                res = await run_db(lambda: supabase
+                    .table("handicaps")
+                    .select("handicap")
+                    .eq("player_id", str(p))
+                    .eq("course_name", self.course_name)
+                    .maybe_single()
+                    .execute()
+                )
+                hcp = round(res.data["handicap"], 1) if res.data and "handicap" in res.data else "-"
+            else:
+                hcp = None
+
+            handicaps.append(hcp)
+
+        # --- Calculate odds if full ---
         game_full = len(self.players) == self.max_players
+        odds = []
 
         if self.game_type == "doubles" and game_full:
             e1 = sum(ranks[:2]) / 2
@@ -537,11 +562,12 @@ class GameView(discord.ui.View):
             odds_a = 1 / (1 + 10 ** ((e2 - e1) / 400))
             odds_b = 1 - odds_a
         elif self.game_type == "triples" and game_full:
-            sum_exp = sum([10 ** (e / 400) for e in ranks])
-            odds = [(10 ** (e / 400)) / sum_exp for e in ranks]
+            exp = [10 ** (r / 400) for r in ranks]
+            total = sum(exp)
+            odds = [v / total for v in exp]
 
+        # --- Build player lines ---
         player_lines = []
-
         if self.game_type == "doubles":
             player_lines.append("\u200b")
             label = "__**🅰️ Team A**__"
@@ -554,38 +580,21 @@ class GameView(discord.ui.View):
                 user_id = self.players[idx]
                 member = guild.get_member(user_id) if guild else None
                 name = f"**{member.display_name}**" if member else f"**User {user_id}**"
+                rank = ranks[idx]
+                hcp_txt = f" 🎯 HCP: {handicaps[idx]}" if handicaps[idx] is not None else ""
 
-                pdata = await get_player(user_id)
-                rank = pdata.get("rank", 1000)
-                trophies = pdata.get("trophies", 0)
-
-                # ✅ Handicap: ONLY in match room (no_image == False)
-                if not no_image and getattr(self, "course_name", None):
-                    res = await run_db(lambda: supabase
-                        .table("handicaps")
-                        .select("handicap")
-                        .eq("player_id", str(user_id))
-                        .eq("course_name", self.course_name)
-                        .maybe_single()
-                        .execute()
-                    )
-                    hcp = round(res.data["handicap"], 1) if res.data and "handicap" in res.data else "-"
-                    handicap_text = f" 🎯 HCP: {hcp}"
-                else:
-                    handicap_text = ""
-
-                # ✅ Odds if needed
                 if self.game_type == "singles" and game_full:
                     e1, e2 = ranks
                     o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
                     player_odds = o1 if idx == 0 else 1 - o1
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) 🏅 {trophies} • {player_odds * 100:.1f}%{handicap_text}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%{hcp_txt}"
                 elif self.game_type == "triples" and game_full:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) 🏅 {trophies} • {odds[idx] * 100:.1f}%{handicap_text}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%{hcp_txt}"
                 else:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) 🏅 {trophies}{handicap_text}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}){hcp_txt}"
             else:
                 line = f"○ Player {idx + 1}: [Waiting...]"
+
             player_lines.append(line)
 
             if self.game_type == "doubles" and idx == 1:
@@ -597,6 +606,25 @@ class GameView(discord.ui.View):
 
         embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
 
+        # --- Add empty line before bets ---
+        embed.add_field(name="\u200b", value="\u200b", inline=False)
+
+        # --- Bets ---
+        if self.bets:
+            bet_lines = []
+            for _, uname, amt, ch in self.bets:
+                if self.game_type == "singles":
+                    label = "Player 1" if ch == "1" else "Player 2"
+                elif self.game_type == "doubles":
+                    label = "Team A" if ch.upper() == "A" else "Team B"
+                elif self.game_type == "triples":
+                    label = f"Player {ch}"
+                else:
+                    label = ch
+                bet_lines.append(f"💰 {uname} bet {amt} on {label}")
+            embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
+
+        # --- Footer for winner ---
         if winner == "draw":
             embed.set_footer(text="🎮 Game has ended. Result: 🤝 Draw")
         elif isinstance(winner, int):
@@ -606,25 +634,8 @@ class GameView(discord.ui.View):
         elif winner in ("Team A", "Team B"):
             embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}")
 
-        embed.add_field(name="\u200b", value="\u200b", inline=False)
-
-        if self.bets:
-            bet_lines = []
-            for _, uname, amt, ch in self.bets:
-                label = (
-                    "Player 1" if ch == "1" else
-                    "Player 2" if ch == "2" else
-                    "Team A" if ch.upper() == "A" else
-                    "Team B" if ch.upper() == "B" else
-                    f"Player {ch}" if self.game_type == "triples" else ch
-                )
-                bet_lines.append(f"💰 {uname} bet {amt} on {label}")
-            embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
-
-        if not no_image and getattr(self, "course_image", None):
-            embed.set_image(url=self.course_image)
-
         return embed
+
 
     async def update_message(self):
         if self.message:
