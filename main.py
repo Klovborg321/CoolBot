@@ -511,7 +511,7 @@ class GameView(discord.ui.View):
             await self.abandon_game("⏰ Game timed out due to inactivity.")
             await clear_pending_game(self.game_type)
 
-    async def build_embed(self, guild=None, winner=None):
+    async def build_embed(self, guild=None, winner=None, no_image=False):
         embed = discord.Embed(
             title=f"🎮 {self.game_type.title()} Match Lobby",
             description="Awaiting players for a new match...",
@@ -703,8 +703,14 @@ class GameView(discord.ui.View):
         thread_embed = await self.build_embed(interaction.guild)
         thread_embed.title = f"Game Room: {room_name}"
         thread_embed.description = f"Course: {course_name}"
-        if course_image:
-            thread_embed.set_image(url=course_image)
+
+        lobby_embed = await self.build_embed(interaction.guild, no_image=True)
+        lobby_embed.title = f"{self.game_type.title()} Match Created!"
+        lobby_embed.description = f"A match has been created in thread: {thread.mention}"
+        lobby_embed.add_field(name="Room Name", value=room_name)
+        lobby_embed.add_field(name="Course", value=course_name)
+
+        await self.message.edit(embed=lobby_embed, view=None)
 
         room_view = RoomView(
             players=self.players,
