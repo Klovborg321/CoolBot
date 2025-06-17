@@ -729,24 +729,29 @@ class GameView(discord.ui.View):
         course_name = chosen.get("name", "Unknown")
         course_image = chosen.get("image_url", "")
 
-        room_name = await room_name_generator.get_unique_word()
-        thread = await interaction.channel.create_thread(name=room_name)
+        # ✅ Store for embed usage:
+        self.course_name = course_name  # ✅ IMPORTANT for handicaps!
         self.course_image = course_image
 
-        # ✅ Room thread embed → with image
+        room_name = await room_name_generator.get_unique_word()
+        thread = await interaction.channel.create_thread(name=room_name)
+
+        # ✅ Match room embed: WITH image, handicaps, odds
         thread_embed = await self.build_embed(interaction.guild)
         thread_embed.title = f"Game Room: {room_name}"
         thread_embed.description = f"Course: {course_name}"
 
-        # ✅ Lobby embed → NO image
+        # ✅ Main lobby embed: NO image, NO handicaps
         lobby_embed = await self.build_embed(interaction.guild, no_image=True)
         lobby_embed.title = f"{self.game_type.title()} Match Created!"
         lobby_embed.description = f"A match has been created in thread: {thread.mention}"
         lobby_embed.add_field(name="Room Name", value=room_name)
         lobby_embed.add_field(name="Course", value=course_name)
 
+        # ✅ Update the main lobby message: clean, no image
         await self.message.edit(embed=lobby_embed, view=None)
 
+        # ✅ Post the room embed in the thread
         room_view = RoomView(
             players=self.players,
             game_type=self.game_type,
@@ -758,19 +763,14 @@ class GameView(discord.ui.View):
         room_view.original_embed = thread_embed.copy()
 
         mentions = " ".join(f"<@{p}>" for p in self.players)
-        thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=thread_embed, view=room_view)
+        thread_msg = await thread.send(
+            content=f"{mentions}\nMatch started!",
+            embed=thread_embed,
+            view=room_view
+        )
         room_view.message = thread_msg
 
-        # LOBBY EMBED — no image
-        lobby_embed = await self.build_embed(interaction.guild, no_image=True)
-        lobby_embed.color = discord.Color.orange()
-        lobby_embed.title = f"{self.game_type.title()} Match Created!"
-        lobby_embed.description = f"A match has been created in thread: {thread.mention}"
-        lobby_embed.add_field(name="Room Name", value=room_name)
-        lobby_embed.add_field(name="Course", value=course_name)
-        # ❌ no image here!
-
-        await self.message.edit(embed=lobby_embed, view=None)
+        # ✅ Finally, start betting phase
         await self.show_betting_phase()
 
 
