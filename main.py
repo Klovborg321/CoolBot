@@ -745,7 +745,7 @@ class GameView(discord.ui.View):
             room_name=room_name,
             lobby_message=self.message,
             lobby_embed=thread_embed,
-            game_view=self
+            game_view=self,
             course_name=self.course_name  # ← add this!
         )
         room_view.original_embed = thread_embed.copy()
