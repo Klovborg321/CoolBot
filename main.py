@@ -257,8 +257,6 @@ async def update_user_stat(user_id, key, value, mode="set"):
     await save_player(user_id, data)
 
 
-
-
 # Load ALL players as a dict
 # ✅ Safe get_player: always upsert if not exists
 async def get_player(user_id: int) -> dict:
@@ -273,7 +271,6 @@ async def get_player(user_id: int) -> dict:
         return new_data
 
     return res.data[0]  # Return the first player record found
-
 
 
 def calculate_elo(elo1, elo2, result):
@@ -304,7 +301,6 @@ async def start_new_game_button(channel, game_type, max_players=None):
 
     start_buttons[key] = msg
     return msg
-
 
 
 async def show_betting_phase(self):
@@ -602,8 +598,8 @@ class GameView(discord.ui.View):
             if idx < len(self.players):
                 user_id = self.players[idx]
                 member = guild.get_member(user_id) if guild else None
-                name = f"**{member.display_name}**" if member else f"**User {user_id}**"
-                name = fixed_width_name(name)
+                raw_name = member.display_name if member else f"Player {idx + 1}"
+                name = f"**{fixed_width_name(raw_name, 20)}**"
                 rank = ranks[idx]
                 hcp_txt = f" 🎯 HCP: {handicaps[idx]}" if handicaps[idx] is not None else ""
 
