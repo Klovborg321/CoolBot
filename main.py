@@ -506,7 +506,7 @@ class GameView(discord.ui.View):
         await self.update_message()
 
         if len(self.players) == self.max_players:
-            await self.handle_game_full(interaction)
+            await self.game_full(interaction)
 
 
     async def abandon_game(self, reason):
