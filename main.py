@@ -748,8 +748,6 @@ class GameView(discord.ui.View):
         lobby_embed.title = f"{self.game_type.title()} Match Created!"
         lobby_embed.description = f"A match has been created in thread: {thread.mention}"
         lobby_embed.color = discord.Color.orange()
-        lobby_embed.add_field(name="Room Name", value=room_name)
-        lobby_embed.add_field(name="Course", value=self.course_name)
 
         # ✅ Replace Join button with Bet button:
         self.clear_items()  # remove Join & Leave
