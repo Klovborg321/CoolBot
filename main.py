@@ -697,6 +697,7 @@ class GameView(discord.ui.View):
 
         room_name = await room_name_generator.get_unique_word()
         thread = await interaction.channel.create_thread(name=room_name)
+        self.course_image = course_image
 
         # THREAD EMBED — full detail
         thread_embed = await self.build_embed(interaction.guild)
@@ -1298,7 +1299,10 @@ class TournamentView(discord.ui.View):
             bet_lines = [f"💰 **{uname}** bet **{amt}** on **{choice}**" for _, uname, amt, choice in self.bets]
             embed.add_field(name="📊 Current Bets", value="\n".join(bet_lines), inline=False)
 
-        return embed
+        # ✅ Only attach image if not disabled and image exists:
+        if not no_image and getattr(self, "course_image", None):
+            embed.set_image(url=self.course_image)
+            return embed
 
     async def update_message(self):
         """Update the tournament message."""
