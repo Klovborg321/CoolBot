@@ -1772,74 +1772,55 @@ class PaginatedCourseView(discord.ui.View):
             await interaction.response.defer()
 
 
-class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
-    def __init__(self, course_name, course_id):
-        super().__init__()
+class SubmitScoreModal(discord.ui.Modal):
+    def __init__(self, course_name: str):
+        super().__init__(title=f"Submit Best Score for {course_name}")
         self.course_name = course_name
-        self.course_id = course_id
 
-        # ✅ Only 1 input: the score
-        self.add_item(discord.ui.TextInput(
-            label=f"Best score for {course_name}",
-            placeholder="Enter your best score (e.g. 30)",
-            style=discord.TextStyle.short
-        ))
+        # Input field for score
+        self.score_input = discord.ui.TextInput(
+            label="Enter your best score",
+            placeholder="Example: 44",
+            style=discord.TextStyle.short,
+            required=True,
+            max_length=5
+        )
+        self.add_item(self.score_input)
 
-    async def on_submit(self, interaction: Interaction):
+    async def on_submit(self, interaction: discord.Interaction):
+        score_str = self.score_input.value.strip()
+
+        # ✅ Validate that it's a number
         try:
-            score = float(self.children[0].value)
+            score_value = float(score_str)
         except ValueError:
             await interaction.response.send_message(
-                "❌ Invalid number — please enter a valid score.",
+                "❌ Invalid score. Please enter a valid number (e.g., 44).",
                 ephemeral=True
             )
             return
 
-        # ✅ 1️⃣ Always get the latest rating from `courses`
-        course = await run_db(lambda: supabase
-            .table("courses")
-            .select("course_par, avg_par")
-            .eq("id", self.course_id)
-            .single()
-            .execute()
-        )
-
-        if not course.data:
+        # ✅ Insert into your Supabase "rounds" table using the submitter's ID
+        try:
+            res = await run_db(lambda: supabase
+                .table("rounds")
+                .insert({
+                    "player_id": str(interaction.user.id),
+                    "course_name": self.course_name,
+                    "score": score_value
+                })
+                .execute()
+            )
+        except Exception as e:
+            print("Error saving score:", e)
             await interaction.response.send_message(
-                "❌ Could not find the course in the database.",
+                f"❌ Failed to save your score: `{e}`",
                 ephemeral=True
             )
             return
 
-        # ✅ 2️⃣ Extract safely with fallback defaults
-        try:
-            course_par = float(course.data.get("course_par") or 60)
-        except (TypeError, ValueError):
-            course_par = 60.0
-
-        try:
-            avg_par = float(course.data.get("avg_par") or 55)
-        except (TypeError, ValueError):
-            avg_par = 55.0
-
-        # ✅ 3️⃣ Calculate official differential
-        handicap = round((course_par - score) - (course_par - avg_par), 1)
-
-        # ✅ 4️⃣ Store only clean fields — NOT rating/slope
-        res = await run_db(lambda: supabase
-            .table("handicaps")
-            .select("handicap")
-            .eq("player_id", str(p))
-            .eq("course_name", self.course_name)  # ✅ Not room_name!
-            .maybe_single()
-            .execute()
-        )
-
-        # ✅ 5️⃣ Confirm to user
         await interaction.response.send_message(
-            f"✅ **Score submitted!**\n"
-            f"📏 Course Par: `{course_par}` | Avg. Par: `{avg_par}`\n"
-            f"📊 Your Handicap: `{handicap}`",
+            f"✅ Your best score of `{score_value}` for `{self.course_name}` has been saved!",
             ephemeral=True
         )
 
@@ -2015,20 +1996,70 @@ class SetCourseRatingModal(discord.ui.Modal, title="Set Course Par"):
 
 
 
-@tree.command(name="set_user_handicap", description="Submit your best score for a course")
-async def submit_score(interaction: discord.Interaction):
-    res = await run_db(lambda: supabase.table("courses").select("id, name").execute())
-    if not res.data:
-        await interaction.response.send_message("⚠️ No courses found.", ephemeral=True)
-        return
+@tree.command(name="set_user_handicap")
+@app_commands.describe(
+    user="User to update",
+    course="Course name",
+    handicap="Number (like 44) or 'best score' to auto-calc"
+)
+async def set_user_handicap(interaction: discord.Interaction, user: discord.Member, course: str, handicap: str):
+    """Set a player's handicap for a course or auto-calculate."""
 
-    view = PaginatedCourseView(res.data)
-    await interaction.response.send_message(
-        "🏌️‍♂️ Select a course to submit your score (use Next/Prev if needed):",
-        view=view,
+    await interaction.response.defer(ephemeral=True)
+
+    raw = handicap.strip().lower()
+
+    if raw == "best score":
+        # Get best round for that player/course
+        res = await run_db(lambda: supabase
+            .table("rounds")
+            .select("score")
+            .eq("player_id", str(user.id))
+            .eq("course_name", course)
+            .order("score")
+            .limit(1)
+            .maybe_single()
+            .execute()
+        )
+        best = res.data["score"] if res and getattr(res, "data", None) and "score" in res.data else None
+
+        if best is None:
+            await interaction.followup.send(
+                f"⚠️ No scores found for <@{user.id}> on `{course}`.",
+                ephemeral=True
+            )
+            return
+
+        value = float(best)
+        msg = f"✅ Best score found: `{value}`"
+    else:
+        # Safe parse as float
+        try:
+            value = float(raw)
+        except ValueError:
+            await interaction.followup.send(
+                "❌ Please enter a number or `best score`.",
+                ephemeral=True
+            )
+            return
+
+        msg = f"✅ Handicap manually set to `{value}`"
+
+    # Save to DB
+    await run_db(lambda: supabase
+        .table("handicaps")
+        .upsert({
+            "player_id": str(user.id),
+            "course_name": course,
+            "handicap": value
+        })
+        .execute()
+    )
+
+    await interaction.followup.send(
+        f"{msg} for <@{user.id}> on `{course}`.",
         ephemeral=True
     )
-    view.message = await interaction.original_response()
 
 
 
