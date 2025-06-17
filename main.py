@@ -681,70 +681,55 @@ class GameView(discord.ui.View):
 
     async def game_full(self, interaction):
         global pending_game
-
         self.clear_items()
         if self.abandon_task:
             self.abandon_task.cancel()
 
-        # 🗂️ Reset start button for new games
         await start_new_game_button(self.message.channel, self.game_type, self.max_players)
         pending_games[self.game_type] = None
         await save_pending_game(self.game_type, self.players, self.message.channel.id, self.max_players)
 
-        # 🎯 Pick a random course from Supabase
+        # Pick random course
         res = await run_db(lambda: supabase.table("courses").select("name", "image_url").execute())
-        if not res.data:
-            course_name = "Unknown"
-            course_image = ""
-        else:
-            chosen = random.choice(res.data)
-            course_name = chosen["name"]
-            course_image = chosen.get("image_url", "")
+        chosen = random.choice(res.data or [{}])
+        course_name = chosen.get("name", "Unknown")
+        course_image = chosen.get("image_url", "")
 
-        # 🎮 Generate a unique room name for the thread title
         room_name = await room_name_generator.get_unique_word()
-
-        # 🧵 Create the thread
         thread = await interaction.channel.create_thread(name=room_name)
 
-        # 📋 Build embed for thread, include course name + image
-        embed = await self.build_embed(interaction.guild)
-        embed.title = f"Game Room: {room_name}"
-        embed.description = f"Course: **{course_name}**"
+        # THREAD EMBED — full detail
+        thread_embed = await self.build_embed(interaction.guild)
+        thread_embed.title = f"Game Room: {room_name}"
+        thread_embed.description = f"Course: {course_name}"
         if course_image:
-            embed.set_image(url=course_image)
+            thread_embed.set_image(url=course_image)
 
-        # ✅ RoomView knows BOTH room_name & course_name
         room_view = RoomView(
             players=self.players,
             game_type=self.game_type,
-            room_name=room_name,       # thread name
-            course_name=course_name,   # real course name for handicap
+            room_name=room_name,
             lobby_message=self.message,
-            lobby_embed=embed,
+            lobby_embed=thread_embed,
             game_view=self
         )
-        room_view.original_embed = embed.copy()
+        room_view.original_embed = thread_embed.copy()
 
         mentions = " ".join(f"<@{p}>" for p in self.players)
-        thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=embed, view=room_view)
+        thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=thread_embed, view=room_view)
         room_view.message = thread_msg
 
-        # 🔗 Update the main lobby message
+        # LOBBY EMBED — no image
         lobby_embed = await self.build_embed(interaction.guild)
         lobby_embed.color = discord.Color.orange()
         lobby_embed.title = f"{self.game_type.title()} Match Created!"
         lobby_embed.description = f"A match has been created in thread: {thread.mention}"
         lobby_embed.add_field(name="Room Name", value=room_name)
         lobby_embed.add_field(name="Course", value=course_name)
-        if course_image:
-            lobby_embed.set_image(url=course_image)
+        # ❌ no image here!
 
         await self.message.edit(embed=lobby_embed, view=None)
-
-        # 🏦 Start betting phase
         await self.show_betting_phase()
-
 
 
 class BettingButton(discord.ui.Button):
@@ -926,16 +911,15 @@ class BetDropdown(discord.ui.Select):
 
 
 class RoomView(discord.ui.View):
-    def __init__(self, players, game_type, room_name, course_name, lobby_message=None, lobby_embed=None, game_view=None):
+    def __init__(self, players, game_type, room_name, lobby_message=None, lobby_embed=None, game_view=None):
         super().__init__(timeout=None)
         self.players = players
         self.game_type = game_type
-        self.room_name = room_name           # e.g. "Alpha"
-        self.course_name = course_name       # e.g. "Pebble Beach"
-        self.message = None                  # Thread message itself
-        self.lobby_message = lobby_message   # Original lobby message to update when game ends
-        self.lobby_embed = lobby_embed       # Snapshot at game start
-        self.game_view = game_view           # Backlink to GameView
+        self.room_name = room_name   # short unique word
+        self.message = None          # thread message
+        self.lobby_message = lobby_message
+        self.lobby_embed = lobby_embed
+        self.game_view = game_view
         self.votes = {}
         self.vote_timeout = None
         self.game_has_ended = False
@@ -956,19 +940,17 @@ class RoomView(discord.ui.View):
             color=discord.Color.dark_gray()
         )
 
-        # ✅ Player lines with handicap for self.course_name
         lines = []
         for p in self.players:
             pdata = await get_player(p)
             rank = pdata.get('rank', 1000)
             trophies = pdata.get('trophies', 0)
 
-            # 🔑 Fetch HCP for THIS course name
             res = await run_db(lambda: supabase
                 .table("handicaps")
                 .select("handicap")
                 .eq("player_id", str(p))
-                .eq("course_name", self.course_name)
+                .eq("course_name", self.game_view.course_name)
                 .maybe_single()
                 .execute()
             )
@@ -989,9 +971,14 @@ class RoomView(discord.ui.View):
         elif winner in ("Team A", "Team B"):
             embed.add_field(name="🏁 Winner", value=f"🎉 {winner}", inline=False)
 
+        # ✅ Add back the image if it was set originally:
+        if self.lobby_embed and self.lobby_embed.image:
+            embed.set_image(url=self.lobby_embed.image.url)
+
         return embed
 
-    # ✅ your start_voting, end_voting_after_timeout, finalize_game stay the SAME.
+
+    # ✅ start_voting, end_voting_after_timeout, finalize_game same as before
     # I’m not repeating them here — no changes needed there.
 
     async def start_voting(self):
