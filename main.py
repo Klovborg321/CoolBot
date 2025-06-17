@@ -950,12 +950,15 @@ class RoomView(discord.ui.View):
         super().__init__(timeout=None)
         self.players = players
         self.game_type = game_type
-        self.room_name = room_name   # short unique word
-        self.message = None          # the thread message
+        self.room_name = room_name
+        self.message = None  # thread message
         self.lobby_message = lobby_message
         self.lobby_embed = lobby_embed
         self.game_view = game_view
-        self.course_name = course_name  # ✅ fix: store your own course name
+
+        # ✅ Store course_name robustly:
+        self.course_name = course_name or getattr(game_view, "course_name", None)
+
         self.votes = {}
         self.vote_timeout = None
         self.game_has_ended = False
@@ -963,12 +966,9 @@ class RoomView(discord.ui.View):
         self.add_item(GameEndedButton(self))
 
     def get_vote_options(self):
-        if self.game_type == "triples":
+        if self.game_type in ("singles", "triples"):
             return self.players
-        elif self.game_type == "singles":
-            return self.players
-        else:
-            return ["Team A", "Team B"]
+        return ["Team A", "Team B"]
 
     async def build_lobby_end_embed(self, winner):
         embed = discord.Embed(
@@ -982,18 +982,22 @@ class RoomView(discord.ui.View):
             rank = pdata.get('rank', 1000)
             trophies = pdata.get('trophies', 0)
 
-            # ✅ Use YOUR course_name directly:
-            res = await run_db(lambda: supabase
-                .table("handicaps")
-                .select("handicap")
-                .eq("player_id", str(p))
-                .eq("course_name", self.course_name)
-                .maybe_single()
-                .execute()
-            )
-            handicap = round(res.data["handicap"], 1) if res.data and "handicap" in res.data else "-"
+            # ✅ Fully safe handicap lookup:
+            hcp = "-"
+            if self.course_name:
+                res = await run_db(lambda: supabase
+                    .table("handicaps")
+                    .select("handicap")
+                    .eq("player_id", str(p))
+                    .eq("course_name", self.course_name)
+                    .maybe_single()
+                    .execute()
+                )
+                if res and getattr(res, "data", None):
+                    hval = res.data.get("handicap")
+                    hcp = round(hval, 1) if hval is not None else "-"
 
-            lines.append(f"<@{p}> | Rank: {rank} | Trophies: {trophies} | 🎯 HCP: {handicap}")
+            lines.append(f"<@{p}> | Rank: {rank} | Trophies: {trophies} | 🎯 HCP: {hcp}")
 
         embed.description = "\n".join(lines)
         embed.add_field(name="🎮 Status", value="Game has ended.", inline=False)
@@ -1007,7 +1011,7 @@ class RoomView(discord.ui.View):
         elif winner in ("Team A", "Team B"):
             embed.add_field(name="🏁 Winner", value=f"🎉 {winner}", inline=False)
 
-        # ✅ Keep image consistent:
+        # ✅ Use lobby image if it exists:
         if self.lobby_embed and self.lobby_embed.image:
             embed.set_image(url=self.lobby_embed.image.url)
 
@@ -1286,27 +1290,27 @@ class TournamentView(discord.ui.View):
         embed = discord.Embed(
             title=f"🎮 {self.game_type.title()} Match Lobby",
             description="Awaiting players for a new match...",
-            color=discord.Color.orange() if not winner else discord.Color.dark_gray()
+            color=discord.Color.orange() if not winner else discord.Color.dark_gray(),
+            timestamp=discord.utils.utcnow()
         )
         embed.set_author(
             name="LEAGUE OF EXTRAORDINARY MISFITS",
             icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
         )
-        embed.timestamp = discord.utils.utcnow()
 
-        # ✅ IMAGE: only if allowed and you have one
+        # ✅ IMAGE: only if allowed + exists
         if not no_image and getattr(self, "course_image", None):
             embed.set_image(url=self.course_image)
 
-        # ✅ Get ranks & handicaps for each player
+        # ✅ Ranks & handicaps safe
         ranks = []
         handicaps = []
         for p in self.players:
             pdata = await get_player(p)
             ranks.append(pdata.get("rank", 1000))
 
-            # Only fetch handicap if we want to show it (ie. image allowed => it's the room)
-            if not no_image:
+            # Only if we have a course name and want to show image
+            if not no_image and self.course_name:
                 res = await run_db(lambda: supabase
                     .table("handicaps")
                     .select("handicap")
@@ -1315,24 +1319,27 @@ class TournamentView(discord.ui.View):
                     .maybe_single()
                     .execute()
                 )
-                handicap = res.data["handicap"] if res.data else 0
-                handicaps.append(round(handicap))
+                if res and getattr(res, "data", None) and "handicap" in res.data:
+                    handicaps.append(round(res.data["handicap"]))
+                else:
+                    handicaps.append("-")
             else:
                 handicaps.append(None)
 
         game_full = len(self.players) == self.max_players
 
-        # Calculate odds if needed
+        # ✅ Odds safe
+        odds = []
         if self.game_type == "doubles" and game_full:
             e1 = sum(ranks[:2]) / 2
             e2 = sum(ranks[2:]) / 2
             odds_a = 1 / (1 + 10 ** ((e2 - e1) / 400))
             odds_b = 1 - odds_a
-        elif self.game_type == "triples" and game_full:
+        elif self.game_type == "triples" and game_full and ranks:
             sum_exp = sum([10 ** (e / 400) for e in ranks])
             odds = [(10 ** (e / 400)) / sum_exp for e in ranks]
 
-        # ✅ Players field — include handicap only if not no_image
+        # ✅ Player lines
         player_lines = []
         if self.game_type == "doubles":
             player_lines.append("\u200b")
@@ -1347,9 +1354,7 @@ class TournamentView(discord.ui.View):
                 member = guild.get_member(user_id) if guild else None
                 name = f"**{member.display_name}**" if member else f"**User {user_id}**"
                 rank = ranks[idx]
-
-                # Optional handicap text
-                hcp = f" 🎯 HCP: {handicaps[idx]}" if handicaps[idx] is not None else ""
+                hcp = f" 🎯 HCP: {handicaps[idx]}" if handicaps[idx] not in (None, "-") else ""
 
                 if self.game_type == "singles" and game_full:
                     e1, e2 = ranks
@@ -1374,7 +1379,7 @@ class TournamentView(discord.ui.View):
 
         embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
 
-        # Winner footer
+        # ✅ Winner footer
         if winner == "draw":
             embed.set_footer(text="🎮 Game has ended. Result: 🤝 Draw")
         elif isinstance(winner, int):
@@ -1384,7 +1389,7 @@ class TournamentView(discord.ui.View):
         elif winner in ("Team A", "Team B"):
             embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}")
 
-        # Bets (always shown if any)
+        # ✅ Bets
         if self.bets:
             bet_lines = []
             for _, uname, amt, ch in self.bets:
@@ -1400,6 +1405,7 @@ class TournamentView(discord.ui.View):
             embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
 
         return embed
+
 
 
 
