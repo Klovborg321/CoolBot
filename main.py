@@ -749,7 +749,7 @@ class GameView(discord.ui.View):
         room_view.message = thread_msg
 
         # LOBBY EMBED — no image
-        lobby_embed = await self.build_embed(interaction.guild)
+        lobby_embed = await self.build_embed(interaction.guild, no_image=True)
         lobby_embed.color = discord.Color.orange()
         lobby_embed.title = f"{self.game_type.title()} Match Created!"
         lobby_embed.description = f"A match has been created in thread: {thread.mention}"
