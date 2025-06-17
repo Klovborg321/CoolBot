@@ -2520,8 +2520,6 @@ async def my_handicaps(interaction: discord.Interaction, user: discord.User = No
         name=f"{h['course_name']}",
         value=(
             f"Score: **{h['score']}**\n"
-            f"Course Rating: **{h.get('course_rating', 'N/A')}**\n"
-            f"Slope: **{h.get('slope_rating', 'N/A')}**\n"
             f"Differential: **{h.get('handicap_differential', 'N/A')}**"
         ),
         inline=False
