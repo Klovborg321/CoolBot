@@ -1742,6 +1742,23 @@ class CourseSelectView(discord.ui.View):
         super().__init__(timeout=120)
         self.add_item(CourseSelect(courses, callback_fn))
 
+class PaginatedCourseSelect(discord.ui.Select):
+    def __init__(self, options, parent_view):
+        super().__init__(placeholder="Select a course", options=options)
+        self.view_obj = parent_view
+
+    async def callback(self, interaction: discord.Interaction):
+        course_id = self.values[0]
+        selected = next((c for c in self.view_obj.courses if str(c["id"]) == course_id), None)
+        if not selected:
+            await interaction.response.send_message("❌ Course not found.", ephemeral=True)
+            return
+
+        await interaction.response.send_modal(
+            SubmitScoreModal(course_name=selected["name"], course_id=course_id)
+        )
+
+
 class AddCourseModal(discord.ui.Modal, title="Add New Course (Easy & Hard)"):
     def __init__(self):
         super().__init__()
