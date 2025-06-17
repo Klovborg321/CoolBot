@@ -81,8 +81,10 @@ def format_page(self, guild):
             stats = entry
             uid = stats.get("id")
 
-        name = f"<@{uid}>"
-        name = name[:20].ljust(20)  # ✨ force exactly 20 chars
+        # Use display name instead of mention so it's fixed length
+        member = guild.get_member(int(uid))
+        display = member.display_name if member else f"User {uid}"
+        name = display[:18].ljust(18)
 
         rank = stats.get("rank", 1000)
         trophies = stats.get("trophies", 0)
@@ -94,11 +96,10 @@ def format_page(self, guild):
         lines.append(line)
 
     if not lines:
-        lines = ["*No entries found.*"]
+        lines = ["No entries found."]
 
     page_info = f"Page {self.page + 1} of {max(1, (len(self.entries) + self.page_size - 1) // self.page_size)}"
-    return "\n".join(lines) + f"\n\n{page_info}"
-
+    return f"```{chr(10).join(lines)}\n\n{page_info}```"
 
 
 def normalize_team(name):
