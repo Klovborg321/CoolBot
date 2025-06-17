@@ -439,39 +439,18 @@ class GameView(discord.ui.View):
         self.betting_closed = False
         self.bets = []
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
-        self.on_tournament_complete = None  # hook for tournaments
-
-        # ✅ Add only Leave button explicitly
         self.add_item(LeaveGameButton(self))
-
-    @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
-    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id in self.players:
-            await interaction.response.send_message("✅ You have already joined this game.", ephemeral=True)
-            return
-        if len(self.players) >= self.max_players:
-            await interaction.response.send_message("🚫 This game is already full.", ephemeral=True)
-            return
-        if player_manager.is_active(interaction.user.id):
-            await interaction.response.send_message("🚫 You are already in another active game.", ephemeral=True)
-            return
-
-        player_manager.activate(interaction.user.id)
-        self.players.append(interaction.user.id)
-        await self.update_message()
-        await interaction.response.defer()
-
-        if len(self.players) == self.max_players:
-            await self.update_message()
-            await self.game_full(interaction)
+        self.on_tournament_complete = None  # ✅ callback for tournament to hook into
 
     async def abandon_game(self, reason):
         global pending_game
         pending_games[self.game_type] = None
 
+        # Deactivate everyone
         for p in self.players:
             player_manager.deactivate(p)
 
+        # Send a message indicating the game has been abandoned
         embed = discord.Embed(
             title="❌ Game Abandoned",
             description=reason,
@@ -479,14 +458,19 @@ class GameView(discord.ui.View):
         )
         await self.message.edit(embed=embed, view=None)
 
+        # Clear the old game view and any existing buttons
+        await self.message.clear_reactions()
+
+        # Post a new start button for the game
         await start_new_game_button(self.message.channel, self.game_type, self.max_players)
 
     async def abandon_if_not_filled(self):
-        timeout_duration = 1000
+        # This checks periodically if the game is filled; if not, it abandons the game after 1000 seconds.
+        timeout_duration = 1000  # Set timeout duration for 1000 seconds or use a custom duration
         elapsed_time = 0
         while len(self.players) < self.max_players and not self.betting_closed and elapsed_time < timeout_duration:
-            await asyncio.sleep(30)
-            elapsed_time += 30
+            await asyncio.sleep(30)  # Check every 30 seconds
+            elapsed_time += 30  # Increment elapsed time by 30 seconds
 
         if len(self.players) < self.max_players and not self.betting_closed:
             await self.abandon_game("⏰ Game timed out due to inactivity.")
@@ -504,9 +488,16 @@ class GameView(discord.ui.View):
         )
         embed.timestamp = discord.utils.utcnow()
 
-        ranks = [await get_player(p).get("rank", 1000) for p in self.players]
+        # ✅ Get player ranks
+        ranks = []
+        for p in self.players:
+            pdata = await get_player(p)
+            ranks.append(pdata.get("rank", 1000))
+
         game_full = len(self.players) == self.max_players
 
+        # ✅ Precompute odds for doubles / ffa
+        odds = []
         if self.game_type == "doubles" and game_full:
             e1 = sum(ranks[:2]) / 2
             e2 = sum(ranks[2:]) / 2
@@ -516,6 +507,7 @@ class GameView(discord.ui.View):
             sum_exp = sum([10 ** (e / 400) for e in ranks])
             odds = [(10 ** (e / 400)) / sum_exp for e in ranks]
 
+        # ✅ Players section
         player_lines = []
 
         if self.game_type == "doubles":
@@ -537,12 +529,16 @@ class GameView(discord.ui.View):
                     o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
                     player_odds = o1 if idx == 0 else 1 - o1
                     line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%"
+
                 elif self.game_type in ("triples", "tournament") and game_full:
                     line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%"
+
                 else:
                     line = f"● Player {idx + 1}: {name} 🏆 ({rank})"
+
             else:
                 line = f"○ Player {idx + 1}: [Waiting...]"
+
             player_lines.append(line)
 
             if self.game_type == "doubles" and idx == 1:
@@ -554,6 +550,7 @@ class GameView(discord.ui.View):
 
         embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
 
+        # ✅ Footer for winner
         if winner == "draw":
             embed.set_footer(text="🎮 Game has ended. Result: 🤝 Draw")
         elif isinstance(winner, int):
@@ -563,6 +560,7 @@ class GameView(discord.ui.View):
         elif winner in ("Team A", "Team B"):
             embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}")
 
+        # ✅ Bets
         if self.bets:
             bet_lines = []
             for _, uname, amt, ch in self.bets:
@@ -570,25 +568,14 @@ class GameView(discord.ui.View):
                     label = "Player 1" if ch == "1" else "Player 2"
                 elif self.game_type == "doubles":
                     label = "Team A" if ch.upper() == "A" else "Team B"
-                else:
+                elif self.game_type in ("triples", "tournament"):
                     label = f"Player {ch}"
+                else:
+                    label = ch
                 bet_lines.append(f"💰 {uname} bet {amt} on {label}")
             embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
 
         return embed
-
-    async def update_message(self):
-        if self.message:
-            embed = await self.build_embed(self.message.guild)
-            # ✅ Only manage Leave button dynamically, never Join
-            to_remove = [item for item in self.children if isinstance(item, LeaveGameButton)]
-            for item in to_remove:
-                self.remove_item(item)
-
-            if not self.betting_closed and len(self.players) < self.max_players:
-                self.add_item(LeaveGameButton(self))
-
-            await self.message.edit(embed=embed, view=self)
 
 
 
