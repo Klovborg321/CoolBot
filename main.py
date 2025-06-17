@@ -680,71 +680,71 @@ class GameView(discord.ui.View):
         await self.update_message()
 
     async def game_full(self, interaction):
-    global pending_game
+        global pending_game
 
-    self.clear_items()
-    if self.abandon_task:
-        self.abandon_task.cancel()
+        self.clear_items()
+        if self.abandon_task:
+            self.abandon_task.cancel()
 
-    # ✅ Reset the start button for new games
-    await start_new_game_button(self.message.channel, self.game_type, self.max_players)
-    pending_games[self.game_type] = None
-    await save_pending_game(self.game_type, self.players, self.message.channel.id, self.max_players)
+        # ✅ Reset the start button for new games
+        await start_new_game_button(self.message.channel, self.game_type, self.max_players)
+        pending_games[self.game_type] = None
+        await save_pending_game(self.game_type, self.players, self.message.channel.id, self.max_players)
 
-    # ✅ Pick a random course from DB
-    res = await run_db(lambda: supabase.table("courses").select("name", "image_url").execute())
-    if not res.data:
-        course_name = "Unknown"
-        course_image = ""
-    else:
-        chosen = random.choice(res.data)
-        course_name = chosen["name"]
-        course_image = chosen.get("image_url", "")
+        # ✅ Pick a random course from DB
+        res = await run_db(lambda: supabase.table("courses").select("name", "image_url").execute())
+        if not res.data:
+            course_name = "Unknown"
+            course_image = ""
+        else:
+            chosen = random.choice(res.data)
+            course_name = chosen["name"]
+            course_image = chosen.get("image_url", "")
 
-    # ✅ Generate a unique room name (thread name)
-    room_name = await room_name_generator.get_unique_word()
+        # ✅ Generate a unique room name (thread name)
+        room_name = await room_name_generator.get_unique_word()
 
-    # ✅ Create a thread with the room name
-    thread = await interaction.channel.create_thread(name=room_name)
+        # ✅ Create a thread with the room name
+        thread = await interaction.channel.create_thread(name=room_name)
 
-    # ✅ Build initial embed for thread
-    embed = await self.build_embed(interaction.guild)
-    embed.title = f"Game Room: {room_name}"
-    embed.description = f"Course: {course_name}"
-    if course_image:
-        embed.set_image(url=course_image)
+        # ✅ Build initial embed for thread
+        embed = await self.build_embed(interaction.guild)
+        embed.title = f"Game Room: {room_name}"
+        embed.description = f"Course: {course_name}"
+        if course_image:
+            embed.set_image(url=course_image)
 
-    # ✅ Create RoomView with BOTH room_name and course_name!
-    room_view = RoomView(
-        players=self.players,
-        game_type=self.game_type,
-        room_name=room_name,         # 🏷️ Thread name
-        course_name=course_name,     # ✅ Real course name used for handicap
-        lobby_message=self.message,
-        lobby_embed=embed,
-        game_view=self
-    )
-    room_view.original_embed = embed.copy()
+        # ✅ Create RoomView with BOTH room_name and course_name!
+        room_view = RoomView(
+            players=self.players,
+            game_type=self.game_type,
+            room_name=room_name,         # 🏷️ Thread name
+            course_name=course_name,     # ✅ Real course name used for handicap
+            lobby_message=self.message,
+            lobby_embed=embed,
+            game_view=self
+        )
+        room_view.original_embed = embed.copy()
 
-    # ✅ Send the message in thread
-    mentions = " ".join(f"<@{p}>" for p in self.players)
-    thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=embed, view=room_view)
-    room_view.message = thread_msg
+        # ✅ Send the message in thread
+        mentions = " ".join(f"<@{p}>" for p in self.players)
+        thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=embed, view=room_view)
+        room_view.message = thread_msg
 
-    # ✅ Update main lobby message to point to thread
-    lobby_embed = await self.build_embed(interaction.guild)
-    lobby_embed.color = discord.Color.orange()
-    lobby_embed.title = f"{self.game_type.title()} Match Created!"
-    lobby_embed.description = f"A match has been created in thread: {thread.mention}"
-    lobby_embed.add_field(name="Room Name", value=room_name)
-    lobby_embed.add_field(name="Course", value=course_name)
-    if course_image:
-        lobby_embed.set_image(url=course_image)
+        # ✅ Update main lobby message to point to thread
+        lobby_embed = await self.build_embed(interaction.guild)
+        lobby_embed.color = discord.Color.orange()
+        lobby_embed.title = f"{self.game_type.title()} Match Created!"
+        lobby_embed.description = f"A match has been created in thread: {thread.mention}"
+        lobby_embed.add_field(name="Room Name", value=room_name)
+        lobby_embed.add_field(name="Course", value=course_name)
+        if course_image:
+            lobby_embed.set_image(url=course_image)
 
-    await self.message.edit(embed=lobby_embed, view=None)
+        await self.message.edit(embed=lobby_embed, view=None)
 
-    # ✅ Start betting phase
-    await self.show_betting_phase()
+        # ✅ Start betting phase
+        await self.show_betting_phase()
 
 
 class BettingButton(discord.ui.Button):
