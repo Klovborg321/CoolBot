@@ -474,10 +474,10 @@ class GameView(discord.ui.View):
         self.betting_closed = False
         self.bets = []
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
-        self.course_image = None  # used for embed
+        self.course_image = None
         self.on_tournament_complete = None
 
-        # ✅ Add dynamic LeaveGameButton only — decorator @button handles Join
+        # ✅ static Leave button:
         self.add_item(LeaveGameButton(self))
 
     @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
@@ -494,18 +494,20 @@ class GameView(discord.ui.View):
 
         if player_manager.is_active(interaction.user.id):
             await interaction.response.send_message(
-                "🚫 You are already in another active game or must vote to finish it first.",
+                "🚫 You are already in another active game or must finish voting first.",
                 ephemeral=True)
             return
 
         player_manager.activate(interaction.user.id)
         self.players.append(interaction.user.id)
-        await self.update_message()
         await interaction.response.defer()
 
+        # ✅ Update lobby with new player
+        await self.update_message()
+
         if len(self.players) == self.max_players:
-            await self.update_message()
-            await self.game_full(interaction)
+            await self.handle_game_full(interaction)
+
 
     async def abandon_game(self, reason):
         global pending_game
@@ -655,16 +657,6 @@ class GameView(discord.ui.View):
             await self.message.edit(embed=embed, view=self)
 
 
-    async def update_message(self):
-        if self.message:
-            embed = await self.build_embed(self.message.guild)
-            to_remove = [item for item in self.children if isinstance(item, LeaveGameButton)]
-            for item in to_remove:
-                self.remove_item(item)
-            if not self.betting_closed and len(self.players) < self.max_players:
-                self.add_item(LeaveGameButton(self))
-            await self.message.edit(embed=embed, view=self)
-
     async def get_odds(self, choice):
         ranks = []
         for p in self.players:
@@ -701,27 +693,6 @@ class GameView(discord.ui.View):
             return "No bets placed yet."
         return "\n".join(f"**{uname}** bet {amt} on **{ch}**" for _, uname, amt, ch in self.bets)
 
-    @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
-    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id in self.players:
-            await interaction.response.send_message("✅ You have already joined this game.", ephemeral=True)
-            return
-        if len(self.players) >= self.max_players:
-            await interaction.response.send_message("🚫 This game is already full.", ephemeral=True)
-            return
-        if player_manager.is_active(interaction.user.id):
-            await interaction.response.send_message("🚫 You are already in another active game.", ephemeral=True)
-            return
-
-        player_manager.activate(interaction.user.id)
-        self.players.append(interaction.user.id)
-        await self.update_message()
-        await interaction.response.defer()
-
-        if len(self.players) == self.max_players:
-            await self.update_message()
-            await self.game_full(interaction)
-
     async def show_betting_phase(self):
         self.clear_items()
         self.add_item(BettingButtonDropdown(self))
@@ -732,30 +703,30 @@ class GameView(discord.ui.View):
         await self.update_message()
 
     async def game_full(self, interaction):
-        global pending_game
-        self.clear_items()
+        global pending_games
+
+        # ✅ Stop abandon timer
         if self.abandon_task:
             self.abandon_task.cancel()
 
-        await start_new_game_button(self.message.channel, self.game_type, self.max_players)
+        # ✅ Mark no more pending game for this type
         pending_games[self.game_type] = None
         await save_pending_game(self.game_type, self.players, self.message.channel.id, self.max_players)
 
-        # Pick random course
+        # ✅ Select random course from DB
         res = await run_db(lambda: supabase.table("courses").select("name", "image_url").execute())
         chosen = random.choice(res.data or [{}])
-        course_name = chosen.get("name", "Unknown")
-        course_image = chosen.get("image_url", "")
+        self.course_name = chosen.get("name", "Unknown")
+        self.course_image = chosen.get("image_url", "")
 
+        # ✅ Create unique thread
         room_name = await room_name_generator.get_unique_word()
         thread = await interaction.channel.create_thread(name=room_name)
-        self.course_image = course_image
-        self.course_name = course_name
 
-        # ✅ Room thread embed → with image
+        # ✅ Thread embed WITH image
         thread_embed = await self.build_embed(interaction.guild, no_image=False)
         thread_embed.title = f"Game Room: {room_name}"
-        thread_embed.description = f"Course: {course_name}"
+        thread_embed.description = f"Course: {self.course_name}"
 
         room_view = RoomView(
             players=self.players,
@@ -764,7 +735,7 @@ class GameView(discord.ui.View):
             lobby_message=self.message,
             lobby_embed=thread_embed,
             game_view=self,
-            course_name=self.course_name  # ← add this!
+            course_name=self.course_name
         )
         room_view.original_embed = thread_embed.copy()
 
@@ -772,17 +743,27 @@ class GameView(discord.ui.View):
         thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=thread_embed, view=room_view)
         room_view.message = thread_msg
 
-        # LOBBY EMBED — no image
+        # ✅ MAIN LOBBY embed — NO image, mark thread info
         lobby_embed = await self.build_embed(interaction.guild, no_image=True)
-        lobby_embed.color = discord.Color.orange()
         lobby_embed.title = f"{self.game_type.title()} Match Created!"
         lobby_embed.description = f"A match has been created in thread: {thread.mention}"
+        lobby_embed.color = discord.Color.orange()
         lobby_embed.add_field(name="Room Name", value=room_name)
-        lobby_embed.add_field(name="Course", value=course_name)
-        # ❌ no image here!
+        lobby_embed.add_field(name="Course", value=self.course_name)
 
-        await self.message.edit(embed=lobby_embed, view=None, no_image=True)
-        await self.show_betting_phase()
+        # ✅ Replace Join button with Bet button:
+        self.clear_items()  # remove Join & Leave
+        self.add_item(BettingButtonDropdown(self))
+
+        await self.message.edit(embed=lobby_embed, view=self)
+
+        # ✅ Auto close betting after 2 mins
+        await asyncio.sleep(120)
+        self.betting_closed = True
+
+        self.clear_items()
+        await self.message.edit(embed=lobby_embed, view=self)
+
 
 
 class BettingButton(discord.ui.Button):
