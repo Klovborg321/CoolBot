@@ -942,45 +942,45 @@ class RoomView(discord.ui.View):
             return ["Team A", "Team B"]
 
     async def build_lobby_end_embed(self, winner):
-    embed = discord.Embed(
-        title=f"{self.game_type.title()} Match",
-        color=discord.Color.dark_gray()
-    )
-
-    # ✅ Get player lines from DB + rounded handicap
-    lines = []
-    for p in self.players:
-        pdata = await get_player(p)
-        rank = pdata.get('rank', 1000)
-        trophies = pdata.get('trophies', 0)
-
-        # ✅ Fetch rounded handicap for the course, default 0
-        res = await run_db(lambda: supabase
-            .table("handicaps")
-            .select("handicap")
-            .eq("player_id", str(p))
-            .eq("course_name", self.room_name)
-            .maybe_single()
-            .execute()
+        embed = discord.Embed(
+            title=f"{self.game_type.title()} Match",
+            color=discord.Color.dark_gray()
         )
-        handicap = res.data["handicap"] if res.data else 0.0
-        handicap = round(handicap)
 
-        lines.append(f"<@{p}> | Rank: {rank} | Trophies: {trophies} | 🎯 HCP: {handicap}")
+        # ✅ Get player lines from DB + rounded handicap
+        lines = []
+        for p in self.players:
+            pdata = await get_player(p)
+            rank = pdata.get('rank', 1000)
+            trophies = pdata.get('trophies', 0)
 
-    embed.description = "\n".join(lines)
-    embed.add_field(name="🎮 Status", value="Game has ended.", inline=False)
+            # ✅ Fetch rounded handicap for the course, default 0
+            res = await run_db(lambda: supabase
+                .table("handicaps")
+                .select("handicap")
+                .eq("player_id", str(p))
+                .eq("course_name", self.room_name)
+                .maybe_single()
+                .execute()
+            )
+            handicap = res.data["handicap"] if res.data else 0.0
+            handicap = round(handicap)
 
-    if winner == "draw":
-        embed.add_field(name="🏁 Result", value="🤝 It's a draw!", inline=False)
-    elif isinstance(winner, int):
-        member = self.message.guild.get_member(winner)
-        name = member.display_name if member else f"User {winner}"
-        embed.add_field(name="🏁 Winner", value=f"🎉 {name}", inline=False)
-    elif winner in ("Team A", "Team B"):
-        embed.add_field(name="🏁 Winner", value=f"🎉 {winner}", inline=False)
+            lines.append(f"<@{p}> | Rank: {rank} | Trophies: {trophies} | 🎯 HCP: {handicap}")
 
-    return embed
+        embed.description = "\n".join(lines)
+        embed.add_field(name="🎮 Status", value="Game has ended.", inline=False)
+
+        if winner == "draw":
+            embed.add_field(name="🏁 Result", value="🤝 It's a draw!", inline=False)
+        elif isinstance(winner, int):
+            member = self.message.guild.get_member(winner)
+            name = member.display_name if member else f"User {winner}"
+            embed.add_field(name="🏁 Winner", value=f"🎉 {name}", inline=False)
+        elif winner in ("Team A", "Team B"):
+            embed.add_field(name="🏁 Winner", value=f"🎉 {winner}", inline=False)
+
+        return embed
 
 
     async def start_voting(self):
