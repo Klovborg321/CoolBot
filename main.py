@@ -1671,7 +1671,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
             )
             return
 
-        # ✅ 1️⃣ Always get the latest rating/slope from `courses`
+        # ✅ 1️⃣ Always get the latest rating from `courses`
         course = await run_db(lambda: supabase
             .table("courses")
             .select("course_par, avg_par")
@@ -1689,7 +1689,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
 
         # ✅ 2️⃣ Extract safely with fallback defaults
         try:
-            course_rating = float(course.data.get("course_par") or 60)
+            course_par = float(course.data.get("course_par") or 60)
         except (TypeError, ValueError):
             course_par = 60.0
 
@@ -1774,15 +1774,15 @@ class AddCourseModal(discord.ui.Modal, title="Add New Course (Easy & Hard)"):
 
         # Easy version rating only
         self.easy_rating = discord.ui.TextInput(
-            label="Easy Course Rating",
-            placeholder="e.g. 72.0",
+            label="Easy Course Par",
+            placeholder="e.g. 60",
             required=False
         )
 
         # Hard version rating only
         self.hard_rating = discord.ui.TextInput(
-            label="Hard Course Rating",
-            placeholder="e.g. 75.0",
+            label="Hard Course Par",
+            placeholder="e.g. 64",
             required=False
         )
 
@@ -1821,14 +1821,14 @@ class AddCourseModal(discord.ui.Modal, title="Add New Course (Easy & Hard)"):
             "image_url": image_url
         }
         if easy_rating is not None:
-            easy["rating"] = easy_rating
+            easy["course_par"] = easy_rating
 
         hard = {
             "name": f"{base_name} Hard",
             "image_url": image_url
         }
         if hard_rating is not None:
-            hard["rating"] = hard_rating
+            hard["course_par"] = hard_rating
 
         records.append(easy)
         records.append(hard)
@@ -1850,28 +1850,28 @@ class AddCourseModal(discord.ui.Modal, title="Add New Course (Easy & Hard)"):
 
 
 
-class SetCourseRatingModal(discord.ui.Modal, title="Set Course Ratings"):
+class SetCourseRatingModal(discord.ui.Modal, title="Set Course Par"):
     def __init__(self, course):
         super().__init__()
         self.course = course
 
-        self.rating = discord.ui.TextInput(
-            label="Course Rating",
-            placeholder="e.g. 72.5",
-            default=str(course.get("rating") or "72.0")
+        self.course_par = discord.ui.TextInput(
+            label="Course Par",
+            placeholder="e.g. 62",
+            default=str(course.get("course_par") or "60.0")
         )
-        self.slope_rating = discord.ui.TextInput(
-        label="Slope Rating",
-        placeholder="e.g. 113.0",
-        default=str(course.get("slope_rating") or "113.0")
+        self.avg_par = discord.ui.TextInput(
+        label="Average Par",
+        placeholder="e.g. 43",
+        default=str(course.get("avg_par") or "55.0")
 )
-        self.add_item(self.rating)
-        self.add_item(self.slope_rating)
+        self.add_item(self.course_par)
+        self.add_item(self.avg_par)
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            rating = float(self.rating.value)
-            slope_rating = float(self.slope_rating.value)
+            course_par = float(self.course_par.value)
+            avg_par = float(self.avg_par.value)
         except ValueError:
             await interaction.response.send_message(
                 "❌ Invalid numbers.", ephemeral=True
@@ -1880,15 +1880,15 @@ class SetCourseRatingModal(discord.ui.Modal, title="Set Course Ratings"):
 
         await run_db(lambda: supabase
             .table("courses")
-            .update({"rating": rating, "slope_rating": slope_rating})
+            .update({"course_par": course_par, "avg_par": avg_par})
             .eq("id", self.course["id"])
             .execute()
         )
 
         await interaction.response.send_message(
             f"✅ Updated **{self.course['name']}**:\n"
-            f"• Rating: **{rating}**\n"
-            f"• Slope Rating: **{slope_rating}**",
+            f"• Course Par: **{course_par}**\n"
+            f"• Average Par: **{avg_par}**",
             ephemeral=True
         )
 
@@ -2605,7 +2605,7 @@ async def add_course(interaction: discord.Interaction):
 
 @tree.command(
     name="set_course_rating",
-    description="Admin: Update course and slope rating via paginated dropdown"
+    description="Admin: Update course par and avg. par via paginated dropdown"
 )
 @discord.app_commands.checks.has_permissions(administrator=True)
 async def set_course_rating(interaction: discord.Interaction):
