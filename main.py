@@ -680,63 +680,71 @@ class GameView(discord.ui.View):
         await self.update_message()
 
     async def game_full(self, interaction):
-        global pending_game
-        self.clear_items()
-        if self.abandon_task:
-            self.abandon_task.cancel()
+    global pending_game
 
-        # ✅ This button resets the start button for new games
-        await start_new_game_button(self.message.channel, self.game_type, self.max_players)
-        pending_games[self.game_type] = None
-        await save_pending_game(self.game_type, self.players, self.message.channel.id, self.max_players)
+    self.clear_items()
+    if self.abandon_task:
+        self.abandon_task.cancel()
 
-        # ✅ Pick a random course
-        res = await run_db(lambda: supabase.table("courses").select("name", "image_url").execute())
-        if res.data is None:
-            course_name = "Unknown"
-            course_image = ""
-        else:
-            chosen = random.choice(res.data)
-            course_name = chosen["name"]
-            course_image = chosen.get("image_url", "")
+    # ✅ Reset the start button for new games
+    await start_new_game_button(self.message.channel, self.game_type, self.max_players)
+    pending_games[self.game_type] = None
+    await save_pending_game(self.game_type, self.players, self.message.channel.id, self.max_players)
 
-        # ✅ FIX: actually store the room name!
-        room_name = await room_name_generator.get_unique_word()
+    # ✅ Pick a random course from DB
+    res = await run_db(lambda: supabase.table("courses").select("name", "image_url").execute())
+    if not res.data:
+        course_name = "Unknown"
+        course_image = ""
+    else:
+        chosen = random.choice(res.data)
+        course_name = chosen["name"]
+        course_image = chosen.get("image_url", "")
 
-        # ✅ Use the generated room name
-        thread = await interaction.channel.create_thread(name=room_name)
+    # ✅ Generate a unique room name (thread name)
+    room_name = await room_name_generator.get_unique_word()
 
-        embed = await self.build_embed(interaction.guild)
-        embed.title = f"Game Room: {room_name}"
-        embed.description = f"Course: {course_name}"
-        if course_image:
-            embed.set_image(url=course_image)
+    # ✅ Create a thread with the room name
+    thread = await interaction.channel.create_thread(name=room_name)
 
-        room_view = RoomView(
-            players=self.players,
-            game_type=self.game_type,
-            room_name=room_name,
-            lobby_message=self.message,
-            lobby_embed=embed,
-            game_view=self
-        )
-        room_view.original_embed = embed.copy()
+    # ✅ Build initial embed for thread
+    embed = await self.build_embed(interaction.guild)
+    embed.title = f"Game Room: {room_name}"
+    embed.description = f"Course: {course_name}"
+    if course_image:
+        embed.set_image(url=course_image)
 
-        mentions = " ".join(f"<@{p}>" for p in self.players)
-        thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=embed, view=room_view)
-        room_view.message = thread_msg
+    # ✅ Create RoomView with BOTH room_name and course_name!
+    room_view = RoomView(
+        players=self.players,
+        game_type=self.game_type,
+        room_name=room_name,         # 🏷️ Thread name
+        course_name=course_name,     # ✅ Real course name used for handicap
+        lobby_message=self.message,
+        lobby_embed=embed,
+        game_view=self
+    )
+    room_view.original_embed = embed.copy()
 
-        lobby_embed = await self.build_embed(interaction.guild)
-        lobby_embed.color = discord.Color.orange()
-        lobby_embed.title = f"{self.game_type.title()} Match Created!"
-        lobby_embed.description = f"A match has been created in thread: {thread.mention}"
-        lobby_embed.add_field(name="Room Name", value=room_name)
-        lobby_embed.add_field(name="Course", value=course_name)
-        if course_image:
-            lobby_embed.set_image(url=course_image)
+    # ✅ Send the message in thread
+    mentions = " ".join(f"<@{p}>" for p in self.players)
+    thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=embed, view=room_view)
+    room_view.message = thread_msg
 
-        await self.message.edit(embed=lobby_embed, view=None)
-        await self.show_betting_phase()
+    # ✅ Update main lobby message to point to thread
+    lobby_embed = await self.build_embed(interaction.guild)
+    lobby_embed.color = discord.Color.orange()
+    lobby_embed.title = f"{self.game_type.title()} Match Created!"
+    lobby_embed.description = f"A match has been created in thread: {thread.mention}"
+    lobby_embed.add_field(name="Room Name", value=room_name)
+    lobby_embed.add_field(name="Course", value=course_name)
+    if course_image:
+        lobby_embed.set_image(url=course_image)
+
+    await self.message.edit(embed=lobby_embed, view=None)
+
+    # ✅ Start betting phase
+    await self.show_betting_phase()
 
 
 class BettingButton(discord.ui.Button):
@@ -918,12 +926,13 @@ class BetDropdown(discord.ui.Select):
 
 
 class RoomView(discord.ui.View):
-    def __init__(self, players, game_type, room_name, lobby_message=None, lobby_embed=None, game_view=None):
+    def __init__(self, players, game_type, room_name, course_name, lobby_message=None, lobby_embed=None, game_view=None):
         super().__init__(timeout=None)
         self.players = players
         self.game_type = game_type
-        self.room_name = room_name
-        self.message = None  # Thread message
+        self.room_name = room_name      # Thread name
+        self.course_name = course_name  # ✅ Real course name for handicap
+        self.message = None
         self.lobby_message = lobby_message
         self.lobby_embed = lobby_embed
         self.game_view = game_view
@@ -1718,15 +1727,12 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
         handicap = round((course_par - score) - (course_par - avg_par), 1)
 
         # ✅ 4️⃣ Store only clean fields — NOT rating/slope
-        await run_db(lambda: supabase
+        res = await run_db(lambda: supabase
             .table("handicaps")
-            .upsert({
-                "player_id": str(interaction.user.id),
-                "course_id": self.course_id,
-                "course_name": self.course_name,
-                "score": score,
-                "handicap": handicap
-            })
+            .select("handicap")
+            .eq("player_id", str(p))
+            .eq("course_name", self.course_name)  # ✅ Not room_name!
+            .maybe_single()
             .execute()
         )
 
