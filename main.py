@@ -474,6 +474,7 @@ class GameView(discord.ui.View):
         self.betting_closed = False
         self.bets = []
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
+        self.course_image = None  # ✅ add this!
         self.add_item(LeaveGameButton(self))
         self.on_tournament_complete = None  # ✅ callback for tournament to hook into
 
