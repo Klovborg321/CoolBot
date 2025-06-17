@@ -524,7 +524,6 @@ class GameView(discord.ui.View):
         )
 
         embed.timestamp = discord.utils.utcnow()  # ✅ Add timestamp
-        self.course_image = course_image  # <-- STORE IT!!
 
         # ✅ Get ranks from Supabase
         ranks = []
