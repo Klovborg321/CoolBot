@@ -1657,7 +1657,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
         # ✅ Only 1 input: the score
         self.add_item(discord.ui.TextInput(
             label=f"Best score for {course_name}",
-            placeholder="Enter your best score (e.g. 72.5)",
+            placeholder="Enter your best score (e.g. 30)",
             style=discord.TextStyle.short
         ))
 
@@ -1674,7 +1674,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
         # ✅ 1️⃣ Always get the latest rating/slope from `courses`
         course = await run_db(lambda: supabase
             .table("courses")
-            .select("rating, slope_rating")
+            .select("course_par, avg_par")
             .eq("id", self.course_id)
             .single()
             .execute()
@@ -1689,17 +1689,17 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
 
         # ✅ 2️⃣ Extract safely with fallback defaults
         try:
-            course_rating = float(course.data.get("rating") or 72.0)
+            course_rating = float(course.data.get("course_par") or 60)
         except (TypeError, ValueError):
-            course_rating = 72.0
+            course_par = 60.0
 
         try:
-            slope_rating = float(course.data.get("slope_rating") or 113.0)
+            avg_par = float(course.data.get("avg_par") or 55)
         except (TypeError, ValueError):
-            slope_rating = 113.0
+            avg_par = 55.0
 
         # ✅ 3️⃣ Calculate official differential
-        differential = round((score - course_rating) * 113 / slope_rating, 1)
+        handicap = round((course_par - score) - (course_par - avg_par), 1)
 
         # ✅ 4️⃣ Store only clean fields — NOT rating/slope
         await run_db(lambda: supabase
@@ -1709,7 +1709,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
                 "course_id": self.course_id,
                 "course_name": self.course_name,
                 "score": score,
-                "handicap_differential": differential
+                "handicap": handicap
             })
             .execute()
         )
@@ -1717,8 +1717,8 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
         # ✅ 5️⃣ Confirm to user
         await interaction.response.send_message(
             f"✅ **Score submitted!**\n"
-            f"📏 Course Rating: `{course_rating}` | Slope: `{slope_rating}`\n"
-            f"📊 Your Differential: `{differential}`",
+            f"📏 Course Par: `{course_par}` | Avg. Par: `{avg_par}`\n"
+            f"📊 Your Handicap: `{handicap}`",
             ephemeral=True
         )
 
