@@ -1,4 +1,3 @@
-from courses import COURSES, COURSE_IMAGES
 import requests
 import discord
 from discord.ext import commands, tasks
@@ -6,26 +5,40 @@ from discord import app_commands
 import asyncio
 import random
 import json
-import os
-from datetime import datetime, timedelta
+import asyncio
 from dotenv import load_dotenv
+import asyncio
+from functools import partial
+from discord import app_commands, Interaction, SelectOption, ui, Embed
 from supabase import create_client, Client
 import os
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase: Client = None
 
-load_dotenv()
+async def run_db(fn):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, fn)
 
+def setup_supabase():
+    global supabase
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+setup_supabase()  # ← runs immediately when script loads!
+
+# ✅ Discord intents
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-bot = commands.Bot(command_prefix="/", intents=intents)
+
+bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
+
 IS_TEST_MODE = os.getenv("TEST_MODE", "1") == "1"
+start_buttons = {}  # (channel_id, game_type) => Message
 
 # Globals
 games = {}
@@ -33,7 +46,8 @@ games = {}
 pending_games = {
     "singles": None,
     "doubles": None,
-    "triples": None
+    "triples": None,
+    "tournament": None
 }
 
 players_data = "players.json"
@@ -50,67 +64,154 @@ default_template = {
     "draws": 0,
     "games_played": 0,
     "current_streak": 0,
-    "best_streak": 0,
-    "bet_history": []
+    "best_streak": 0
 }
 
 # Helpers
-async def save_pending_game(game_type, players):
-    supabase.table("pending_games").upsert({
+def normalize_team(name):
+    if isinstance(name, str):
+        name = name.lower()
+        if "a" in name:
+            return "A"
+        if "b" in name:
+            return "B"
+    return name  # fallback:
+
+async def dm_all_online(guild: discord.Guild, message: str):
+    """DM all online members in the given guild with a custom message."""
+    # Make sure your bot has `members` intent enabled!
+    if not guild.me.guild_permissions.administrator:
+        print("⚠️ Bot may not have permission to read member list.")
+    
+    sent = 0
+    failed = 0
+
+    for member in guild.members:
+        # Skip bots, offline, and the bot itself
+        if member.bot or member.status == discord.Status.offline or member == guild.me:
+            continue
+
+        try:
+            await member.send(message)
+            sent += 1
+        except discord.Forbidden:
+            # User DMs closed or bot blocked
+            failed += 1
+        except Exception as e:
+            print(f"Error sending to {member}: {e}")
+            failed += 1
+
+    print(f"✅ Done. Sent to {sent} users, failed for {failed}.")
+
+
+# ✅ Save a pending game (async)
+async def save_pending_game(game_type, players, channel_id, max_players):
+    await run_db(lambda: supabase.table("pending_games").upsert({
         "game_type": game_type,
-        "players": players
-    }).execute()
+        "players": players,
+        "channel_id": channel_id,
+        "max_players": max_players  # ✅ store it!
+    }).execute())
 
+
+# ✅ Clear a pending game (async)
 async def clear_pending_game(game_type):
-    supabase.table("pending_games").delete().eq("game_type", game_type).execute()
+    await run_db(lambda: supabase.table("pending_games").delete().eq("game_type", game_type).execute())
 
+# ✅ Load all pending games (async)
 async def load_pending_games():
-    response = supabase.table("pending_games").select("*").execute()
+    response = await run_db(lambda: supabase.table("pending_games").select("*").execute())
     return response.data
 
-async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
-    # 1) Get current credits
-    res = await supabase.table("players").select("credits").eq("id", user_id).single().execute()
-    if res.error:
-        await interaction.response.send_message("❌ Could not find your profile.", ephemeral=True)
-        return
+async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
+    res = await run_db(
+        lambda: supabase.rpc("deduct_credits_atomic", {
+            "user_id": user_id,  # ✅ pass as INT
+            "amount": amount
+        }).execute()
+    )
 
-    credits = res.data["credits"]
-    if credits < amount:
+    # 📌 Use `getattr` fallback to avoid AttributeError
+    if getattr(res, "status_code", 200) != 200:
+        print(f"[Supabase RPC Error] Status: {getattr(res, 'status_code', '??')} Data: {res.data}")
+        return False
+
+    return bool(res.data)
+
+
+async def add_credits_internal(user_id: int, amount: int):
+    # ✅ Fetch current player
+    user = await get_player(user_id)
+    current_credits = user.get("credits", 0)
+
+    # ✅ Compute new balance
+    new_credits = current_credits + amount
+
+    # ✅ Update back to Supabase
+    await run_db(lambda: supabase
+        .table("players")
+        .update({"credits": new_credits})
+        .eq("id", str(user_id))
+        .execute()
+    )
+
+    return new_credits
+
+
+async def save_player(user_id: int, player_data: dict):
+    player_data["id"] = str(user_id)
+    await run_db(lambda: supabase
+        .table("players")
+        .upsert(player_data)
+        .execute())
+
+
+async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
+    # ✅ Try atomic deduction
+    success = await deduct_credits_atomic(user_id, amount)
+    if not success:
         await interaction.response.send_message("❌ Not enough credits.", ephemeral=True)
         return
 
-    # 2) Deduct credits
-    await supabase.table("players").update({"credits": credits - amount}).eq("id", user_id).execute()
+    # ✅ Log the bet
+    payout = int(amount / odds) if odds > 0 else amount
 
-    # 3) Log the bet
-    await supabase.table("bets").insert({
-        "player_id": user_id,
+    await run_db(lambda: supabase.table("bets").insert({
+        "player_id": str(user_id),
         "game_id": game_id,
         "choice": choice,
         "amount": amount,
-        "payout": int(amount * odds),
+        "payout": payout,
         "won": None
-    }).execute()
+    }).execute())
+
+    await interaction.response.send_message(
+        f"✅ Bet of {amount} placed on {choice}. Potential payout: {payout}",
+        ephemeral=True
+    )
+
 
 
 async def get_complete_user_data(user_id):
-    res = await supabase.table("players").select("*").eq("id", user_id).single().execute()
-    if res.error:
-        # If not found, insert defaults!
+    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).single().execute())
+
+    if res.data is None:
+        # Not found → insert defaults
         defaults = default_template.copy()
-        defaults["id"] = user_id
-        await supabase.table("players").insert(defaults).execute()
+        defaults["id"] = str(user_id)
+        await run_db(lambda: supabase.table("players").insert(defaults).execute())
         return defaults
+
     return res.data
 
 
 async def update_user_stat(user_id, key, value, mode="set"):
-    res = await supabase.table("players").select("*").eq("id", user_id).single().execute()
-    if res.error:
+    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).single().execute())
+
+    if res.data is None:
         # Player missing, create fresh
         data = default_template.copy()
-        data["id"] = user_id
+        data["id"] = str(user_id)
     else:
         data = res.data
 
@@ -119,26 +220,26 @@ async def update_user_stat(user_id, key, value, mode="set"):
     elif mode == "add":
         data[key] = data.get(key, 0) + value
 
-    await supabase.table("players").upsert(data).execute()
+    await save_player(user_id, data)
+
+
 
 
 # Load ALL players as a dict
+# ✅ Safe get_player: always upsert if not exists
 async def get_player(user_id: int) -> dict:
-    response = supabase.table("players").select("*").eq("id", user_id).single().execute()
-    if response.data:
-        player_data = response.data
-    else:
-        player_data = default_template.copy()
-        player_data["id"] = user_id
-        supabase.table("players").insert(player_data).execute()
+    # Safely select
+    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).execute())
 
-    for k, v in default_template.items():
-        player_data.setdefault(k, v)
-    return player_data
+    if not res.data:  # If no player is found, return a default template
+        # No row found → create one
+        new_data = default_template.copy()
+        new_data["id"] = str(user_id)
+        await run_db(lambda: supabase.table("players").insert(new_data).execute())
+        return new_data
 
-async def save_player(user_id: int, player_data: dict):
-    player_data["id"] = user_id
-    supabase.table("players").upsert(player_data).execute()
+    return res.data[0]  # Return the first player record found
+
 
 
 def calculate_elo(elo1, elo2, result):
@@ -149,9 +250,28 @@ def player_display(user_id, data):
     player = data.get(str(user_id), {"rank": 1000, "trophies": 0})
     return f"<@{user_id}> | Rank: {player['rank']} | Trophies: {player['trophies']}"
 
-async def start_new_game_button(channel, game_type):
-    view = GameJoinView(game_type)
-    await channel.send(content=f"🎮 Start a new {game_type} game:", view=view)
+async def start_new_game_button(channel, game_type, max_players=None):
+    key = (channel.id, game_type)
+    old = start_buttons.get(key)
+    if old:
+        try:
+            await old.delete()
+        except discord.NotFound:
+            pass
+
+    if game_type == "tournament":
+        # Show the tournament start button — user picks # of players later
+        view = TournamentStartButtonView()
+        msg = await channel.send("🏆 Click to start a **Tournament**:", view=view)
+    else:
+        # Normal game join view
+        view = GameJoinView(game_type, max_players)
+        msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
+
+    start_buttons[key] = msg
+    return msg
+
+
 
 async def show_betting_phase(self):
     self.clear_items()
@@ -194,74 +314,51 @@ class RoomNameGenerator:
     def __init__(self):
         self.word_cache = []
         self.used_words = set()
+        self.fetching = False
 
-    def fetch_five_letter_words(self):
-        """Fetch a list of 5-letter words from Datamuse."""
+    async def fetch_five_letter_words(self):
+        if self.fetching:
+            return  # prevent multiple calls
+        self.fetching = True
         try:
-            response = requests.get("https://api.datamuse.com/words", params={
-                "sp": "?????",
-                "max": 1000
-            })
+            response = requests.get(
+                "https://api.datamuse.com/words", params={"sp": "?????", "max": 1000}
+            )
             words = [w["word"].lower() for w in response.json() if w["word"].isalpha()]
-            # Remove already-used words
             self.word_cache = [w for w in words if w not in self.used_words]
         except Exception as e:
-            print(f"[RoomNameGenerator] Error fetching words: {e}")
-            self.word_cache = []
+            print(f"[RoomNameGenerator] Error: {e}")
+        finally:
+            self.fetching = False
 
-    def get_unique_word(self):
-        """Get a new unique 5-letter word."""
+    async def get_unique_word(self):
         if not self.word_cache:
-            self.fetch_five_letter_words()
-
+            await self.fetch_five_letter_words()
         if not self.word_cache:
-            raise RuntimeError("No unique words available at the moment.")
-
+            return "RoomX"
         word = random.choice(self.word_cache)
         self.word_cache.remove(word)
         self.used_words.add(word)
-        return word.capitalize()  # Optional: Make it look nice in Discord
+        return word.capitalize()
+
+# ✅ use `await room_name_generator.get_unique_word()` in your flow
 
 
-class JoinGameButton(discord.ui.Button):
-    def __init__(self, game_view):
-        super().__init__(label="Join Game", style=discord.ButtonStyle.success)
-        self.game_view = game_view
 
-    async def callback(self, interaction: discord.Interaction):
-        user_id = interaction.user.id
-
-        if user_id in self.game_view.players:
-            await interaction.response.send_message("✅ You are already in the game.", ephemeral=True)
-            return
-
-        if len(self.game_view.players) >= self.game_view.max_players:
-            await interaction.response.send_message("🚫 Game is full.", ephemeral=True)
-            return
-
-        if player_manager.is_active(user_id):
-            await interaction.response.send_message("🚫 You’re already in another game.", ephemeral=True)
-            return
-
-        self.game_view.players.append(user_id)
-        player_manager.activate(user_id)
-        await self.game_view.update_message()
-        await interaction.response.send_message(f"✅ You joined the game!", ephemeral=True)
-
-        if len(self.game_view.players) == self.game_view.max_players:
-            await save_pending_game(self.game_view.game_type, self.game_view.players, self.game_view.message.channel.id, self.game_view.max_players)
-
+# ✅ Correct: instantiate it OUTSIDE the class block
 room_name_generator = RoomNameGenerator()
 
+
 class GameJoinView(discord.ui.View):
-    def __init__(self, game_type):
+    def __init__(self, game_type, max_players):
         super().__init__(timeout=None)
         self.game_type = game_type
+        self.max_players = max_players
 
     @discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
     async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # ✅ Block duplicate games of same type
-        if pending_games[self.game_type]:
+        # ✅ Block duplicate games of the same type
+        if self.game_type in pending_games and pending_games[self.game_type]:
             await interaction.response.send_message(
                 "A game of this type is already pending.", ephemeral=True)
             return
@@ -272,20 +369,23 @@ class GameJoinView(discord.ui.View):
                 "🚫 You are already in another game or have not voted yet.", ephemeral=True)
             return
 
-        # ✅ OK! Activate and start
+        # ✅ OK! Activate and start the game
         player_manager.activate(interaction.user.id)
 
-        view = GameView(self.game_type, interaction.user.id)
+        # Pass max_players to the GameView initialization
+        view = GameView(self.game_type, interaction.user.id, self.max_players)
         embed = await view.build_embed(interaction.guild)
         view.message = await interaction.channel.send(embed=embed, view=view)
-        pending_games[self.game_type] = view
+        pending_games[self.game_type] = view  # Update pending game with the current view
 
+        # Remove the "Start new game" button after the game has started
         try:
             await interaction.message.delete()
         except discord.NotFound:
             pass
 
         await interaction.response.send_message("✅ Game started!", ephemeral=True)
+
 
 class LeaveGameButton(discord.ui.Button):
     def __init__(self, game_view):
@@ -317,25 +417,31 @@ class BettingButtonDropdown(discord.ui.Button):
         self.game_view = game_view
 
     async def callback(self, interaction: discord.Interaction):
+        # ✅ Create view and pre-build dropdown options safely:
+        view = BettingDropdownView(self.game_view)
+        await view.prepare()
+
         await interaction.response.send_message(
             "Select who you want to bet on:",
-            view=BettingDropdownView(self.game_view),
+            view=view,
             ephemeral=True
         )
 
+
 class GameView(discord.ui.View):
-    def __init__(self, game_type, creator):
+    def __init__(self, game_type, creator, max_players):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
         self.players = [creator]
-        self.max_players = 2 if game_type == "singles" else 4 if game_type == "doubles" else 3
+        self.max_players = max_players
         self.message = None
         self.betting_closed = False
         self.bets = []
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
+        self.on_tournament_complete = None  # hook for tournaments
 
-        # ✅ Only manually add the Leave button — Join is handled by @ui.button
+        # ✅ Add only Leave button explicitly
         self.add_item(LeaveGameButton(self))
 
     @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
@@ -373,10 +479,15 @@ class GameView(discord.ui.View):
         )
         await self.message.edit(embed=embed, view=None)
 
-        await start_new_game_button(self.message.channel, self.game_type)
+        await start_new_game_button(self.message.channel, self.game_type, self.max_players)
 
     async def abandon_if_not_filled(self):
-        await asyncio.sleep(300)
+        timeout_duration = 1000
+        elapsed_time = 0
+        while len(self.players) < self.max_players and not self.betting_closed and elapsed_time < timeout_duration:
+            await asyncio.sleep(30)
+            elapsed_time += 30
+
         if len(self.players) < self.max_players and not self.betting_closed:
             await self.abandon_game("⏰ Game timed out due to inactivity.")
             await clear_pending_game(self.game_type)
@@ -384,19 +495,16 @@ class GameView(discord.ui.View):
     async def build_embed(self, guild=None, winner=None):
         embed = discord.Embed(
             title=f"🎮 {self.game_type.title()} Match Lobby",
-            description="Gathering players for a new match...",
+            description="Awaiting players for a new match...",
             color=discord.Color.orange() if not winner else discord.Color.dark_gray()
         )
         embed.set_author(
             name="LEAGUE OF EXTRAORDINARY MISFITS",
             icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
         )
+        embed.timestamp = discord.utils.utcnow()
 
-        ranks = []
-        for p in self.players:
-            pdata = await get_player(p)
-            ranks.append(pdata.get("rank", 1000))
-
+        ranks = [await get_player(p).get("rank", 1000) for p in self.players]
         game_full = len(self.players) == self.max_players
 
         if self.game_type == "doubles" and game_full:
@@ -404,7 +512,7 @@ class GameView(discord.ui.View):
             e2 = sum(ranks[2:]) / 2
             odds_a = 1 / (1 + 10 ** ((e2 - e1) / 400))
             odds_b = 1 - odds_a
-        elif self.game_type == "triples" and game_full:
+        elif self.game_type in ("triples", "tournament") and game_full:
             sum_exp = sum([10 ** (e / 400) for e in ranks])
             odds = [(10 ** (e / 400)) / sum_exp for e in ranks]
 
@@ -423,12 +531,13 @@ class GameView(discord.ui.View):
                 member = guild.get_member(user_id) if guild else None
                 name = f"**{member.display_name}**" if member else f"**User {user_id}**"
                 rank = ranks[idx]
+
                 if self.game_type == "singles" and game_full:
                     e1, e2 = ranks
                     o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
                     player_odds = o1 if idx == 0 else 1 - o1
                     line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%"
-                elif self.game_type == "triples" and game_full:
+                elif self.game_type in ("triples", "tournament") and game_full:
                     line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%"
                 else:
                     line = f"● Player {idx + 1}: {name} 🏆 ({rank})"
@@ -461,10 +570,8 @@ class GameView(discord.ui.View):
                     label = "Player 1" if ch == "1" else "Player 2"
                 elif self.game_type == "doubles":
                     label = "Team A" if ch.upper() == "A" else "Team B"
-                elif self.game_type == "triples":
-                    label = f"Player {ch}"
                 else:
-                    label = ch
+                    label = f"Player {ch}"
                 bet_lines.append(f"💰 {uname} bet {amt} on {label}")
             embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
 
@@ -473,8 +580,7 @@ class GameView(discord.ui.View):
     async def update_message(self):
         if self.message:
             embed = await self.build_embed(self.message.guild)
-            
-            # ✅ Remove and re-add only the Leave button
+            # ✅ Only manage Leave button dynamically, never Join
             to_remove = [item for item in self.children if isinstance(item, LeaveGameButton)]
             for item in to_remove:
                 self.remove_item(item)
@@ -484,92 +590,6 @@ class GameView(discord.ui.View):
 
             await self.message.edit(embed=embed, view=self)
 
-    async def get_odds(self, choice):
-        ranks = []
-        for p in self.players:
-            pdata = await get_player(p)
-            ranks.append(pdata.get("rank", 1000))
-
-        if self.game_type == "singles":
-            e1, e2 = ranks
-            o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
-            return o1 if choice in ("1", str(self.players[0])) else (1 - o1)
-        elif self.game_type == "doubles":
-            e1 = sum(ranks[:2]) / 2
-            e2 = sum(ranks[2:]) / 2
-            o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
-            return o1 if choice.upper() == "A" else (1 - o1)
-        elif self.game_type == "triples":
-            exp = [10 ** (e / 400) for e in ranks]
-            total = sum(exp)
-            expected = [v / total for v in exp]
-            if choice in ("1", str(self.players[0])):
-                return expected[0]
-            elif choice in ("2", str(self.players[1])):
-                return expected[1]
-            elif choice in ("3", str(self.players[2])):
-                return expected[2]
-            return 0.5
-
-    async def add_bet(self, user_id, user_name, amount, choice):
-        self.bets.append((user_id, user_name, amount, choice))
-        await self.update_message()
-
-    async def show_betting_phase(self):
-        self.clear_items()
-        self.add_item(BettingButtonDropdown(self))
-        await self.update_message()
-        await asyncio.sleep(120)
-        self.betting_closed = True
-        self.clear_items()
-        await self.update_message()
-
-    async def game_full(self, interaction):
-        global pending_game
-        self.clear_items()
-        if self.abandon_task:
-            self.abandon_task.cancel()
-        await start_new_game_button(self.message.channel, self.game_type)
-        pending_games[self.game_type] = None
-        await save_pending_game(self.game_type, self.players)
-
-        course_name = random.choice(COURSES)
-        course_image = COURSE_IMAGES.get(course_name, "")
-        room_name = room_name_generator.get_unique_word()
-
-        thread = await interaction.channel.create_thread(name=room_name)
-
-        embed = await self.build_embed(interaction.guild)
-        embed.title = f"Game Room: {room_name}"
-        embed.description = f"Course: {course_name}"
-        if course_image:
-            embed.set_image(url=course_image)
-
-        room_view = RoomView(
-            players=self.players,
-            game_type=self.game_type,
-            room_name=room_name,
-            lobby_message=self.message,
-            lobby_embed=embed,
-            game_view=self
-        )
-        room_view.original_embed = embed.copy()
-
-        mentions = " ".join(f"<@{p}>" for p in self.players)
-        thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=embed, view=room_view)
-        room_view.message = thread_msg
-
-        lobby_embed = await self.build_embed(interaction.guild)
-        lobby_embed.color = discord.Color.orange()
-        lobby_embed.title = f"{self.game_type.title()} Match Created!"
-        lobby_embed.description = f"A match has been created in thread: {thread.mention}"
-        lobby_embed.add_field(name="Room Name", value=room_name)
-        lobby_embed.add_field(name="Course", value=course_name)
-        if course_image:
-            lobby_embed.set_image(url=course_image)
-
-        await self.message.edit(embed=lobby_embed, view=None)
-        await self.show_betting_phase()
 
 
 class BettingButton(discord.ui.Button):
@@ -583,122 +603,92 @@ class BettingButton(discord.ui.Button):
             return
         await interaction.response.send_modal(BetModal(self.game_view))
 
-# ✅ Updated BetModal with bet_history fix
 class BetModal(discord.ui.Modal, title="Place Your Bet"):
-    def __init__(self, game_view):
+    def __init__(self, game_view, preselected=None):
         super().__init__()
         self.game_view = game_view
-        self.choices = None  # Will be computed async in on_submit
 
         self.bet_choice = discord.ui.TextInput(
-            label="Choose (A/B/1/2)",
-            placeholder="A, B or 1, 2",
-            max_length=1
+            label="Choice (A/B/1/2)",
+            placeholder="A, B, 1 or 2",
+            max_length=1,
+            default=preselected or ""
         )
         self.bet_amount = discord.ui.TextInput(
-            label="Bet Amount", placeholder="Enter an integer amount"
+            label="Bet Amount",
+            placeholder="Enter a positive number"
         )
+
         self.add_item(self.bet_choice)
         self.add_item(self.bet_amount)
 
-    async def compute_choices(self):
-        ranks = []
-        for p in self.game_view.players:
-            pdata = await get_player(p)
-            ranks.append(pdata.get("rank", 1000))
-
-        if self.game_view.game_type == "singles":
-            e1, e2 = ranks
-            p1_odds = 1 / (1 + 10 ** ((e2 - e1) / 400))
-            p2_odds = 1 - p1_odds
-            return {
-                "1": f"{p1_odds * 100:.1f}%",
-                "2": f"{p2_odds * 100:.1f}%"
-            }
-
-        elif self.game_view.game_type == "doubles":
-            e1 = sum(ranks[:2]) / 2
-            e2 = sum(ranks[2:]) / 2
-            a_odds = 1 / (1 + 10 ** ((e2 - e1) / 400))
-            b_odds = 1 - a_odds
-            return {
-                "A": f"{a_odds * 100:.1f}%",
-                "B": f"{b_odds * 100:.1f}%"
-            }
-
-        elif self.game_view.game_type == "triples":
-            exp = [10 ** (e / 400) for e in ranks]
-            total = sum(exp)
-            odds = [v / total for v in exp]
-            return {str(i + 1): f"{odds[i] * 100:.1f}%" for i in range(3)}
-
     async def on_submit(self, interaction: discord.Interaction):
-        user_id = interaction.user.id
-        user_name = interaction.user.display_name
-        choice = self.bet_choice.value.strip().upper()
-
         try:
-            amount = int(self.bet_amount.value.strip())
-            if amount <= 0:
-                raise ValueError()
-        except ValueError:
-            await interaction.response.send_message("❌ Invalid bet amount.", ephemeral=True)
-            return
+            user_id = interaction.user.id
+            choice = self.bet_choice.value.strip().upper()
+            amount_raw = self.bet_amount.value.strip()
 
-        # ✅ Fetch player from Supabase
-        player = await get_player(user_id)
-        credits = player.get("credits", 1000)
+            # ✅ Validate amount
+            try:
+                amount = int(amount_raw)
+                if amount <= 0:
+                    raise ValueError()
+            except ValueError:
+                await interaction.response.send_message("❌ Invalid amount. Please enter a positive integer.", ephemeral=True)
+                return
 
-        if credits < amount:
-            await interaction.response.send_message("❌ Not enough credits.", ephemeral=True)
-            return
+            # ✅ Validate choice
+            valid_choices = {"A", "B", "1", "2"}
+            if choice not in valid_choices:
+                await interaction.response.send_message(f"❌ Invalid choice. Use one of: {', '.join(valid_choices)}.", ephemeral=True)
+                return
 
-        # ✅ Compute odds for payout
-        odds = await self.game_view.get_odds(choice)
-        payout = int(amount / odds) if odds > 0 else amount
+            # ✅ Compute odds & payout safely
+            odds = await self.game_view.get_odds(choice)
+            payout = max(1, int(amount / odds)) if odds > 0 else amount
 
-        # ✅ Update player credits + bet history
-        credits -= amount
-        bet_history = player.get("bet_history", [])
-        bet_history.append({
-            "on": choice,
-            "amount": amount,
-            "payout": payout,
-            "won": None,
-            "game": self.game_view.message.id
-        })
+            # ✅ Atomic balance deduction
+            success = await deduct_credits_atomic(user_id, amount)
+            if not success:
+                await interaction.response.send_message("❌ Not enough credits to place this bet.", ephemeral=True)
+                return
 
-        await save_player(user_id, {
-            "credits": credits,
-            "bet_history": bet_history
-        })
+            # ✅ Insert bet in DB
+            await run_db(lambda: supabase
+                .table("bets")
+                .insert({
+                    "player_id": str(user_id),
+                    "game_id": self.game_view.message.id,
+                    "choice": choice,
+                    "amount": amount,
+                    "payout": payout,
+                    "won": None
+                })
+                .execute()
+            )
 
-        # ✅ Add bet to GameView
-        await self.game_view.add_bet(user_id, user_name, amount, choice)
+            # ✅ Add to live bets
+            await self.game_view.add_bet(user_id, interaction.user.display_name, amount, choice)
 
-        # ✅ Figure out name for feedback
-        if self.game_view.game_type == "singles":
-            target_id = self.game_view.players[0] if choice == "1" else self.game_view.players[1] if choice == "2" else None
-            member = self.game_view.message.guild.get_member(target_id) if target_id else None
-            target_name = member.display_name if member else f"Player {choice}"
-        elif self.game_view.game_type == "doubles":
-            target_name = "Team A" if choice.upper() == "A" else "Team B" if choice.upper() == "B" else f"Unknown ({choice})"
-        elif self.game_view.game_type == "triples":
-            target_name = f"Player {choice}"
-        else:
-            target_name = f"Choice {choice}"
+            # ✅ One guaranteed response
+            await interaction.response.send_message(
+                f"✅ Bet placed!\n• Choice: **{choice}**\n• Bet: **{amount}**\n• Odds: **{odds * 100:.1f}%**\n• Payout: **{payout}**",
+                ephemeral=True
+            )
 
-        await interaction.response.send_message(
-            f"✅ Bet of **{amount}** placed on **{target_name}**!\n"
-            f"📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
-            ephemeral=True
-        )
+        except Exception as e:
+            # Failsafe: if interaction already used, fallback
+            try:
+                await interaction.followup.send(f"❌ Bet failed: {e}", ephemeral=True)
+            except:
+                pass
+
 
 
 class BetDropdown(discord.ui.Select):
     def __init__(self, game_view):
         self.game_view = game_view
-        self.options_built = False  # Will build options async
+        self.options_built = False  # Lazy flag
         super().__init__(
             placeholder="Select who to bet on...",
             min_values=1,
@@ -707,68 +697,77 @@ class BetDropdown(discord.ui.Select):
         )
 
     async def build_options(self):
-        options = []
-        players = self.game_view.players
+        players = self.game_view.players or []
         game_type = self.game_view.game_type
         guild = self.game_view.message.guild if self.game_view.message else None
 
-        if game_type == "singles":
-            ranks = []
-            for p in players:
-                pdata = await get_player(p)
-                ranks.append(pdata.get("rank", 1000))
+        options = []
 
-            e1, e2 = ranks
+        if game_type == "singles" and len(players) >= 2:
+            ranks = [await get_player(p) for p in players]
+            e1, e2 = [p.get("rank", 1000) for p in ranks]
             p1_odds = 1 / (1 + 10 ** ((e2 - e1) / 400))
             p2_odds = 1 - p1_odds
 
             for i, (player_id, odds) in enumerate(zip(players, [p1_odds, p2_odds]), start=1):
                 member = guild.get_member(player_id) if guild else None
                 name = member.display_name if member else f"Player {i}"
-                label = f"{name} ({odds * 100:.1f}%)"
-                options.append(discord.SelectOption(label=label, value=str(i)))
+                options.append(discord.SelectOption(
+                    label=f"{name} ({odds * 100:.1f}%)", value=str(i)
+                ))
 
-        elif game_type == "doubles":
-            ranks = []
-            for p in players:
-                pdata = await get_player(p)
-                ranks.append(pdata.get("rank", 1000))
-
-            e1 = sum(ranks[:2]) / 2
-            e2 = sum(ranks[2:]) / 2
-            a_odds = 1 / (1 + 10 ** ((e2 - e1) / 400))
+        elif game_type == "doubles" and len(players) >= 4:
+            ranks = [await get_player(p) for p in players]
+            team1 = sum([p.get("rank", 1000) for p in ranks[:2]]) / 2
+            team2 = sum([p.get("rank", 1000) for p in ranks[2:]]) / 2
+            a_odds = 1 / (1 + 10 ** ((team2 - team1) / 400))
             b_odds = 1 - a_odds
 
-            options = [
+            options.extend([
                 discord.SelectOption(label=f"Team A ({a_odds * 100:.1f}%)", value="A"),
                 discord.SelectOption(label=f"Team B ({b_odds * 100:.1f}%)", value="B")
-            ]
+            ])
 
-        elif game_type == "triples":
-            ranks = []
-            for p in players:
-                pdata = await get_player(p)
-                ranks.append(pdata.get("rank", 1000))
-
-            exp = [10 ** (e / 400) for e in ranks]
+        elif game_type == "triples" and len(players) >= 3:
+            ranks = [await get_player(p) for p in players]
+            exp = [10 ** (p.get("rank", 1000) / 400) for p in ranks]
             total = sum(exp)
             odds = [v / total for v in exp]
 
             for i, (player_id, o) in enumerate(zip(players, odds), start=1):
                 member = guild.get_member(player_id) if guild else None
                 name = member.display_name if member else f"Player {i}"
-                label = f"{name} ({o * 100:.1f}%)"
-                options.append(discord.SelectOption(label=label, value=str(i)))
+                options.append(discord.SelectOption(
+                    label=f"{name} ({o * 100:.1f}%)", value=str(i)
+                ))
 
-        self.options = options
+        # ✅ Always fallback option if empty
+        if not options:
+            options = [
+                discord.SelectOption(label="⚠️ No valid choices", value="none")
+            ]
+
+        # ✅ Clear & replace safely
+        self.options.clear()
+        self.options.extend(options)
         self.options_built = True
 
     async def callback(self, interaction: discord.Interaction):
         if not self.options_built:
-            await self.build_options()  # Shouldn't normally be needed; pre-built by BettingDropdownView
+            await self.build_options()
 
         choice = self.values[0]
-        await interaction.response.send_modal(BetAmountModal(choice, self.game_view))
+
+        if choice == "none":
+            await interaction.response.send_message(
+                "⚠️ No valid bet choices available.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_modal(
+            BetAmountModal(choice, self.game_view)
+        )
+
 
 
 class RoomView(discord.ui.View):
@@ -839,7 +838,7 @@ class RoomView(discord.ui.View):
         self.vote_timeout = asyncio.create_task(self.end_voting_after_timeout())
 
     async def end_voting_after_timeout(self):
-        await asyncio.sleep(300)
+        await asyncio.sleep(600)
         await self.finalize_game()
 
     async def finalize_game(self):
@@ -857,78 +856,114 @@ class RoomView(discord.ui.View):
 
         self.voting_closed = True
 
-        # ✅ Update stats in DB
+        # ✅ DRAW CASE — refund bets & update stats
         if winner == "draw":
             for p in self.players:
                 pdata = await get_player(p)
-                pdata["draws"] = pdata.get("draws", 0) + 1
-                pdata["games_played"] = pdata.get("games_played", 0) + 1
+                pdata["draws"] += 1
+                pdata["games_played"] += 1
                 pdata["current_streak"] = 0
-                await upsert_player(p, pdata)
+                await save_player(p, pdata)
+
+            for uid, uname, amount, choice in self.game_view.bets:
+                await add_credits_internal(uid, amount)
+                await run_db(lambda: supabase
+                    .table("bets")
+                    .update({"won": None})
+                    .eq("player_id", uid)
+                    .eq("game_id", self.game_view.message.id)
+                    .eq("choice", choice)
+                    .execute()
+                )
+                print(f"↩️ Refunded {amount} to {uname} (DRAW)")
+
+            embed = await self.game_view.build_embed(self.message.guild, winner=winner)
+            embed.set_footer(text="🎮 Game has ended: 🤝 Draw")
+            await self.message.edit(embed=embed, view=None)
 
             if self.lobby_message:
-                embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner)
-                embed.set_footer(text="🎮 Game has ended. Result: 🤝 Draw")
-                await self.lobby_message.edit(embed=embed, view=self.game_view)
+                lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner)
+                lobby_embed.set_footer(text="🎮 Game has ended: 🤝 Draw")
+                await self.lobby_message.edit(embed=lobby_embed, view=None)
 
-            await self.message.channel.send("🤝 Voting ended in a **draw**!")
+            await self.message.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
             await asyncio.sleep(30)
             await self.message.channel.edit(archived=True)
             return
 
-        # ✅ If there is a winner:
+        # ✅ 1️⃣ Update player stats properly
         for p in self.players:
             pdata = await get_player(p)
-            pdata["games_played"] = pdata.get("games_played", 0) + 1
+            pdata["games_played"] += 1
 
-            is_winner = (
-                winner == p
-                or (winner == "Team A" and p in self.players[:2])
-                or (winner == "Team B" and p in self.players[2:])
-            )
+            if self.game_type == "singles":
+                is_winner = (winner == p)
+            elif self.game_type == "doubles":
+                winner_team = normalize_team(winner)
+                is_winner = (
+                    (winner_team == "TEAM A" and p in self.players[:2]) or
+                    (winner_team == "TEAM B" and p in self.players[2:])
+                )
+            elif self.game_type == "triples":
+                is_winner = (winner == p)
+            else:
+                is_winner = False
 
             if is_winner:
-                pdata["rank"] = pdata.get("rank", 1000) + 10
-                pdata["trophies"] = pdata.get("trophies", 0) + 1
-                pdata["wins"] = pdata.get("wins", 0) + 1
-                pdata["current_streak"] = pdata.get("current_streak", 0) + 1
+                pdata["rank"] += 10
+                pdata["trophies"] += 1
+                pdata["wins"] += 1
+                pdata["current_streak"] += 1
                 pdata["best_streak"] = max(pdata.get("best_streak", 0), pdata["current_streak"])
             else:
-                pdata["rank"] = pdata.get("rank", 1000) - 10
-                pdata["losses"] = pdata.get("losses", 0) + 1
+                pdata["rank"] -= 10
+                pdata["losses"] += 1
                 pdata["current_streak"] = 0
 
-            await upsert_player(p, pdata)
+            await save_player(p, pdata)
 
-        # ✅ Resolve bets
+        # ✅ 2️⃣ Resolve bets — CORRECTED
         for uid, uname, amount, choice in self.game_view.bets:
-            user_id = str(uid)
-            user_data = await get_player(user_id)
             won = False
 
             if self.game_type == "singles":
                 winner_id = winner if isinstance(winner, int) else None
-                won = (choice == "1" and self.players[0] == winner_id) or (choice == "2" and self.players[1] == winner_id)
+                won = (
+                    (choice == "1" and self.players[0] == winner_id) or
+                    (choice == "2" and self.players[1] == winner_id)
+                )
             elif self.game_type == "doubles":
-                won = winner == choice.upper()
+                winner_team = normalize_team(winner)
+                bet_team = normalize_team(choice)
+                won = winner_team == bet_team
             elif self.game_type == "triples":
                 try:
                     index = int(choice) - 1
                     won = self.players[index] == winner
                 except:
                     won = False
+            else:
+                won = False
 
-            for bet in user_data.get("bet_history", []):
-                if bet.get("game") == self.game_view.message.id and bet.get("won") is None:
-                    bet["won"] = won
-                    if won:
-                        payout = bet.get("payout", int(amount / self.game_view.get_odds(choice)))
-                        user_data["credits"] = user_data.get("credits", 0) + payout
-                        print(f"💰 {uname} won {payout} credits (bet {amount} on {choice})")
+            await run_db(lambda: supabase
+                .table("bets")
+                .update({"won": won})
+                .eq("player_id", uid)
+                .eq("game_id", self.game_view.message.id)
+                .eq("choice", choice)
+                .execute()
+            )
 
-            await upsert_player(user_id, user_data)
+            if won:
+                odds = await self.game_view.get_odds(choice)
+                profit = int(amount / odds) if odds > 0 else amount
+                payout = profit + amount
+                await add_credits_internal(uid, payout)
+                print(f"💰 {uname} won! Payout: {payout} (bet {amount}, profit {profit})")
+            else:
+                print(f"❌ {uname} lost {amount} (stake was upfront)")
 
-        # ✅ Show winner
+        # ✅ 3️⃣ Announce final result
         if isinstance(winner, int):
             member = self.message.guild.get_member(winner)
             winner_name = member.display_name if member else f"User {winner}"
@@ -936,16 +971,21 @@ class RoomView(discord.ui.View):
             winner_name = winner
 
         embed = await self.game_view.build_embed(self.message.guild, winner=winner)
-        await self.message.edit(embed=embed, view=self)
+        embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
+        await self.message.edit(embed=embed, view=None)
 
-        if self.game_view.message:
-            lobby_embed = await self.game_view.build_embed(self.game_view.message.guild, winner=winner)
+        if self.lobby_message:
+            lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner)
             lobby_embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
-            await self.game_view.message.edit(embed=lobby_embed, view=None)
+            await self.lobby_message.edit(embed=lobby_embed, view=None)
 
         await self.message.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
         await asyncio.sleep(30)
         await self.message.channel.edit(archived=True)
+
+        if self.game_view and self.game_view.on_tournament_complete:
+            if self.game_type == "singles" and isinstance(winner, int):
+                await self.game_view.on_tournament_complete(winner)
 
 
 class GameEndedButton(discord.ui.Button):
@@ -1000,7 +1040,7 @@ class VoteButton(discord.ui.Button):
         self.view_obj.votes[interaction.user.id] = self.value
 
         # ✅ Optional: You can store this vote in Supabase too if you want an audit log
-        # Example: await supabase.table("votes").insert({...})
+        # Example: await run_db(lambda: supabase.table("votes").insert({...})
 
         # ✅ Prepare feedback text
         voter = interaction.guild.get_member(interaction.user.id)
@@ -1025,84 +1065,297 @@ class VoteButton(discord.ui.Button):
         if len(self.view_obj.votes) == len(self.view_obj.players):
             await self.view_obj.finalize_game()
 
+# Tournament View Class
+class TournamentView(discord.ui.View):
+    def __init__(self, creator, max_players=None):
+        super().__init__(timeout=None)
+        self.creator = creator
+        self.players = [creator]
+        self.max_players = max_players
+        self.message = None
+        self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
+        self.bets = []  # Store bets for the tournament
+
+    async def abandon_tournament(self, reason):
+        """Handle abandonment of the tournament"""
+        global pending_game
+        pending_games["tournament"] = None
+
+        for p in self.players:
+            player_manager.deactivate(p)
+
+        embed = discord.Embed(
+            title="❌ Tournament Abandoned",
+            description=reason,
+            color=discord.Color.red()
+        )
+        if self.message:
+            await self.message.edit(embed=embed, view=None)
+
+        # Reset for new games
+        await start_new_game_button(self.message.channel, "tournament", self.max_players)
+
+    async def abandon_if_not_filled(self):
+        """Automatically abandon the tournament if it's not filled within 5 minutes"""
+        await asyncio.sleep(300)
+        if len(self.players) < self.max_players:
+            await self.abandon_tournament("⏰ Tournament timed out due to inactivity.")
+            await clear_pending_game("tournament")
+
+    async def build_embed(self, guild=None):
+        """Build and return the embed for the tournament lobby."""
+        embed = discord.Embed(
+            title=f"🏆 Tournament Lobby",
+            description="Players joining the tournament...",
+            color=discord.Color.gold()
+        )
+        embed.set_author(
+            name="LEAGUE OF EXTRAORDINARY MISFITS",
+            icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
+        )
+        embed.timestamp = discord.utils.utcnow()
+
+        player_lines = []
+        for idx in range(self.max_players or 2):  # Default max players if not set
+            if idx < len(self.players):
+                user_id = self.players[idx]
+                member = guild.get_member(user_id) if guild else None
+                name = f"**{member.display_name}**" if member else f"**User {user_id}**"
+                line = f"● Player {idx + 1}: {name}"
+            else:
+                line = f"○ Player {idx + 1}: [Waiting...]"
+            player_lines.append(line)
+
+        embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
+
+        # Show the current bets placed
+        if self.bets:
+            bet_lines = [f"💰 **{uname}** bet **{amt}** on **{choice}**" for _, uname, amt, choice in self.bets]
+            embed.add_field(name="📊 Current Bets", value="\n".join(bet_lines), inline=False)
+
+        return embed
+
+    async def update_message(self):
+        """Update the tournament message."""
+        if self.message:
+            embed = await self.build_embed(self.message.guild)
+            to_remove = [item for item in self.children if isinstance(item, discord.ui.Button)]
+            for item in to_remove:
+                self.remove_item(item)
+
+            if len(self.players) < self.max_players:
+                self.add_item(TournamentJoinButton(self))
+            
+            await self.message.edit(embed=embed, view=self)
+
+    @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success)
+    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handles player joining the tournament"""
+        if interaction.user.id in self.players:
+            await interaction.response.send_message("✅ You already joined.", ephemeral=True)
+            return
+        if len(self.players) >= self.max_players:
+            await interaction.response.send_message("🚫 Tournament is full.", ephemeral=True)
+            return
+        if player_manager.is_active(interaction.user.id):
+            await interaction.response.send_message("🚫 You’re already in another game.", ephemeral=True)
+            return
+
+        player_manager.activate(interaction.user.id)
+        self.players.append(interaction.user.id)
+        await self.update_message()
+        await interaction.response.defer()
+
+        if len(self.players) == self.max_players:
+            await self.update_message()
+            await self.tournament_full(interaction)
+
+    async def tournament_full(self, interaction):
+        """Trigger when the tournament is full and ready to start"""
+        global pending_game
+        self.clear_items()
+        if self.abandon_task:
+            self.abandon_task.cancel()
+
+        await start_new_game_button(self.message.channel, "tournament", self.max_players)
+        pending_games["tournament"] = None
+
+        # Start tournament after betting phase
+        await self.start_tournament(interaction)
+
+    async def start_tournament(self, interaction):
+        """Start the tournament logic"""
+        embed = discord.Embed(
+            title="🏁 Tournament Started!",
+            description="Bracket generation and matches will begin shortly.",
+            color=discord.Color.green()
+        )
+        await self.message.edit(embed=embed, view=None)
+
+        # Initialize tournament
+        tourney = Tournament(
+            host_id=self.creator,
+            players=self.players,
+            channel=interaction.channel
+        )
+        await tourney.start()
+
+    async def show_betting_phase(self):
+        """Displays the betting phase after tournament starts"""
+        self.clear_items()
+        self.add_item(BettingButtonDropdown(self))  # Use your existing BettingButtonDropdown
+        await self.update_message()
+        await asyncio.sleep(120)  # Betting duration
+        self.betting_closed = True
+        self.clear_items()
+        await self.update_message()
+
+
+class TournamentStartButtonView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary)
+    async def start_tournament(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(PlayerCountModal())
+
+
+class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
+    def __init__(self):
+        super().__init__()
+        self.player_count = discord.ui.TextInput(
+            label="Number of players (4, 8, 16...)", placeholder="4, 8, 16...", max_length=4
+        )
+        self.add_item(self.player_count)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            count = int(self.player_count.value.strip())
+            if count < 4 or count > 64:
+                raise ValueError()
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid number.", ephemeral=True)
+            return
+
+        # Start the actual tournament lobby
+        view = GameView("tournament", interaction.user.id, count)
+        embed = await view.build_embed(interaction.guild)
+        view.message = await interaction.channel.send(embed=embed, view=view)
+
+        await interaction.response.send_message(f"✅ Tournament lobby created for **{count}** players!", ephemeral=True)
+
+
+class Tournament:
+    def __init__(self, host_id, players, channel, game_type="singles"):
+        self.host_id = host_id
+        self.players = players
+        self.channel = channel
+        self.game_type = game_type
+        self.round = 1
+        self.bracket = []
+        self.current_matches = []
+        self.thread = None
+
+    async def start(self):
+        # Create main tournament thread
+        self.thread = await self.channel.create_thread(name=f"Tournament {random.randint(1000, 9999)}")
+
+        await self.thread.send(f"🏆 **Tournament started!** Players: {', '.join(f'<@{p}>' for p in self.players)}")
+        await self.next_round()
+
+    async def next_round(self):
+        if len(self.players) == 1:
+            await self.thread.send(f"🎉 **Winner: <@{self.players[0]}>!**")
+            return
+
+        random.shuffle(self.players)
+        self.current_matches = []
+
+        for i in range(0, len(self.players), 2):
+            if i+1 < len(self.players):
+                match_players = [self.players[i], self.players[i+1]]
+                view = GameView("singles", match_players[0])
+                view.players = match_players
+                view.max_players = 2
+                embed = await view.build_embed(self.channel.guild)
+                msg = await self.thread.send(embed=embed, view=view)
+                view.message = msg
+                view.on_tournament_complete = self.match_complete  # Hook!
+                self.current_matches.append(view)
+            else:
+                # Odd player advances automatically
+                await self.thread.send(f"✅ <@{self.players[i]}> advances (bye).")
+                self.current_matches.append(self.players[i])
+
+    async def match_complete(self, winner_id):
+        self.players = [winner_id if isinstance(m, GameView) and m.winner == winner_id else p
+                        for m, p in zip(self.current_matches, self.players)]
+        await self.next_round()
+
 
 class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
     def __init__(self, choice, game_view):
         super().__init__()
         self.choice = choice
         self.game_view = game_view
+
         self.bet_amount = discord.ui.TextInput(
-            label="Bet Amount", placeholder="e.g., 200", required=True
+            label="Bet Amount",
+            placeholder="E.g. 100",
+            required=True
         )
         self.add_item(self.bet_amount)
 
     async def on_submit(self, interaction: discord.Interaction):
         user_id = interaction.user.id
 
-        # ✅ Fetch user credits from Supabase
-        res = await supabase.table("players").select("credits").eq("id", user_id).single().execute()
-        if res.error:
-            await interaction.response.send_message("❌ Could not find your profile.", ephemeral=True)
-            return
-        credits = res.data["credits"]
-
         try:
             amount = int(self.bet_amount.value.strip())
+            if amount <= 0:
+                raise ValueError()
         except ValueError:
-            await interaction.response.send_message("❌ Invalid amount format.", ephemeral=True)
+            await interaction.response.send_message("❌ Invalid amount.", ephemeral=True)
             return
 
-        if amount <= 0:
-            await interaction.response.send_message("❌ Bet must be greater than 0.", ephemeral=True)
-            return
-        if credits < amount:
+        # ✅ Compute odds & payout
+        odds = await self.game_view.get_odds(self.choice)
+        payout = int(amount / odds) if odds > 0 else amount
+
+        # ✅ Atomic deduction
+        success = await deduct_credits_atomic(user_id, amount)
+        if not success:
             await interaction.response.send_message("❌ Not enough credits.", ephemeral=True)
             return
 
-        # ✅ Compute payout using odds
-        odds = self.game_view.get_odds(self.choice)
-        payout = int(amount / odds)
-
-        # ✅ 1) Deduct credits
-        await supabase.table("players").update({"credits": credits - amount}).eq("id", user_id).execute()
-
-        # ✅ 2) Store bet in bets table
-        await supabase.table("bets").insert({
-            "player_id": user_id,
+        # ✅ Log bet
+        await run_db(lambda: supabase.table("bets").insert({
+            "player_id": str(user_id),
             "game_id": self.game_view.message.id,
             "choice": self.choice,
             "amount": amount,
             "payout": payout,
             "won": None
-        }).execute()
+        }).execute())
 
-        # ✅ 3) Update live GameView state for UI
+        # ✅ Add to UI
         await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice)
 
-        # ✅ Build user-friendly response
-        if self.game_view.game_type == "singles":
-            if self.choice == "1":
-                target_id = self.game_view.players[0]
-            elif self.choice == "2":
-                target_id = self.game_view.players[1]
-            else:
-                target_id = None
-            target_member = self.game_view.message.guild.get_member(target_id) if target_id else None
-            target_name = target_member.display_name if target_member else f"Player {self.choice}"
-        else:
-            target_name = "Team A" if self.choice.upper() == "A" else "Team B"
-
         await interaction.response.send_message(
-            f"✅ Bet of **{amount}** placed on **{target_name}**!\n"
-            f"📊 Odds: {odds * 100:.1f}% | 💰 Potential payout: **{payout}**",
+            f"✅ Bet of **{amount}** on **{self.choice}** placed!\n📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
             ephemeral=True
         )
 
 
+
 class BettingDropdownView(discord.ui.View):
     def __init__(self, game_view):
-        super().__init__(timeout=60)
-        self.add_item(BetDropdown(game_view))
+        super().__init__(timeout=120)
+        self.dropdown = BetDropdown(game_view)
+        self.add_item(self.dropdown)
+
+    async def prepare(self):
+        await self.dropdown.build_options()
+
 
 class LeaderboardView(discord.ui.View):
     def __init__(self, entries, page_size=10, sort_key="rank", title="🏆 Leaderboard"):
@@ -1133,7 +1386,7 @@ class LeaderboardView(discord.ui.View):
             credits = stats.get("credits", 1000)
             line = f"#{i:>2}  {name:<20} | 🏆 {trophies:<3} | 💰 {credits:<4} | 📈 {rank}"
             lines.append(line)
-        return "\n".join(lines)
+        return "\n".join(lines) if lines else "*No entries*"
 
     async def update(self):
         self.update_buttons()
@@ -1150,7 +1403,7 @@ class LeaderboardView(discord.ui.View):
             self.view_obj = view_obj
 
         async def callback(self, interaction: discord.Interaction):
-            self.view_obj.page -= 1
+            self.view_obj.page = max(0, self.view_obj.page - 1)
             await self.view_obj.update()
             await interaction.response.defer()
 
@@ -1164,31 +1417,427 @@ class LeaderboardView(discord.ui.View):
             await self.view_obj.update()
             await interaction.response.defer()
 
+class PaginatedCourseSelect(discord.ui.Select):
+    def __init__(self, options, parent_view):
+        super().__init__(placeholder="Select a course", options=options)
+        self.view_obj = parent_view
+
+    async def callback(self, interaction: discord.Interaction):
+        course_id = self.values[0]
+        selected = next((c for c in self.view_obj.courses if str(c["id"]) == course_id), None)
+        if not selected:
+            await interaction.response.send_message("❌ Course not found.", ephemeral=True)
+            return
+
+        await interaction.response.send_modal(
+            SubmitScoreModal(course_name=selected["name"], course_id=course_id)
+        )
+
+
+class PaginatedCourseView(discord.ui.View):
+    def __init__(self, courses, per_page=25):
+        super().__init__(timeout=120)
+        self.courses = courses
+        self.per_page = per_page
+        self.page = 0
+        self.message = None
+        self.update_children()
+
+    def has_options(self):
+        """True if there is at least one course total"""
+        return len(self.courses) > 0
+
+    def update_children(self):
+        self.clear_items()
+        start = self.page * self.per_page
+        end = start + self.per_page
+        page_courses = self.courses[start:end]
+
+        if page_courses:
+            options = [
+                discord.SelectOption(label=c["name"], value=str(c["id"]))
+                for c in page_courses
+            ]
+            self.add_item(PaginatedCourseSelect(options, self))
+
+        if self.page > 0:
+            self.add_item(self.PrevButton(self))
+        if end < len(self.courses):
+            self.add_item(self.NextButton(self))
+
+    async def update(self):
+        self.update_children()
+        await self.message.edit(view=self)
+
+    class PrevButton(discord.ui.Button):
+        def __init__(self, view):
+            super().__init__(label="⬅ Previous", style=discord.ButtonStyle.secondary)
+            self.view_obj = view
+
+        async def callback(self, interaction: discord.Interaction):
+            self.view_obj.page -= 1
+            await self.view_obj.update()
+            await interaction.response.defer()
+
+    class NextButton(discord.ui.Button):
+        def __init__(self, view):
+            super().__init__(label="Next ➡", style=discord.ButtonStyle.secondary)
+            self.view_obj = view
+
+        async def callback(self, interaction: discord.Interaction):
+            self.view_obj.page += 1
+            await self.view_obj.update()
+            await interaction.response.defer()
+
+
+class SubmitScoreModal(discord.ui.Modal, title="Submit Score"):
+    def __init__(self, course_name, course_id):
+        super().__init__()
+        self.course_name = course_name
+        self.course_id = course_id
+
+        # ✅ Only 1 input: the score
+        self.add_item(discord.ui.TextInput(
+            label=f"Best score for {course_name}",
+            placeholder="Enter your best score (e.g. 72.5)",
+            style=discord.TextStyle.short
+        ))
+
+    async def on_submit(self, interaction: Interaction):
+        try:
+            score = float(self.children[0].value)
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Invalid number — please enter a valid score.",
+                ephemeral=True
+            )
+            return
+
+        # ✅ 1️⃣ Always get the latest rating/slope from `courses`
+        course = await run_db(lambda: supabase
+            .table("courses")
+            .select("rating, slope_rating")
+            .eq("id", self.course_id)
+            .single()
+            .execute()
+        )
+
+        if not course.data:
+            await interaction.response.send_message(
+                "❌ Could not find the course in the database.",
+                ephemeral=True
+            )
+            return
+
+        # ✅ 2️⃣ Extract safely with fallback defaults
+        try:
+            course_rating = float(course.data.get("rating") or 72.0)
+        except (TypeError, ValueError):
+            course_rating = 72.0
+
+        try:
+            slope_rating = float(course.data.get("slope_rating") or 113.0)
+        except (TypeError, ValueError):
+            slope_rating = 113.0
+
+        # ✅ 3️⃣ Calculate official differential
+        differential = round((score - course_rating) * 113 / slope_rating, 1)
+
+        # ✅ 4️⃣ Store only clean fields — NOT rating/slope
+        await run_db(lambda: supabase
+            .table("handicaps")
+            .upsert({
+                "player_id": str(interaction.user.id),
+                "course_id": self.course_id,
+                "course_name": self.course_name,
+                "score": score,
+                "handicap_differential": differential
+            })
+            .execute()
+        )
+
+        # ✅ 5️⃣ Confirm to user
+        await interaction.response.send_message(
+            f"✅ **Score submitted!**\n"
+            f"📏 Course Rating: `{course_rating}` | Slope: `{slope_rating}`\n"
+            f"📊 Your Differential: `{differential}`",
+            ephemeral=True
+        )
+
+
+class CourseSelect(discord.ui.Select):
+    def __init__(self, courses, callback_fn):
+        options = [
+            discord.SelectOption(label=c["name"], value=str(c["id"]))
+            for c in courses
+        ]
+        super().__init__(placeholder="Select a course...", options=options)
+        self.callback_fn = callback_fn
+
+    async def callback(self, interaction: discord.Interaction):
+        selected_id = self.values[0]
+        await self.callback_fn(interaction, selected_id)
+
+
+class CourseSelectView(discord.ui.View):
+    def __init__(self, courses, callback_fn):
+        super().__init__(timeout=120)
+        self.add_item(CourseSelect(courses, callback_fn))
+
+class AddCourseModal(discord.ui.Modal, title="Add New Course (Easy & Hard)"):
+    def __init__(self):
+        super().__init__()
+
+        self.name = discord.ui.TextInput(
+            label="Base Course Name",
+            placeholder="e.g. Pebble Beach"
+        )
+        self.image_url = discord.ui.TextInput(
+            label="Image URL",
+            placeholder="https://..."
+        )
+
+        # Easy version rating only
+        self.easy_rating = discord.ui.TextInput(
+            label="Easy Course Rating",
+            placeholder="e.g. 72.0",
+            required=False
+        )
+
+        # Hard version rating only
+        self.hard_rating = discord.ui.TextInput(
+            label="Hard Course Rating",
+            placeholder="e.g. 75.0",
+            required=False
+        )
+
+        self.add_item(self.name)
+        self.add_item(self.image_url)
+        self.add_item(self.easy_rating)
+        self.add_item(self.hard_rating)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        base_name = self.name.value.strip()
+        image_url = self.image_url.value.strip()
+
+        # Parse easy rating
+        try:
+            easy_rating = float(self.easy_rating.value.strip()) if self.easy_rating.value.strip() else None
+        except ValueError:
+            return await interaction.response.send_message(
+                "❌ Invalid Easy Course Rating. Must be a number.",
+                ephemeral=True
+            )
+
+        # Parse hard rating
+        try:
+            hard_rating = float(self.hard_rating.value.strip()) if self.hard_rating.value.strip() else None
+        except ValueError:
+            return await interaction.response.send_message(
+                "❌ Invalid Hard Course Rating. Must be a number.",
+                ephemeral=True
+            )
+
+        # Build both records — no slope_rating
+        records = []
+
+        easy = {
+            "name": f"{base_name} Easy",
+            "image_url": image_url
+        }
+        if easy_rating is not None:
+            easy["rating"] = easy_rating
+
+        hard = {
+            "name": f"{base_name} Hard",
+            "image_url": image_url
+        }
+        if hard_rating is not None:
+            hard["rating"] = hard_rating
+
+        records.append(easy)
+        records.append(hard)
+
+        # Insert both at once
+        res = await run_db(lambda: supabase.table("courses").insert(records).execute())
+
+        if hasattr(res, "status_code") and res.status_code not in (200, 201):
+            await interaction.response.send_message(
+                f"❌ Failed to add courses: {res}",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(
+            f"✅ Added **{base_name} Easy** and **{base_name} Hard** with ratings!",
+            ephemeral=True
+        )
+
+
+
+class SetCourseRatingModal(discord.ui.Modal, title="Set Course Ratings"):
+    def __init__(self, course):
+        super().__init__()
+        self.course = course
+
+        self.rating = discord.ui.TextInput(
+            label="Course Rating",
+            placeholder="e.g. 72.5",
+            default=str(course.get("rating") or "72.0")
+        )
+        self.slope_rating = discord.ui.TextInput(
+        label="Slope Rating",
+        placeholder="e.g. 113.0",
+        default=str(course.get("slope_rating") or "113.0")
+)
+        self.add_item(self.rating)
+        self.add_item(self.slope_rating)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            rating = float(self.rating.value)
+            slope_rating = float(self.slope_rating.value)
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Invalid numbers.", ephemeral=True
+            )
+            return
+
+        await run_db(lambda: supabase
+            .table("courses")
+            .update({"rating": rating, "slope_rating": slope_rating})
+            .eq("id", self.course["id"])
+            .execute()
+        )
+
+        await interaction.response.send_message(
+            f"✅ Updated **{self.course['name']}**:\n"
+            f"• Rating: **{rating}**\n"
+            f"• Slope Rating: **{slope_rating}**",
+            ephemeral=True
+        )
+
+
+
+@tree.command(name="set_user_handicap", description="Submit your best score for a course")
+async def submit_score(interaction: discord.Interaction):
+    res = await run_db(lambda: supabase.table("courses").select("id, name").execute())
+    if not res.data:
+        await interaction.response.send_message("⚠️ No courses found.", ephemeral=True)
+        return
+
+    view = PaginatedCourseView(res.data)
+    await interaction.response.send_message(
+        "🏌️‍♂️ Select a course to submit your score (use Next/Prev if needed):",
+        view=view,
+        ephemeral=True
+    )
+    view.message = await interaction.original_response()
+
+
 
 @tree.command(name="init_singles")
 async def init_singles(interaction: discord.Interaction):
-    await start_new_game_button(interaction.channel, "singles")
-    await interaction.response.send_message("✅ New singles game button created.", ephemeral=True)
+    """Creates a singles game lobby with the start button"""
+
+    # Defer the interaction immediately to avoid timeout
+    await interaction.response.defer(ephemeral=True)
+
+    # Fast check if a game is already pending
+    if pending_games.get("singles") or any(k[0] == interaction.channel.id for k in start_buttons):
+        await interaction.followup.send(
+            "⚠️ A singles game is already pending or a button is active here.",
+            ephemeral=True
+        )
+        return
+
+    # Set max_players for singles game
+    max_players = 2
+
+    # Create the button
+    await start_new_game_button(interaction.channel, "singles", max_players=max_players)
+
+    # Send confirmation to the user
+    await interaction.followup.send(
+        "✅ Singles game button posted and ready for players to join!",
+        ephemeral=True
+    )
+
 
 @tree.command(name="init_doubles")
 async def init_doubles(interaction: discord.Interaction):
-    await start_new_game_button(interaction.channel, "doubles")
-    await interaction.response.send_message("✅ New doubles game button created.", ephemeral=True)
+    """Creates a doubles game lobby with the start button"""
+
+    try:
+        # ✅ 1️⃣ IMMEDIATELY defer to get 15 min
+        await interaction.response.defer(ephemeral=True)
+    except discord.errors.NotFound:
+        # ⚠️ If it's already expired, just exit — don't crash
+        return
+
+    # ✅ 2️⃣ Do checks
+    if pending_games.get("doubles") or any(
+        k[0] == interaction.channel.id for k in start_buttons
+    ):
+        await interaction.followup.send(
+            "⚠️ A doubles game is already pending or a button is active here.",
+            ephemeral=True
+        )
+        return
+
+    # ✅ 3️⃣ Create the start button safely
+    try:
+        await start_new_game_button(interaction.channel, "doubles", max_players=4)
+    except Exception as e:
+        await interaction.followup.send(
+            f"❌ Failed to create start button: {e}",
+            ephemeral=True
+        )
+        return
+
+    # ✅ 4️⃣ Confirm
+    await interaction.followup.send(
+        "✅ Doubles game button posted and ready for players to join!",
+        ephemeral=True
+    )
+
 
 @tree.command(name="init_triples")
 async def init_triples(interaction: discord.Interaction):
-    await start_new_game_button(interaction.channel, "triples")
-    await interaction.response.send_message("✅ New triples game button created.", ephemeral=True)
+    """Creates a triples game lobby with the start button"""
 
-@bot.tree.command(
+    # Defer the interaction immediately to avoid timeout
+    await interaction.response.defer(ephemeral=True)
+
+    # Fast check if a game is already pending
+    if pending_games.get("triples") or any(k[0] == interaction.channel.id for k in start_buttons):
+        await interaction.followup.send(
+            "⚠️ A triples game is already pending or a button is active here.",
+            ephemeral=True
+        )
+        return
+
+    # Set max_players for triples game
+    max_players = 3
+
+    # Create the button
+    await start_new_game_button(interaction.channel, "triples", max_players=max_players)
+
+    # Send confirmation to the user
+    await interaction.followup.send(
+        "✅ Triples game button posted and ready for players to join!",
+        ephemeral=True
+    )
+
+@tree.command(
     name="leaderboard",
     description="Show the ELO leaderboard or stats for a specific user"
 )
 @discord.app_commands.describe(user="User to check in the leaderboard")
 async def leaderboard_local(interaction: discord.Interaction, user: discord.User = None):
     # 1️⃣ Fetch all players ordered by rank descending
-    res = await supabase.table("players").select("*").order("rank", desc=True).execute()
-    if res.error or not res.data:
+    res = await run_db(lambda: supabase.table("players").select("*").order("rank", desc=True).execute())
+    if res.data is None:
         await interaction.response.send_message("📭 No players have stats yet.", ephemeral=True)
         return
 
@@ -1205,7 +1854,7 @@ async def leaderboard_local(interaction: discord.Interaction, user: discord.User
         stats = next(row for row in sorted_stats if row["id"] == user_id)
         elo = stats.get("rank", 1000)
         trophies = stats.get("trophies", 0)
-        badge = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else ""
+        badge = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else ""
 
         line = f"#{rank:>2}  {user.display_name[:20]:<20} | {elo:<4} | 🏆 {trophies} {badge}"
         embed = discord.Embed(
@@ -1285,37 +1934,43 @@ async def leaderboard_local(interaction: discord.Interaction, user: discord.User
     msg = await interaction.response.send_message(embed=first_embed, view=view)
     view.message = await msg.original_response()
 
-
 @tree.command(
     name="stats_reset",
-    description="Reset a user's stats (admin only)"
+    description="Admin: Reset a user's stats"
 )
-@app_commands.describe(user="User to reset")
-async def resetstats(interaction: discord.Interaction, user: discord.User):
-    # ✅ Check admin permissions
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message(
-            "⛔ You must be an admin to use this.",
-            ephemeral=True
-        )
-        return
+@app_commands.describe(user="The user to reset")
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def stats_reset(interaction: discord.Interaction, user: discord.User):
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True)
 
-    # ✅ Reset player in Supabase
-    res = await supabase.table("players").upsert({
-        "id": user.id,
-        **default_template
-    }).execute()
+    try:
+        # ✅ Create fresh default stats
+        new_stats = default_template.copy()
+        new_stats["id"] = str(user.id)  # Make sure ID type matches your table
 
-    if res.error:
-        await interaction.response.send_message(
-            f"⚠️ Failed to reset stats: {res.error.message}",
+        # ✅ Upsert: insert or overwrite in `players` table
+        res = await run_db(lambda: supabase
+            .table("players")
+            .upsert(new_stats)
+            .execute()
+        )
+
+        if getattr(res, "status_code", 200) != 200:
+            await interaction.followup.send(
+                f"❌ Failed to reset stats: {getattr(res, 'data', res)}",
+                ephemeral=True
+            )
+            return
+
+        await interaction.followup.send(
+            f"✅ Stats for {user.display_name} have been reset (bet history untouched).",
             ephemeral=True
         )
-    else:
-        await interaction.response.send_message(
-            f"✅ Stats for {user.display_name} have been reset.",
-            ephemeral=True
-        )
+
+    except Exception as e:
+        await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
+
 
 
 @tree.command(
@@ -1327,39 +1982,36 @@ async def resetstats(interaction: discord.Interaction, user: discord.User):
     dm="Send results as DM"
 )
 async def stats(interaction: discord.Interaction, user: discord.User = None, dm: bool = False):
-    target = user or interaction.user
+    await interaction.response.defer(ephemeral=True)
 
-    # ✅ Fetch from Supabase
-    res = await supabase.table("players").select("*").eq("id", target.id).single().execute()
+    target_user = user or interaction.user
 
-    if res.error and res.status_code != 406:  # 406 means 'no match found'
-        await interaction.response.send_message(
-            f"⚠️ Error fetching stats: {res.error.message}",
-            ephemeral=True
-        )
-        return
+    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(target_user.id)).single().execute())
 
-    user_data = res.data or default_template.copy()
+    if res.data is None:
+        player = default_template.copy()
+    else:
+        player = res.data
 
-    # Extract stats
-    wins = user_data.get("wins", 0)
-    losses = user_data.get("losses", 0)
-    draws = user_data.get("draws", 0)
-    games = user_data.get("games_played", 0)
-    trophies = user_data.get("trophies", 0)
-    streak = user_data.get("current_streak", 0)
-    best_streak = user_data.get("best_streak", 0)
-    rank = user_data.get("rank", 1000)
-    credits = user_data.get("credits", 1000)
+    wins = player.get("wins", 0)
+    losses = player.get("losses", 0)
+    draws = player.get("draws", 0)
+    games = player.get("games_played", 0)
+    trophies = player.get("trophies", 0)
+    streak = player.get("current_streak", 0)
+    best_streak = player.get("best_streak", 0)
+    rank = player.get("rank", 1000)
+    credits = player.get("credits", 1000)
 
-    # Betting (stored as JSON array)
-    bets = user_data.get("bet_history") or []
-    total_bets = len(bets)
-    wins_bet = sum(1 for b in bets if b.get("won"))
-    losses_bet = sum(1 for b in bets if b.get("won") is False)
-    net = sum(b.get("payout", 0) - b.get("amount", 0) for b in bets if "won" in b)
+    bets_res = await run_db(lambda: supabase.table("bets").select("*").eq("player_id", str(target_user.id)).order("id", desc=True).limit(5).execute())
+    all_bets_res = await run_db(lambda: supabase.table("bets").select("id,won,payout,amount").eq("player_id", str(target_user.id)).execute())
 
-    embed = discord.Embed(title=f"📊 Stats for {target.display_name}")
+    total_bets = len(all_bets_res.data or [])
+    bets_won = sum(1 for b in all_bets_res.data if b.get("won") is True)
+    bets_lost = sum(1 for b in all_bets_res.data if b.get("won") is False)
+    net_gain = sum(b.get("payout", 0) - b.get("amount", 0) for b in all_bets_res.data if b.get("won") is not None)
+
+    embed = discord.Embed(title=f"📊 Stats for {target_user.display_name}", color=discord.Color.blue())
     embed.add_field(name="🏆 Trophies", value=trophies)
     embed.add_field(name="📈 Rank", value=rank)
     embed.add_field(name="💰 Credits", value=credits)
@@ -1372,41 +2024,84 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     embed.add_field(name="🏅 Best Streak", value=best_streak)
     embed.add_field(name="\u200b", value="\u200b", inline=False)
     embed.add_field(name="🪙 Total Bets", value=total_bets)
-    embed.add_field(name="✅ Bets Won", value=wins_bet)
-    embed.add_field(name="❌ Bets Lost", value=losses_bet)
-    embed.add_field(name="💸 Net Gain/Loss", value=f"{net:+}")
+    embed.add_field(name="✅ Bets Won", value=bets_won)
+    embed.add_field(name="❌ Bets Lost", value=bets_lost)
+    embed.add_field(name="💸 Net Gain/Loss", value=f"{net_gain:+}")
 
-    # Recent Bets
-    if bets:
-        recent_lines = []
-        for b in bets[-5:][::-1]:
-            result = "Won" if b.get("won") else "Lost"
-            recent_lines.append(f"{result} {b.get('amount', '?')} on {b.get('on')} (Payout: {b.get('payout', '?')})")
-        embed.add_field(name="🗓️ Recent Bets", value="\n".join(recent_lines), inline=False)
+    # ✅ Safe bet history with clear draw logic:
+    if bets_res.data:
+        lines = []
+        for b in bets_res.data:
+            won = b.get("won")
+            if won is True:
+                result = f"Won ✅ {b.get('amount')} on {b.get('choice')} (Payout: {b.get('payout')})"
+            elif won is False:
+                result = f"Lost ❌ {b.get('amount')} on {b.get('choice')} (Payout: 0)"
+            else:
+                result = f"Draw ⚪️ {b.get('amount')} on {b.get('choice')} (No payout)"
+            lines.append(result)
+
+        embed.add_field(name="🗓️ Recent Bets", value="\n".join(lines), inline=False)
 
     if dm:
         try:
-            await target.send(embed=embed)
-            await interaction.response.send_message("✅ Stats sent via DM!", ephemeral=True)
-        except:
-            await interaction.response.send_message("⚠️ Failed to send DM.", ephemeral=True)
+            await target_user.send(embed=embed)
+            await interaction.followup.send("✅ Stats sent via DM!", ephemeral=True)
+        except Exception:
+            await interaction.followup.send("⚠️ Could not send DM.", ephemeral=True)
     else:
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@tree.command(name="clear_active", description="Clear players from active games")
-async def clear_active(interaction: discord.Interaction):
-    global pending_game, active_players
 
-    for k in pending_games:
-        pending_games[k] = None
+@tree.command(
+    name="clear_active",
+    description="Admin: Clear all pending games, start buttons, or only a specific user's active state."
+)
+@app_commands.describe(
+    user="User to clear from active players (optional)"
+)
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def clear_active(interaction: discord.Interaction, user: discord.User = None):
+    try:
+        # ✅ Always defer immediately, no condition check needed
+        await interaction.response.defer(ephemeral=True)
+
+        if user:
+            # ✅ Deactivate only this user
+            player_manager.deactivate(user.id)
+            await interaction.followup.send(
+                f"✅ Cleared active status for {user.display_name}.",
+                ephemeral=True
+            )
+            return
+
+        # ✅ Clear all pending games
+        for key in pending_games:
+            pending_games[key] = None
+
+        # ✅ Clear all active players
         player_manager.clear()
 
-    await interaction.response.send_message("✅ Active game and players have been cleared.", ephemeral=True)
+        # ✅ Delete all start buttons safely
+        for msg in list(start_buttons.values()):
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+        start_buttons.clear()
+
+        await interaction.followup.send(
+            "✅ Cleared ALL pending games, active players, and start buttons.",
+            ephemeral=True
+        )
+
+    except Exception as e:
+        # If something fails AFTER deferring, fallback to followup
+        await interaction.followup.send(f"⚠️ Failed: {e}", ephemeral=True)
 
 
-
-@bot.tree.command(
+@tree.command(
     name="stats_edit",
     description="Admin command to edit a user's stats"
 )
@@ -1434,12 +2129,12 @@ async def stats_edit(interaction: discord.Interaction, user: discord.User, field
         return
 
     # ✅ Upsert in Supabase
-    update = { "id": str(user.id), field: value }
-    res = await supabase.table("players").upsert(update).execute()
+    update = {"id": str(user.id), field: value}
+    res = await run_db(lambda: supabase.table("players").upsert(update).execute())
 
-    if res.error:
+    if res.status_code != 201 and res.status_code != 200:
         await interaction.response.send_message(
-            f"❌ Error updating: {res.error.message}",
+            f"❌ Error updating stats. Status code: {res.status_code}",
             ephemeral=True
         )
         return
@@ -1450,22 +2145,87 @@ async def stats_edit(interaction: discord.Interaction, user: discord.User, field
     )
 
 
-@bot.tree.command(name="clear_chat", description="Admin: Delete all messages in this channel (last 14 days only)")
+@tree.command(
+    name="clear_chat",
+    description="Admin: Delete all messages in this channel (last 14 days only)"
+)
 @discord.app_commands.checks.has_permissions(administrator=True)
 async def clear_chat(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    channel = interaction.channel
-
-    def not_bot(msg):
-        return not msg.pinned  # Optional: skip pinned messages
-
     try:
-        deleted = await channel.purge(limit=1000, check=not_bot, bulk=True)
-        await interaction.followup.send(f"🧹 Cleared {len(deleted)} messages.", ephemeral=True)
-    except Exception as e:
-        await interaction.followup.send(f"⚠️ Failed to clear messages: {e}", ephemeral=True)
+        # ✅ Check if the interaction is still valid
+        if interaction.response.is_done():
+            return
 
-@bot.tree.command(
+        await interaction.response.defer(ephemeral=True)
+
+        channel = interaction.channel
+
+        # ✅ Only text channels & threads that allow bulk delete
+        if not isinstance(channel, (discord.TextChannel, discord.Thread)):
+            await interaction.followup.send("❌ This command can only be used in text channels or threads.", ephemeral=True)
+            return
+
+        def not_pinned(msg):
+            return not msg.pinned
+
+        deleted = await channel.purge(limit=1000, check=not_pinned, bulk=True)
+
+        # ✅ Remove stale start buttons in this channel
+        for key in list(start_buttons.keys()):
+            if key[0] == channel.id:
+                del start_buttons[key]
+
+        await interaction.followup.send(f"🧹 Cleared {len(deleted)} messages.", ephemeral=True)
+
+    except Exception as e:
+        # Fallback: interaction might be expired — so fallback to plain send
+        try:
+            if interaction.followup:
+                await interaction.followup.send(f"⚠️ Error: {e}", ephemeral=True)
+            else:
+                await interaction.channel.send(f"⚠️ Error: {e}")
+        except:
+            pass
+
+
+
+@tree.command(
+    name="clear_pending",
+    description="Admin: Clear all pending games and remove start buttons."
+)
+async def clear_pending(interaction: discord.Interaction):
+    # ✅ Check admin permissions
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message(
+            "⛔ You must be an admin to use this.",
+            ephemeral=True
+        )
+        return
+
+    # 1️⃣ Clear local `pending_games` state
+    for key in pending_games:
+        pending_games[key] = None
+
+    # 2️⃣ Clear Supabase `pending_games` table
+    await run_db(lambda: supabase.table("pending_games").delete().neq("game_type", "").execute())
+
+    # 3️⃣ Delete any start buttons messages
+    for msg in list(start_buttons.values()):
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+    # 4️⃣ Clear local `start_buttons` dict
+    start_buttons.clear()
+
+    await interaction.response.send_message(
+        "✅ All pending games and start buttons have been cleared.",
+        ephemeral=True
+    )
+
+
+@tree.command(
     name="add_credits",
     description="Admin command to add credits to a user"
 )
@@ -1474,7 +2234,6 @@ async def clear_chat(interaction: discord.Interaction):
     amount="Amount of credits to add"
 )
 async def add_credits(interaction: discord.Interaction, user: discord.User, amount: int):
-    # ✅ Check admin
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
             "⛔ You don't have permission to use this command.",
@@ -1482,47 +2241,314 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
         )
         return
 
-    # ✅ Fetch current credits
-    query = await supabase.table("players").select("credits").eq("id", str(user.id)).single().execute()
+    player = await get_player(user.id)
+    new_credits = player.get("credits", 0) + amount
 
-    if query.error:
-        current_credits = 0  # assume new
-    else:
-        current_credits = query.data.get("credits", 0)
-
-    # ✅ Add amount
-    new_credits = current_credits + amount
-
-    # ✅ Upsert back to Supabase
-    res = await supabase.table("players").upsert({
-        "id": str(user.id),
-        "credits": new_credits
-    }).execute()
-
-    if res.error:
-        await interaction.response.send_message(
-            f"❌ Error adding credits: {res.error.message}",
-            ephemeral=True
-        )
-        return
+    await run_db(lambda: supabase.table("players").update({"credits": new_credits}).eq("id", str(user.id)).execute())
 
     await interaction.response.send_message(
-        f"✅ Added {amount} credits to {user.display_name}. Now has **{new_credits}** credits.",
+        f"✅ Added {amount} credits to {user.display_name}. New total: {new_credits}.",
         ephemeral=True
     )
 
 
+@tree.command(name="init_tournament")
+async def init_tournament(interaction: discord.Interaction):
+    """Creates a tournament game lobby with the start button"""
+
+    # Defer the interaction immediately to avoid timeout
+    await interaction.response.defer(ephemeral=True)
+
+    # Fast check if a game is already pending
+    if pending_games.get("tournament") or any(k[0] == interaction.channel.id for k in start_buttons):
+        await interaction.followup.send(
+            "⚠️ A tournament game is already pending or a button is active here.",
+            ephemeral=True
+        )
+        return
+
+    # Set max_players for tournament game
+    max_players = 4
+
+    # Create the button
+    await start_new_game_button(interaction.channel, "tournament", max_players=max_players)
+
+    # Send confirmation to the user
+    await interaction.followup.send(
+        "✅ Tournament game button posted and ready for players to join!",
+        ephemeral=True
+    )
+
+
+@tree.command(
+    name="clear_bet_history",
+    description="Admin: Clear a user's entire betting history without changing other stats"
+)
+@app_commands.describe(user="The user whose bets you want to clear")
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def clear_bet_history(interaction: discord.Interaction, user: discord.User):
+    # ✅ Always check .is_done()
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True)
+
+    try:
+        # ✅ Delete all bets for this user
+        res = await run_db(lambda: supabase
+            .table("bets")
+            .delete()
+            .eq("player_id", str(user.id))
+            .execute()
+        )
+
+        # ✅ Robust error check
+        if hasattr(res, "status_code") and res.status_code != 200:
+            msg = getattr(res, "data", str(res))
+            await interaction.followup.send(
+                f"❌ Failed to clear bet history: {msg}",
+                ephemeral=True
+            )
+            return
+
+        await interaction.followup.send(
+            f"✅ Cleared **all betting history** for {user.display_name}.",
+            ephemeral=True
+        )
+
+    except Exception as e:
+        await interaction.followup.send(
+            f"❌ Error while clearing bet history: `{e}`",
+            ephemeral=True
+        )
+
+from discord import app_commands, Interaction, SelectOption, ui, Embed
+
+
+@tree.command(
+    name="handicap_index",
+    description="Calculate your current handicap index (average of your best scores)"
+)
+async def handicap_index(interaction: discord.Interaction, user: discord.User = None):
+    await interaction.response.defer(ephemeral=True)
+
+    target = user or interaction.user
+
+    res = await run_db(lambda: supabase
+        .table("handicaps")
+        .select("handicap_differential")
+        .eq("player_id", str(target.id))
+        .execute()
+    )
+
+    differentials = sorted([row["handicap_differential"] for row in res.data or []])
+    count = min(len(differentials), 8)
+
+    if count == 0:
+        await interaction.followup.send(f"❌ No scores found for {target.display_name}.", ephemeral=True)
+        return
+
+    index = round(sum(differentials[:count]) / count, 1)
+
+    await interaction.followup.send(
+        f"🏌️ **{target.display_name}'s Handicap Index:** `{index}` "
+        f"(average of best {count} differentials)",
+        ephemeral=True
+    )
+
+
+@tree.command(
+    name="my_handicaps",
+    description="See all your submitted scores and handicap differentials"
+)
+async def my_handicaps(interaction: discord.Interaction, user: discord.User = None):
+    # ⏱️ Defer immediately, before anything slow
+    await interaction.response.defer(ephemeral=True)
+
+    # Now safe to do slow things
+    target = user or interaction.user
+
+    try:
+        res = await run_db(lambda: supabase
+            .table("handicaps")
+            .select("*")
+            .eq("player_id", str(target.id))
+            .order("score")
+            .execute()
+        )
+    except Exception as e:
+        await interaction.followup.send(f"❌ Database error: {e}", ephemeral=True)
+        return
+
+    if not res.data:
+        await interaction.followup.send(f"❌ No scores found for {target.display_name}.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title=f"🏌️ {target.display_name}'s Handicap Records",
+        color=discord.Color.green()
+    )
+
+    for h in res.data:
+        embed.add_field(
+        name=f"{h['course_name']}",
+        value=(
+            f"Score: **{h['score']}**\n"
+            f"Course Rating: **{h.get('course_rating', 'N/A')}**\n"
+            f"Slope: **{h.get('slope_rating', 'N/A')}**\n"
+            f"Differential: **{h.get('handicap_differential', 'N/A')}**"
+        ),
+        inline=False
+    )
+
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@tree.command(
+    name="handicap_leaderboard",
+    description="Show the leaderboard of players ranked by handicap index"
+)
+async def handicap_leaderboard(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    # 1️⃣ Fetch ALL differentials for ALL players
+    res = await run_db(lambda: supabase
+        .table("handicaps")
+        .select("player_id, handicap_differential")
+        .execute()
+    )
+
+    if not res.data:
+        await interaction.followup.send("❌ No handicap data found.", ephemeral=True)
+        return
+
+    # 2️⃣ Group by player and calculate their index
+    from collections import defaultdict
+
+    grouped = defaultdict(list)
+    for row in res.data:
+        grouped[row["player_id"]].append(row["handicap_differential"])
+
+    leaderboard = []
+    for pid, diffs in grouped.items():
+        diffs.sort()
+        count = min(len(diffs), 8)
+        index = round(sum(diffs[:count]) / count, 1)
+        leaderboard.append((pid, index))
+
+    # 3️⃣ Sort by index ascending
+    leaderboard.sort(key=lambda x: x[1])
+
+    # 4️⃣ Build embed
+    embed = discord.Embed(
+        title="🏌️ Handicap Leaderboard",
+        description="Players ranked by handicap index (lower is better!)",
+        color=discord.Color.gold()
+    )
+
+    lines = []
+    for rank, (pid, index) in enumerate(leaderboard, start=1):
+        member = interaction.guild.get_member(int(pid))
+        name = member.display_name if member else f"User {pid}"
+        lines.append(f"**#{rank}** — {name} | Index: `{index}`")
+
+    embed.description = "\n".join(lines)
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+
+@tree.command(name="dm_online")
+@app_commands.describe(msg="Message to send")
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def dm_online(interaction: discord.Interaction, msg: str):
+    await interaction.response.send_message(
+        f"📨 Sending message to online members...",
+        ephemeral=True
+    )
+    await dm_all_online(interaction.guild, msg)
+    await interaction.followup.send("✅ All online members have been messaged.", ephemeral=True)
+
+@tree.command(
+    name="add_course",
+    description="Admin: Add a new course with image and ratings"
+)
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def add_course(interaction: discord.Interaction):
+    await interaction.response.send_modal(AddCourseModal())
+
+
+@tree.command(
+    name="set_course_rating",
+    description="Admin: Update course and slope rating via paginated dropdown"
+)
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def set_course_rating(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    res = await run_db(lambda: supabase.table("courses").select("*").execute())
+    if not res.data:
+        await interaction.followup.send("❌ No courses found.", ephemeral=True)
+        return
+
+    # ✅ Provide a custom callback for this use-case:
+    async def on_select(inter: discord.Interaction, course_id):
+        selected = next((c for c in res.data if str(c["id"]) == course_id), None)
+        if not selected:
+            await inter.response.send_message("❌ Course not found.", ephemeral=True)
+            return
+
+        await inter.response.send_modal(SetCourseRatingModal(selected))
+
+    # ✅ Monkey-patch your view with this callback:
+    class SetRatingPaginatedCourseSelect(PaginatedCourseSelect):
+        async def callback(self, interaction: discord.Interaction):
+            course_id = self.values[0]
+            await on_select(interaction, course_id)
+
+    class SetRatingPaginatedCourseView(PaginatedCourseView):
+        def update_children(self):
+            self.clear_items()
+            start = self.page * self.per_page
+            end = start + self.per_page
+            page_courses = self.courses[start:end]
+
+            options = [
+                discord.SelectOption(label=c["name"], value=str(c["id"]))
+                for c in page_courses
+            ]
+            self.add_item(SetRatingPaginatedCourseSelect(options, self))
+
+            if self.page > 0:
+                self.add_item(self.PrevButton(self))
+            if end < len(self.courses):
+                self.add_item(self.NextButton(self))
+
+    view = SetRatingPaginatedCourseView(res.data)
+    msg = await interaction.followup.send(
+        "🎯 Pick a course to update:",
+        view=view,
+        ephemeral=True
+    )
+    view.message = await msg
+
 
 @bot.event
 async def on_ready():
+    # Sync the slash commands with Discord
     await tree.sync()
-    print(f"Logged in as {bot.user}")
+    print(f"✅ Logged in as {bot.user}")
 
+    # Fetch and load any pending games
     pending = await load_pending_games()
+    
+    # Iterate over each pending game and start a new button if the channel exists
     for pg in pending:
-        # Option A: auto restore lobby
-        # Option B: just repost Start Game button
-        await start_new_game_button(channel, pg["game_type"])
+        channel = bot.get_channel(pg["channel_id"])  # Fetch the channel where the game was pending
+        if channel:
+            # Call start_new_game_button with game_type and max_players from pending game
+            # Ensure max_players is fetched correctly for each pending game
+            max_players = pg.get("max_players", 2)  # Default to 2 players if max_players is not found
+            await start_new_game_button(channel, pg["game_type"], max_players=max_players)
 
 
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
