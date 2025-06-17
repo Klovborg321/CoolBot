@@ -1305,12 +1305,12 @@ class TournamentView(discord.ui.View):
         # ✅ Ranks & handicaps safe
         ranks = []
         handicaps = []
+        # Inside your build_embed loop:
         for p in self.players:
             pdata = await get_player(p)
             ranks.append(pdata.get("rank", 1000))
 
-            # Only if we have a course name and want to show image
-            if not no_image and self.course_name:
+            if not no_image:
                 res = await run_db(lambda: supabase
                     .table("handicaps")
                     .select("handicap")
@@ -1319,12 +1319,14 @@ class TournamentView(discord.ui.View):
                     .maybe_single()
                     .execute()
                 )
-                if res and getattr(res, "data", None) and "handicap" in res.data:
-                    handicaps.append(round(res.data["handicap"]))
+                if res and res.data and "handicap" in res.data:
+                    handicap = round(res.data["handicap"], 1)
                 else:
-                    handicaps.append("-")
+                    handicap = "-"
+                handicaps.append(handicap)
             else:
                 handicaps.append(None)
+
 
         game_full = len(self.players) == self.max_players
 
