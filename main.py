@@ -561,17 +561,31 @@ class GameView(discord.ui.View):
                 member = guild.get_member(user_id) if guild else None
                 name = f"**{member.display_name}**" if member else f"**User {user_id}**"
                 rank = ranks[idx]
-                if self.game_type == "singles" and game_full:
-                    e1, e2 = ranks
-                    o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
-                    player_odds = o1 if idx == 0 else 1 - o1
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%"
-                elif self.game_type == "triples" and game_full:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%"
-                else:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank})"
+
+                # ✅ NEW: get trophies and handicap
+                pdata = await get_player(user_id)
+                trophies = pdata.get("trophies", 0)
+
+                # ✅ NEW: get handicap for this course
+                hcp = "-"
+                if getattr(self, "course_name", None):
+                    res = await run_db(lambda: supabase
+                        .table("handicaps")
+                        .select("handicap")
+                        .eq("player_id", str(user_id))
+                        .eq("course_name", self.course_name)
+                        .maybe_single()
+                        .execute()
+                    )
+                    if res.data and "handicap" in res.data:
+                        hcp = round(res.data["handicap"], 1)
+
+                # ✅ Now build the line:
+                line = f"● Player {idx + 1}: {name} 🏆 ({rank}) 🏅 {trophies} 🎯 HCP: {hcp}"
+
             else:
                 line = f"○ Player {idx + 1}: [Waiting...]"
+
             player_lines.append(line)
 
             if self.game_type == "doubles" and idx == 1:
