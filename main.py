@@ -2017,37 +2017,29 @@ class SetCourseRatingModal(discord.ui.Modal, title="Set Course Par"):
 
 
 @tree.command(name="set_user_handicap")
-async def set_best_score(interaction: discord.Interaction):
-    """Select a course and submit your best score."""
+async def set_user_handicap(interaction: discord.Interaction):
+    """Pick a course from a paginated list to enter your handicap or best score."""
 
-    # ✅ 1️⃣ Fetch courses
+    # ✅ 1️⃣ Fetch all courses
     res = await run_db(lambda: supabase.table("courses").select("*").execute())
     courses = res.data if res and res.data else []
 
     if not courses:
         await interaction.response.send_message(
-            "❌ No courses found. Please add some first.",
+            "❌ No courses found.",
             ephemeral=True
         )
         return
 
-    # ✅ 2️⃣ Build options for Select
-    options = [
-        discord.SelectOption(label=c["name"], value=str(c["id"]))
-        for c in courses
-    ]
+    # ✅ 2️⃣ Use your PaginatedCourseView
+    view = PaginatedCourseView(courses)
 
-    # ✅ 3️⃣ Create the view with PaginatedCourseSelect
-    view = discord.ui.View(timeout=120)
-    view.courses = courses  # So the select can access all data
-    view.add_item(PaginatedCourseSelect(options, parent_view=view))
-
-    await interaction.response.send_message(
-        "⛳ **Select a course to enter your best score:**",
+    # ✅ 3️⃣ Send initial page + save the message ref for updates
+    view.message = await interaction.response.send_message(
+        "⛳ **Select a course to enter your handicap or best score:**",
         view=view,
         ephemeral=True
     )
-
 
 
 @tree.command(name="init_singles")
