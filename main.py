@@ -713,6 +713,8 @@ class GameView(discord.ui.View):
         pending_games[self.game_type] = None
         await save_pending_game(self.game_type, self.players, self.message.channel.id, self.max_players)
 
+        await start_new_game_button(self.message.channel, self.game_type, self.max_players)
+
         # ✅ Select random course from DB
         res = await run_db(lambda: supabase.table("courses").select("name", "image_url").execute())
         chosen = random.choice(res.data or [{}])
