@@ -317,9 +317,9 @@ async def show_betting_phase(self):
     self.clear_items()
     await self.update_message()  # ✅ This will now show "Betting is closed" in footer
 
-async def update_message(self):
+async def update_message(self, no_image=True):
     if self.message:
-        embed = await self.build_embed(self.message.guild)
+        embed = await self.build_embed(self.message.guild, no_image=no_image)
         await self.message.edit(embed=embed, view=self)
 
 class PlayerManager:
@@ -408,7 +408,7 @@ class GameJoinView(discord.ui.View):
 
         # Pass max_players to the GameView initialization
         view = GameView(self.game_type, interaction.user.id, self.max_players)
-        embed = await view.build_embed(interaction.guild)
+        embed = await view.build_embed(interaction.guild, no_image=True)
         view.message = await interaction.channel.send(embed=embed, view=view)
         pending_games[self.game_type] = view  # Update pending game with the current view
 
@@ -512,7 +512,7 @@ class GameView(discord.ui.View):
             await self.abandon_game("⏰ Game timed out due to inactivity.")
             await clear_pending_game(self.game_type)
 
-    async def build_embed(self, guild=None, winner=None, no_image=False):
+    async def build_embed(self, guild=None, winner=None, no_image=True):
         embed = discord.Embed(
             title=f"🎮 {self.game_type.title()} Match Lobby",
             description="Awaiting players for a new match..." if not winner else "",
@@ -732,6 +732,7 @@ class GameView(discord.ui.View):
         room_name = await room_name_generator.get_unique_word()
         thread = await interaction.channel.create_thread(name=room_name)
         self.course_image = course_image
+        self.course_name = course_name
 
         # ✅ Room thread embed → with image
         thread_embed = await self.build_embed(interaction.guild, no_image=False)
@@ -745,6 +746,7 @@ class GameView(discord.ui.View):
             lobby_message=self.message,
             lobby_embed=thread_embed,
             game_view=self
+            course_name=self.course_name  # ← add this!
         )
         room_view.original_embed = thread_embed.copy()
 
@@ -761,7 +763,7 @@ class GameView(discord.ui.View):
         lobby_embed.add_field(name="Course", value=course_name)
         # ❌ no image here!
 
-        await self.message.edit(embed=lobby_embed, view=None)
+        await self.message.edit(embed=lobby_embed, view=None, no_image=True)
         await self.show_betting_phase()
 
 
@@ -944,15 +946,16 @@ class BetDropdown(discord.ui.Select):
 
 
 class RoomView(discord.ui.View):
-    def __init__(self, players, game_type, room_name, lobby_message=None, lobby_embed=None, game_view=None):
+    def __init__(self, players, game_type, room_name, lobby_message=None, lobby_embed=None, game_view=None, course_name=None):
         super().__init__(timeout=None)
         self.players = players
         self.game_type = game_type
         self.room_name = room_name   # short unique word
-        self.message = None          # thread message
+        self.message = None          # the thread message
         self.lobby_message = lobby_message
         self.lobby_embed = lobby_embed
         self.game_view = game_view
+        self.course_name = course_name  # ✅ fix: store your own course name
         self.votes = {}
         self.vote_timeout = None
         self.game_has_ended = False
@@ -979,16 +982,16 @@ class RoomView(discord.ui.View):
             rank = pdata.get('rank', 1000)
             trophies = pdata.get('trophies', 0)
 
+            # ✅ Use YOUR course_name directly:
             res = await run_db(lambda: supabase
                 .table("handicaps")
                 .select("handicap")
                 .eq("player_id", str(p))
-                .eq("course_name", self.game_view.course_name)
+                .eq("course_name", self.course_name)
                 .maybe_single()
                 .execute()
             )
-            handicap = res.data["handicap"] if res.data else 0.0
-            handicap = round(handicap)
+            handicap = round(res.data["handicap"], 1) if res.data and "handicap" in res.data else "-"
 
             lines.append(f"<@{p}> | Rank: {rank} | Trophies: {trophies} | 🎯 HCP: {handicap}")
 
@@ -1004,15 +1007,11 @@ class RoomView(discord.ui.View):
         elif winner in ("Team A", "Team B"):
             embed.add_field(name="🏁 Winner", value=f"🎉 {winner}", inline=False)
 
-        # ✅ Add back the image if it was set originally:
+        # ✅ Keep image consistent:
         if self.lobby_embed and self.lobby_embed.image:
             embed.set_image(url=self.lobby_embed.image.url)
 
         return embed
-
-
-    # ✅ start_voting, end_voting_after_timeout, finalize_game same as before
-    # I’m not repeating them here — no changes needed there.
 
     async def start_voting(self):
         if not self.game_has_ended:
@@ -1050,7 +1049,7 @@ class RoomView(discord.ui.View):
 
         self.voting_closed = True
 
-        # ✅ DRAW CASE — refund bets & update stats
+        # ✅ 1️⃣ Update player stats & handle draw
         if winner == "draw":
             for p in self.players:
                 pdata = await get_player(p)
@@ -1071,13 +1070,13 @@ class RoomView(discord.ui.View):
                 )
                 print(f"↩️ Refunded {amount} to {uname} (DRAW)")
 
-            embed = await self.game_view.build_embed(self.message.guild, winner=winner)
-            embed.set_footer(text="🎮 Game has ended: 🤝 Draw")
+            # ✅ Thread embed uses RoomView version:
+            embed = await self.build_lobby_end_embed(winner)
             await self.message.edit(embed=embed, view=None)
 
+            # ✅ Lobby embed uses GameView version, no image:
             if self.lobby_message:
-                lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner)
-                lobby_embed.set_footer(text="🎮 Game has ended: 🤝 Draw")
+                lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True)
                 await self.lobby_message.edit(embed=lobby_embed, view=None)
 
             await self.message.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
@@ -1085,10 +1084,9 @@ class RoomView(discord.ui.View):
             await self.message.channel.edit(archived=True)
             return
 
-        # ✅ 1️⃣ Update player stats properly
+        # ✅ 2️⃣ Win case: stats update
         normalized_winner = normalize_team(winner) if self.game_type == "doubles" else winner
 
-        # ✅ Update stats per player
         for p in self.players:
             pdata = await get_player(p)
             pdata["games_played"] += 1
@@ -1096,12 +1094,7 @@ class RoomView(discord.ui.View):
             if self.game_type == "singles":
                 is_winner = (winner == p)
             elif self.game_type == "doubles":
-                if normalized_winner == "A":
-                    is_winner = p in self.players[:2]
-                elif normalized_winner == "B":
-                    is_winner = p in self.players[2:]
-                else:
-                    is_winner = False
+                is_winner = p in self.players[:2] if normalized_winner == "A" else p in self.players[2:]
             elif self.game_type == "triples":
                 is_winner = (winner == p)
             else:
@@ -1120,28 +1113,20 @@ class RoomView(discord.ui.View):
 
             await save_player(p, pdata)
 
-        # ✅ 2️⃣ Resolve bets — CORRECTED
+        # ✅ 3️⃣ Resolve bets
         for uid, uname, amount, choice in self.game_view.bets:
             won = False
-
             if self.game_type == "singles":
-                winner_id = winner if isinstance(winner, int) else None
-                won = (
-                    (choice == "1" and self.players[0] == winner_id) or
-                    (choice == "2" and self.players[1] == winner_id)
-                )
+                won = (choice == "1" and self.players[0] == winner) or \
+                      (choice == "2" and self.players[1] == winner)
             elif self.game_type == "doubles":
-                winner_team = normalize_team(winner)
-                bet_team = normalize_team(choice)
-                won = winner_team == bet_team
+                won = normalize_team(choice) == normalize_team(winner)
             elif self.game_type == "triples":
                 try:
-                    index = int(choice) - 1
-                    won = self.players[index] == winner
+                    idx = int(choice) - 1
+                    won = self.players[idx] == winner
                 except:
                     won = False
-            else:
-                won = False
 
             await run_db(lambda: supabase
                 .table("bets")
@@ -1161,20 +1146,17 @@ class RoomView(discord.ui.View):
             else:
                 print(f"❌ {uname} lost {amount} (stake was upfront)")
 
-        # ✅ 3️⃣ Announce final result
+        # ✅ 4️⃣ Final result:
+        winner_name = winner
         if isinstance(winner, int):
             member = self.message.guild.get_member(winner)
             winner_name = member.display_name if member else f"User {winner}"
-        else:
-            winner_name = winner
 
-        embed = await self.game_view.build_embed(self.message.guild, winner=winner)
-        embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
+        embed = await self.build_lobby_end_embed(winner)
         await self.message.edit(embed=embed, view=None)
 
         if self.lobby_message:
-            lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner)
-            lobby_embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
+            lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True)
             await self.lobby_message.edit(embed=lobby_embed, view=None)
 
         await self.message.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
