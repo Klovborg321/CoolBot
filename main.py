@@ -474,167 +474,111 @@ class GameView(discord.ui.View):
         self.betting_closed = False
         self.bets = []
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
-        self.course_image = None  # ✅ add this!
+        self.course_image = None
+        self.on_tournament_complete = None
+
+        # ✅ Add Join + Leave on init if lobby is open
+        self.add_item(JoinGameButton(self))
         self.add_item(LeaveGameButton(self))
-        self.on_tournament_complete = None  # ✅ callback for tournament to hook into
+
+    async def update_message(self):
+        if self.message:
+            embed = await self.build_embed(self.message.guild)
+
+            # ✅ Clear dynamic buttons: Join, Leave, BettingDropdown
+            to_remove = [
+                item for item in self.children
+                if isinstance(item, (JoinGameButton, LeaveGameButton, BettingButtonDropdown))
+            ]
+            for item in to_remove:
+                self.remove_item(item)
+
+            # ✅ Re-add valid buttons for current state
+            if len(self.players) < self.max_players and not self.betting_closed:
+                self.add_item(JoinGameButton(self))
+                self.add_item(LeaveGameButton(self))
+            elif len(self.players) == self.max_players and not self.betting_closed:
+                self.add_item(BettingButtonDropdown(self))
+
+            await self.message.edit(embed=embed, view=self)
 
     async def abandon_game(self, reason):
         global pending_game
         pending_games[self.game_type] = None
 
-        # Deactivate everyone
         for p in self.players:
             player_manager.deactivate(p)
 
-        # Send a message indicating the game has been abandoned
         embed = discord.Embed(
             title="❌ Game Abandoned",
             description=reason,
             color=discord.Color.red()
         )
         await self.message.edit(embed=embed, view=None)
-
-        # Clear the old game view and any existing buttons
         await self.message.clear_reactions()
 
-        # Post a new start button for the game
         await start_new_game_button(self.message.channel, self.game_type, self.max_players)
 
     async def abandon_if_not_filled(self):
-        # This checks periodically if the game is filled; if not, it abandons the game after 1000 seconds.
-        timeout_duration = 1000  # Set timeout duration for 1000 seconds or use a custom duration
+        timeout_duration = 1000
         elapsed_time = 0
         while len(self.players) < self.max_players and not self.betting_closed and elapsed_time < timeout_duration:
-            await asyncio.sleep(30)  # Check every 30 seconds
-            elapsed_time += 30  # Increment elapsed time by 30 seconds
+            await asyncio.sleep(30)
+            elapsed_time += 30
 
         if len(self.players) < self.max_players and not self.betting_closed:
             await self.abandon_game("⏰ Game timed out due to inactivity.")
             await clear_pending_game(self.game_type)
 
-    async def build_embed(self, guild=None, winner=None, no_image=True):
-        embed = discord.Embed(
-            title=f"🎮 {self.game_type.title()} Match Lobby",
-            description="Awaiting players for a new match..." if not winner else "",
-            color=discord.Color.orange() if not winner else discord.Color.dark_gray(),
-            timestamp=discord.utils.utcnow()
-        )
-        embed.set_author(
-            name="LEAGUE OF EXTRAORDINARY MISFITS",
-            icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
-        )
+    @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
+    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id in self.players:
+            await interaction.response.send_message(
+                "✅ You have already joined this game.", ephemeral=True)
+            return
 
-        # ✅ Only attach image if not no_image AND we have one
-        if not no_image and getattr(self, "course_image", None):
-            embed.set_image(url=self.course_image)
+        if len(self.players) >= self.max_players:
+            await interaction.response.send_message(
+                "🚫 This game is already full.", ephemeral=True)
+            return
 
-        # --- Gather player info ---
-        ranks = []
-        handicaps = []
+        if player_manager.is_active(interaction.user.id):
+            await interaction.response.send_message(
+                "🚫 You are already in another active game or must vote to finish it first.",
+                ephemeral=True)
+            return
 
-        for p in self.players:
-            pdata = await get_player(p)
-            ranks.append(pdata.get("rank", 1000))
+        player_manager.activate(interaction.user.id)
+        self.players.append(interaction.user.id)
 
-            # Handicap only for match room (i.e. when image shown)
-            if not no_image and getattr(self, "course_name", None):
-                res = await run_db(lambda: supabase
-                    .table("handicaps")
-                    .select("handicap")
-                    .eq("player_id", str(p))
-                    .eq("course_name", self.course_name)
-                    .maybe_single()
-                    .execute()
-                )
-                hcp = round(res.data["handicap"], 1) if (res and res.data and "handicap" in res.data) else "-"
-            else:
-                hcp = None
+        await self.update_message()
+        await interaction.response.defer()
 
-            handicaps.append(hcp)
+        if len(self.players) == self.max_players:
+            if self.abandon_task:
+                self.abandon_task.cancel()
+            await self.update_message()
+            await self.game_full(interaction)
 
-        # --- Calculate odds if full ---
-        game_full = len(self.players) == self.max_players
-        odds = []
+    async def show_betting_phase(self):
+        self.betting_closed = False
+        await self.update_message()
 
-        if self.game_type == "doubles" and game_full:
-            e1 = sum(ranks[:2]) / 2
-            e2 = sum(ranks[2:]) / 2
-            odds_a = 1 / (1 + 10 ** ((e2 - e1) / 400))
-            odds_b = 1 - odds_a
-        elif self.game_type == "triples" and game_full:
-            exp = [10 ** (r / 400) for r in ranks]
-            total = sum(exp)
-            odds = [v / total for v in exp]
+        await asyncio.sleep(120)
+        self.betting_closed = True
+        await self.update_message()
 
-        # --- Build player lines ---
-        player_lines = []
-        if self.game_type == "doubles":
-            player_lines.append("\u200b")
-            label = "__**🅰️ Team A**__"
-            if game_full:
-                label += f" • {odds_a * 100:.1f}%"
-            player_lines.append(label)
+    # ➜ game_full stays as you have it (it clears items, creates thread, etc.)
 
-        for idx in range(self.max_players):
-            if idx < len(self.players):
-                user_id = self.players[idx]
-                member = guild.get_member(user_id) if guild else None
-                name = f"**{member.display_name}**" if member else f"**User {user_id}**"
-                rank = ranks[idx]
-                hcp_txt = f" 🎯 HCP: {handicaps[idx]}" if handicaps[idx] is not None else ""
+    async def add_bet(self, user_id, user_name, amount, choice):
+        self.bets.append((user_id, user_name, amount, choice))
+        await self.update_message()
 
-                if self.game_type == "singles" and game_full:
-                    e1, e2 = ranks
-                    o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
-                    player_odds = o1 if idx == 0 else 1 - o1
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%{hcp_txt}"
-                elif self.game_type == "triples" and game_full:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%{hcp_txt}"
-                else:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}){hcp_txt}"
-            else:
-                line = f"○ Player {idx + 1}: [Waiting...]"
+    def get_bet_summary(self):
+        if not self.bets:
+            return "No bets placed yet."
+        return "\n".join(f"**{uname}** bet {amt} on **{ch}**" for _, uname, amt, ch in self.bets)
 
-            player_lines.append(line)
-
-            if self.game_type == "doubles" and idx == 1:
-                player_lines.append("\u200b")
-                label = "__**🅱️ Team B**__"
-                if game_full:
-                    label += f" • {odds_b * 100:.1f}%"
-                player_lines.append(label)
-
-        embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
-
-        # --- Add empty line before bets ---
-        embed.add_field(name="\u200b", value="\u200b", inline=False)
-
-        # --- Bets ---
-        if self.bets:
-            bet_lines = []
-            for _, uname, amt, ch in self.bets:
-                if self.game_type == "singles":
-                    label = "Player 1" if ch == "1" else "Player 2"
-                elif self.game_type == "doubles":
-                    label = "Team A" if ch.upper() == "A" else "Team B"
-                elif self.game_type == "triples":
-                    label = f"Player {ch}"
-                else:
-                    label = ch
-                bet_lines.append(f"💰 {uname} bet {amt} on {label}")
-            embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
-
-        # --- Footer for winner ---
-        if winner == "draw":
-            embed.set_footer(text="🎮 Game has ended. Result: 🤝 Draw")
-        elif isinstance(winner, int):
-            member = guild.get_member(winner) if guild else None
-            winner_name = member.display_name if member else f"User {winner}"
-            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
-        elif winner in ("Team A", "Team B"):
-            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}")
-
-        return embed
 
 
     async def update_message(self):
