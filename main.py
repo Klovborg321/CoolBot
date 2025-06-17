@@ -1772,75 +1772,40 @@ class PaginatedCourseView(discord.ui.View):
             await interaction.response.defer()
 
 
-class SubmitScoreModal(discord.ui.Modal):
-    def __init__(self, course_list: list[str]):
-        super().__init__(title="Submit Best Score")
+class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
+    def __init__(self, course_name: str, course_id: str):
+        super().__init__()
+        self.course_name = course_name
+        self.course_id = course_id
 
-        # ✅ Course dropdown (as a Select inside a modal is not allowed)
-        # So we use a TextInput with suggestions as placeholder text
-        self.course_input = discord.ui.TextInput(
-            label="Course Name",
-            placeholder=f"Available: {', '.join(course_list[:5])}...",
-            style=discord.TextStyle.short,
-            required=True
+        self.best_score = discord.ui.TextInput(
+            label=f"Enter your best score for {course_name}",
+            placeholder="e.g. 44"
         )
-        self.add_item(self.course_input)
-
-        # ✅ Score input
-        self.score_input = discord.ui.TextInput(
-            label="Best Score",
-            placeholder="Example: 44",
-            style=discord.TextStyle.short,
-            required=True,
-            max_length=5
-        )
-        self.add_item(self.score_input)
-
-        self.course_list = course_list
+        self.add_item(self.best_score)
 
     async def on_submit(self, interaction: discord.Interaction):
-        course_name = self.course_input.value.strip()
-        score_str = self.score_input.value.strip()
-
-        # ✅ Validate course is in allowed list (case insensitive)
-        if course_name.lower() not in [c.lower() for c in self.course_list]:
+        best_score_value = self.best_score.value.strip()
+        if not best_score_value.isdigit():
             await interaction.response.send_message(
-                f"❌ Invalid course. Available courses: {', '.join(self.course_list)}",
+                "❌ Please enter a valid number.",
                 ephemeral=True
             )
             return
 
-        # ✅ Validate score
-        try:
-            score_value = float(score_str)
-        except ValueError:
-            await interaction.response.send_message(
-                "❌ Invalid score. Please enter a valid number (e.g., 44).",
-                ephemeral=True
-            )
-            return
-
-        # ✅ Save to Supabase
-        try:
-            await run_db(lambda: supabase
-                .table("rounds")
-                .insert({
-                    "player_id": str(interaction.user.id),
-                    "course_name": course_name,
-                    "score": score_value
-                })
-                .execute()
-            )
-        except Exception as e:
-            print("Error saving score:", e)
-            await interaction.response.send_message(
-                f"❌ Failed to save your score: `{e}`",
-                ephemeral=True
-            )
-            return
+        # Save to DB
+        await run_db(lambda: supabase
+            .table("handicaps")
+            .upsert({
+                "player_id": str(interaction.user.id),
+                "course_id": self.course_id,
+                "best_score": int(best_score_value)
+            })
+            .execute()
+        )
 
         await interaction.response.send_message(
-            f"✅ Saved: `{course_name}` — `{score_value}`",
+            f"✅ Best score {best_score_value} saved for **{self.course_name}**!",
             ephemeral=True
         )
 
