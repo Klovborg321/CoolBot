@@ -523,6 +523,7 @@ class GameView(discord.ui.View):
         )
 
         embed.timestamp = discord.utils.utcnow()  # ✅ Add timestamp
+        self.course_image = course_image  # <-- STORE IT!!
 
         # ✅ Get ranks from Supabase
         ranks = []
@@ -699,11 +700,12 @@ class GameView(discord.ui.View):
         thread = await interaction.channel.create_thread(name=room_name)
         self.course_image = course_image
 
-        # THREAD EMBED — full detail
+        # ✅ Room thread embed → with image
         thread_embed = await self.build_embed(interaction.guild)
         thread_embed.title = f"Game Room: {room_name}"
         thread_embed.description = f"Course: {course_name}"
 
+        # ✅ Lobby embed → NO image
         lobby_embed = await self.build_embed(interaction.guild, no_image=True)
         lobby_embed.title = f"{self.game_type.title()} Match Created!"
         lobby_embed.description = f"A match has been created in thread: {thread.mention}"
@@ -1274,41 +1276,54 @@ class TournamentView(discord.ui.View):
             await self.abandon_tournament("⏰ Tournament timed out due to inactivity.")
             await clear_pending_game("tournament")
 
-    async def build_embed(self, guild=None):
-        """Build and return the embed for the tournament lobby."""
+    async def build_embed(self, guild=None, winner=None, no_image=False):
         embed = discord.Embed(
-            title=f"🏆 Tournament Lobby",
-            description="Players joining the tournament...",
-            color=discord.Color.gold()
+            title=f"🎮 {self.game_type.title()} Match Lobby",
+            description="Awaiting players for a new match...",
+            color=discord.Color.orange() if not winner else discord.Color.dark_gray()
         )
         embed.set_author(
             name="LEAGUE OF EXTRAORDINARY MISFITS",
             icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
         )
+
         embed.timestamp = discord.utils.utcnow()
 
+        # player list...
+        ranks = []
+        for p in self.players:
+            pdata = await get_player(p)
+            ranks.append(pdata.get("rank", 1000))
+
+        game_full = len(self.players) == self.max_players
         player_lines = []
-        for idx in range(self.max_players or 2):  # Default max players if not set
+        for idx in range(self.max_players):
             if idx < len(self.players):
                 user_id = self.players[idx]
                 member = guild.get_member(user_id) if guild else None
                 name = f"**{member.display_name}**" if member else f"**User {user_id}**"
-                line = f"● Player {idx + 1}: {name}"
+                rank = ranks[idx]
+                line = f"● Player {idx + 1}: {name} 🏆 ({rank})"
             else:
                 line = f"○ Player {idx + 1}: [Waiting...]"
             player_lines.append(line)
 
         embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
 
-        # Show the current bets placed
-        if self.bets:
-            bet_lines = [f"💰 **{uname}** bet **{amt}** on **{choice}**" for _, uname, amt, choice in self.bets]
-            embed.add_field(name="📊 Current Bets", value="\n".join(bet_lines), inline=False)
+        # add footer if ended
+        if winner == "draw":
+            embed.set_footer(text="🎮 Game has ended. Result: 🤝 Draw")
+        elif isinstance(winner, int):
+            member = guild.get_member(winner) if guild else None
+            winner_name = member.display_name if member else f"User {winner}"
+            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
 
-        # ✅ Only attach image if not disabled and image exists:
+        # ✅ ✅ ✅ THE IMPORTANT PART:
         if not no_image and getattr(self, "course_image", None):
             embed.set_image(url=self.course_image)
-            return embed
+
+        return embed
+
 
     async def update_message(self):
         """Update the tournament message."""
