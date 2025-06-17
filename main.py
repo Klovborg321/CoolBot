@@ -1775,37 +1775,45 @@ class PaginatedCourseView(discord.ui.View):
 class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
     def __init__(self, course_name: str, course_id: str):
         super().__init__()
-        self.course_name = course_name
-        self.course_id = course_id
 
+        # ✅ Safely truncate the course name for the text input label
+        short_name = (course_name[:30] + '...') if len(course_name) > 30 else course_name
+
+        # The actual text input
         self.best_score = discord.ui.TextInput(
-            label=f"Enter your best score for {course_name}",
-            placeholder="e.g. 44"
+            label=f"Best score for {short_name}",
+            placeholder="e.g. 44",
+            required=True
         )
+
+        self.course_id = course_id
+        self.course_name = course_name
+
         self.add_item(self.best_score)
 
     async def on_submit(self, interaction: discord.Interaction):
-        best_score_value = self.best_score.value.strip()
-        if not best_score_value.isdigit():
-            await interaction.response.send_message(
-                "❌ Please enter a valid number.",
-                ephemeral=True
+        # ✅ Parse and validate
+        try:
+            best_score = int(self.best_score.value.strip())
+        except ValueError:
+            return await interaction.response.send_message(
+                "❌ Invalid score — please enter a whole number.", ephemeral=True
             )
-            return
 
-        # Save to DB
+        # ✅ Upsert into your Supabase handicaps table
         await run_db(lambda: supabase
             .table("handicaps")
             .upsert({
                 "player_id": str(interaction.user.id),
                 "course_id": self.course_id,
-                "best_score": int(best_score_value)
+                "course_name": self.course_name,
+                "best_score": best_score
             })
             .execute()
         )
 
         await interaction.response.send_message(
-            f"✅ Best score {best_score_value} saved for **{self.course_name}**!",
+            f"✅ Best score for **{self.course_name}** updated to **{best_score}**!",
             ephemeral=True
         )
 
