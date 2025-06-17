@@ -734,18 +734,9 @@ class GameView(discord.ui.View):
         self.course_image = course_image
 
         # ✅ Room thread embed → with image
-        thread_embed = await self.build_embed(interaction.guild)
+        thread_embed = await self.build_embed(interaction.guild, no_image=False)
         thread_embed.title = f"Game Room: {room_name}"
         thread_embed.description = f"Course: {course_name}"
-
-        # ✅ Lobby embed → NO image
-        lobby_embed = await self.build_embed(interaction.guild, no_image=True)
-        lobby_embed.title = f"{self.game_type.title()} Match Created!"
-        lobby_embed.description = f"A match has been created in thread: {thread.mention}"
-        lobby_embed.add_field(name="Room Name", value=room_name)
-        lobby_embed.add_field(name="Course", value=course_name)
-
-        await self.message.edit(embed=lobby_embed, view=None)
 
         room_view = RoomView(
             players=self.players,
