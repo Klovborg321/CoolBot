@@ -2055,24 +2055,25 @@ async def submit_score(interaction: discord.Interaction):
 async def init_singles(interaction: discord.Interaction):
     """Creates a singles game lobby with the start button"""
 
-    # Defer the interaction immediately to avoid timeout
+    print("[init_singles] Defer interaction...")
     await interaction.response.defer(ephemeral=True)
 
-    # Fast check if a game is already pending
+    print("[init_singles] Checking for existing game or button...")
     if pending_games.get("singles") or any(k[0] == interaction.channel.id for k in start_buttons):
+        print("[init_singles] Found existing game/button, sending followup...")
         await interaction.followup.send(
             "⚠️ A singles game is already pending or a button is active here.",
             ephemeral=True
         )
         return
 
-    # Set max_players for singles game
     max_players = 2
 
-    # Create the button
+    print("[init_singles] Calling start_new_game_button...")
+    # ✅ Ensure this never takes 3+ seconds; if it might, break it up:
     await start_new_game_button(interaction.channel, "singles", max_players=max_players)
 
-    # Send confirmation to the user
+    print("[init_singles] Sending success followup...")
     await interaction.followup.send(
         "✅ Singles game button posted and ready for players to join!",
         ephemeral=True
