@@ -1507,97 +1507,6 @@ class BettingDropdownView(discord.ui.View):
     async def prepare(self):
         await self.dropdown.build_options()
 
-class StatsView(discord.ui.View):
-    def __init__(self, player, recent_bets, user_name):
-        super().__init__(timeout=120)
-        self.player = player
-        self.recent_bets = recent_bets
-        self.user_name = user_name
-        self.page = 0
-        self.message = None
-        self.update_buttons()
-
-    def update_buttons(self):
-        self.clear_items()
-        if self.page > 0:
-            self.add_item(self.PreviousButton(self))
-        if self.page < 1:  # Only 2 pages: 0 (stats) and 1 (bets)
-            self.add_item(self.NextButton(self))
-
-    def format_page(self):
-        if self.page == 0:
-            # 📊 Core stats page
-            lines = [
-                f"{'🏆 Trophies':<16}: {self.player.get('trophies', 0)}",
-                f"{'📈 Rank':<16}: {self.player.get('rank', 1000)}",
-                f"{'💰 Credits':<16}: {self.player.get('credits', 0)}",
-                "",
-                f"{'🎮 Games Played':<16}: {self.player.get('games_played', 0)}",
-                f"{'✅ Wins':<16}: {self.player.get('wins', 0)}",
-                f"{'❌ Losses':<16}: {self.player.get('losses', 0)}",
-                f"{'➖ Draws':<16}: {self.player.get('draws', 0)}",
-                f"{'🔥 Current Streak':<16}: {self.player.get('current_streak', 0)}",
-                f"{'🏅 Best Streak':<16}: {self.player.get('best_streak', 0)}",
-                "",
-                f"{'🪙 Total Bets':<16}: {self.player.get('total_bets', 0)}",
-                f"{'✅ Bets Won':<16}: {self.player.get('bets_won', 0)}",
-                f"{'❌ Bets Lost':<16}: {self.player.get('bets_lost', 0)}",
-                f"{'💸 Net Gain/Loss':<16}: {self.player.get('net_gain', 0):+}",
-            ]
-            content = "```" + "\n".join(lines) + "```"
-            title = f"📊 Stats for {self.user_name}"
-        else:
-            # 📜 Recent bets page
-            if self.recent_bets:
-                lines = []
-                for b in self.recent_bets:
-                    won = b.get("won")
-                    choice = b.get("choice")
-                    amount = b.get("amount")
-                    payout = b.get("payout", 0)
-                    if won is True:
-                        lines.append(f"Won  ✅ {amount} on {choice} → Payout {payout}")
-                    elif won is False:
-                        lines.append(f"Lost ❌ {amount} on {choice} → Payout 0")
-                    else:
-                        lines.append(f"Draw ⚪️ {amount} on {choice} → No payout")
-                content = "```" + "\n".join(lines) + "```"
-            else:
-                content = "*No recent bets.*"
-            title = f"🗓️ Recent Bets for {self.user_name}"
-
-        embed = discord.Embed(
-            title=title,
-            description=content,
-            color=discord.Color.blue()
-        )
-        return embed
-
-    async def update(self):
-        self.update_buttons()
-        embed = self.format_page()
-        await self.message.edit(embed=embed, view=self)
-
-    class PreviousButton(discord.ui.Button):
-        def __init__(self, view_obj):
-            super().__init__(label="⬅ Previous", style=discord.ButtonStyle.secondary)
-            self.view_obj = view_obj
-
-        async def callback(self, interaction: discord.Interaction):
-            self.view_obj.page = max(0, self.view_obj.page - 1)
-            await self.view_obj.update()
-            await interaction.response.defer()
-
-    class NextButton(discord.ui.Button):
-        def __init__(self, view_obj):
-            super().__init__(label="Next ➡", style=discord.ButtonStyle.secondary)
-            self.view_obj = view_obj
-
-        async def callback(self, interaction: discord.Interaction):
-            self.view_obj.page = min(1, self.view_obj.page + 1)
-            await self.view_obj.update()
-            await interaction.response.defer()
-
 
 class LeaderboardView(discord.ui.View):
     def __init__(self, entries, page_size=10, title="🏆 Leaderboard"):
@@ -2170,33 +2079,90 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
 
     target_user = user or interaction.user
 
-    # Get player data
-    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(target_user.id)).single().execute())
+    # Fetch player base stats
+    res = await run_db(
+        lambda: supabase.table("players").select("*").eq("id", str(target_user.id)).single().execute()
+    )
     player = res.data or default_template.copy()
 
-    # Get bets for totals & recent bets
-    all_bets_res = await run_db(lambda: supabase.table("bets").select("id,won,payout,amount").eq("player_id", str(target_user.id)).execute())
-    recent_bets = await run_db(lambda: supabase.table("bets").select("*").eq("player_id", str(target_user.id)).order("id", desc=True).limit(5).execute())
+    rank = player.get("rank", 1000)
+    trophies = player.get("trophies", 0)
+    credits = player.get("credits", 1000)
+    games = player.get("games_played", 0)
+    wins = player.get("wins", 0)
+    losses = player.get("losses", 0)
+    draws = player.get("draws", 0)
+    streak = player.get("current_streak", 0)
+    best_streak = player.get("best_streak", 0)
 
-    # Add betting stats to player dict for convenience
-    player["total_bets"] = len(all_bets_res.data or [])
-    player["bets_won"] = sum(1 for b in all_bets_res.data if b.get("won") is True)
-    player["bets_lost"] = sum(1 for b in all_bets_res.data if b.get("won") is False)
-    player["net_gain"] = sum(b.get("payout", 0) - b.get("amount", 0) for b in all_bets_res.data if b.get("won") is not None)
+    # Bets stats
+    bets = await run_db(
+        lambda: supabase.table("bets").select("id,won,payout,amount,choice").eq("player_id", str(target_user.id)).order("id", desc=True).limit(5).execute()
+    )
+    all_bets = await run_db(
+        lambda: supabase.table("bets").select("won,payout,amount").eq("player_id", str(target_user.id)).execute()
+    )
 
-    # Setup paginated view
-    view = StatsView(player, recent_bets.data, target_user.display_name)
-    first_embed = view.format_page()
+    total_bets = len(all_bets.data or [])
+    bets_won = sum(1 for b in all_bets.data if b.get("won") is True)
+    bets_lost = sum(1 for b in all_bets.data if b.get("won") is False)
+    net_gain = sum(b.get("payout", 0) - b.get("amount", 0) for b in all_bets.data if b.get("won") is not None)
+
+    # Build stats block
+    stats_lines = [
+        f"{'📈 Rank':<20}: {rank}",
+        f"{'🏆 Trophies':<20}: {trophies}",
+        f"{'💰 Credits':<20}: {credits}",
+        "",
+        f"{'🎮 Games Played':<20}: {games}",
+        f"{'✅ Wins':<20}: {wins}",
+        f"{'❌ Losses':<20}: {losses}",
+        f"{'➖ Draws':<20}: {draws}",
+        f"{'🔥 Current Streak':<20}: {streak}",
+        f"{'🏅 Best Streak':<20}: {best_streak}",
+        "",
+        f"{'🪙 Total Bets':<20}: {total_bets}",
+        f"{'✅ Bets Won':<20}: {bets_won}",
+        f"{'❌ Bets Lost':<20}: {bets_lost}",
+        f"{'💸 Net Gain/Loss':<20}: {net_gain:+}",
+    ]
+
+    embed = discord.Embed(
+        title=f"📊 Stats for {target_user.display_name}",
+        description="```" + "\n".join(stats_lines) + "```",
+        color=discord.Color.blue()
+    )
+
+    # Add recent bets block, also monospaced
+    if bets.data:
+        recent_lines = []
+        for b in bets.data:
+            won = b.get("won")
+            choice = b.get("choice", "?")
+            amount = b.get("amount", 0)
+            payout = b.get("payout", 0)
+            if won is True:
+                line = f"✅ Won  {amount:<5} on {choice:<4} → Payout {payout}"
+            elif won is False:
+                line = f"❌ Lost {amount:<5} on {choice:<4} → Payout 0"
+            else:
+                line = f"⚪️ Draw {amount:<5} on {choice:<4} → Refunded"
+            recent_lines.append(line)
+
+        embed.add_field(
+            name="🗓️ Recent Bets",
+            value="```" + "\n".join(recent_lines) + "```",
+            inline=False
+        )
 
     if dm:
         try:
-            await target_user.send(embed=first_embed, view=view)
+            await target_user.send(embed=embed)
             await interaction.followup.send("✅ Stats sent via DM!", ephemeral=True)
-        except Exception:
+        except:
             await interaction.followup.send("⚠️ Could not send DM.", ephemeral=True)
     else:
-        await interaction.followup.send(embed=first_embed, view=view)
-        view.message = await interaction.original_response()
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 @tree.command(
