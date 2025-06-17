@@ -1773,52 +1773,77 @@ class PaginatedCourseView(discord.ui.View):
 
 
 class SubmitScoreModal(discord.ui.Modal):
-    def __init__(self, course_name, course_id):
-        super().__init__(title=f"Submit Best Score for {course_name}")
-        self.course_name = course_name
-        self.course_id = course_id
+    def __init__(self, course_list: list[str]):
+        super().__init__(title="Submit Best Score")
 
-        self.score_input = discord.ui.TextInput(
-            label="Your Best Score",
-            placeholder="e.g. 44",
+        # ✅ Course dropdown (as a Select inside a modal is not allowed)
+        # So we use a TextInput with suggestions as placeholder text
+        self.course_input = discord.ui.TextInput(
+            label="Course Name",
+            placeholder=f"Available: {', '.join(course_list[:5])}...",
             style=discord.TextStyle.short,
+            required=True
+        )
+        self.add_item(self.course_input)
+
+        # ✅ Score input
+        self.score_input = discord.ui.TextInput(
+            label="Best Score",
+            placeholder="Example: 44",
+            style=discord.TextStyle.short,
+            required=True,
             max_length=5
         )
         self.add_item(self.score_input)
 
+        self.course_list = course_list
+
     async def on_submit(self, interaction: discord.Interaction):
+        course_name = self.course_input.value.strip()
         score_str = self.score_input.value.strip()
 
+        # ✅ Validate course is in allowed list (case insensitive)
+        if course_name.lower() not in [c.lower() for c in self.course_list]:
+            await interaction.response.send_message(
+                f"❌ Invalid course. Available courses: {', '.join(self.course_list)}",
+                ephemeral=True
+            )
+            return
+
+        # ✅ Validate score
         try:
             score_value = float(score_str)
         except ValueError:
-            return await interaction.response.send_message(
-                "❌ Invalid score. Please enter a number.",
+            await interaction.response.send_message(
+                "❌ Invalid score. Please enter a valid number (e.g., 44).",
                 ephemeral=True
             )
+            return
 
-        # ✅ Insert round linked to course_id
-        res = await run_db(lambda: supabase
-            .table("rounds")
-            .insert({
-                "player_id": str(interaction.user.id),
-                "course_name": self.course_name,   # store human name too
-                "course_id": self.course_id,
-                "score": score_value
-            })
-            .execute()
-        )
-
-        if hasattr(res, "status_code") and res.status_code not in (200, 201):
-            return await interaction.response.send_message(
-                f"❌ Failed to save: {res}",
+        # ✅ Save to Supabase
+        try:
+            await run_db(lambda: supabase
+                .table("rounds")
+                .insert({
+                    "player_id": str(interaction.user.id),
+                    "course_name": course_name,
+                    "score": score_value
+                })
+                .execute()
+            )
+        except Exception as e:
+            print("Error saving score:", e)
+            await interaction.response.send_message(
+                f"❌ Failed to save your score: `{e}`",
                 ephemeral=True
             )
+            return
 
         await interaction.response.send_message(
-            f"✅ Saved: **{self.course_name}** — **{score_value}**",
+            f"✅ Saved: `{course_name}` — `{score_value}`",
             ephemeral=True
         )
+
 
 class CourseSelect(discord.ui.Select):
     def __init__(self, courses, callback_fn):
@@ -1992,67 +2017,34 @@ class SetCourseRatingModal(discord.ui.Modal, title="Set Course Par"):
 
 
 @tree.command(name="set_user_handicap")
-@app_commands.describe(
-    user="User to update",
-    course="Course name",
-    handicap="Number (like 44) or 'best score' to auto-calc"
-)
-async def set_user_handicap(interaction: discord.Interaction, user: discord.Member, course: str, handicap: str):
-    """Set a player's handicap for a course or auto-calculate."""
+async def set_best_score(interaction: discord.Interaction):
+    """Select a course and submit your best score."""
 
-    await interaction.response.defer(ephemeral=True)
+    # ✅ 1️⃣ Fetch courses
+    res = await run_db(lambda: supabase.table("courses").select("*").execute())
+    courses = res.data if res and res.data else []
 
-    raw = handicap.strip().lower()
-
-    if raw == "best score":
-        # Get best round for that player/course
-        res = await run_db(lambda: supabase
-            .table("rounds")
-            .select("score")
-            .eq("player_id", str(user.id))
-            .eq("course_name", course)
-            .order("score")
-            .limit(1)
-            .maybe_single()
-            .execute()
+    if not courses:
+        await interaction.response.send_message(
+            "❌ No courses found. Please add some first.",
+            ephemeral=True
         )
-        best = res.data["score"] if res and getattr(res, "data", None) and "score" in res.data else None
+        return
 
-        if best is None:
-            await interaction.followup.send(
-                f"⚠️ No scores found for <@{user.id}> on `{course}`.",
-                ephemeral=True
-            )
-            return
+    # ✅ 2️⃣ Build options for Select
+    options = [
+        discord.SelectOption(label=c["name"], value=str(c["id"]))
+        for c in courses
+    ]
 
-        value = float(best)
-        msg = f"✅ Best score found: `{value}`"
-    else:
-        # Safe parse as float
-        try:
-            value = float(raw)
-        except ValueError:
-            await interaction.followup.send(
-                "❌ Please enter a number or `best score`.",
-                ephemeral=True
-            )
-            return
+    # ✅ 3️⃣ Create the view with PaginatedCourseSelect
+    view = discord.ui.View(timeout=120)
+    view.courses = courses  # So the select can access all data
+    view.add_item(PaginatedCourseSelect(options, parent_view=view))
 
-        msg = f"✅ Handicap manually set to `{value}`"
-
-    # Save to DB
-    await run_db(lambda: supabase
-        .table("handicaps")
-        .upsert({
-            "player_id": str(user.id),
-            "course_name": course,
-            "handicap": value
-        })
-        .execute()
-    )
-
-    await interaction.followup.send(
-        f"{msg} for <@{user.id}> on `{course}`.",
+    await interaction.response.send_message(
+        "⛳ **Select a course to enter your best score:**",
+        view=view,
         ephemeral=True
     )
 
