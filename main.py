@@ -68,6 +68,39 @@ default_template = {
 }
 
 # Helpers
+
+def format_page(self, guild):
+    start = self.page * self.page_size
+    end = start + self.page_size
+    lines = []
+
+    for i, entry in enumerate(self.entries[start:end], start=start + 1):
+        if isinstance(entry, tuple):
+            uid, stats = entry
+        else:
+            stats = entry
+            uid = stats.get("id")
+
+        name = f"<@{uid}>"
+        name = name[:20].ljust(20)  # ✨ force exactly 20 chars
+
+        rank = stats.get("rank", 1000)
+        trophies = stats.get("trophies", 0)
+        credits = stats.get("credits", 0)
+
+        badge = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else ""
+
+        line = f"#{i:>2} {name} | 🏆 {trophies:<3} | 💰 {credits:<4} | 📈 {rank} {badge}"
+        lines.append(line)
+
+    if not lines:
+        lines = ["*No entries found.*"]
+
+    page_info = f"Page {self.page + 1} of {max(1, (len(self.entries) + self.page_size - 1) // self.page_size)}"
+    return "\n".join(lines) + f"\n\n{page_info}"
+
+
+
 def normalize_team(name):
     if isinstance(name, str):
         name = name.strip().upper()
@@ -1475,13 +1508,15 @@ class BettingDropdownView(discord.ui.View):
 
 
 class LeaderboardView(discord.ui.View):
-    def __init__(self, entries, page_size=10, sort_key="rank", title="🏆 Leaderboard"):
+    def __init__(self, entries, page_size=10, title="🏆 Leaderboard"):
+        """
+        entries: list of (id, stats_dict) OR list of stats_dicts with 'id'
+        """
         super().__init__(timeout=120)
         self.entries = entries
         self.page_size = page_size
-        self.sort_key = sort_key
-        self.title = title
         self.page = 0
+        self.title = title
         self.message = None
         self.update_buttons()
 
@@ -1492,24 +1527,40 @@ class LeaderboardView(discord.ui.View):
         if (self.page + 1) * self.page_size < len(self.entries):
             self.add_item(self.NextButton(self))
 
-    def format_page(self):
+    def format_page(self, guild):
         start = self.page * self.page_size
         end = start + self.page_size
         lines = []
-        for i, (uid, stats) in enumerate(self.entries[start:end], start=start + 1):
+
+        for i, entry in enumerate(self.entries[start:end], start=start + 1):
+            # Support both (id, stats) or plain dicts with 'id'
+            if isinstance(entry, tuple):
+                uid, stats = entry
+            else:
+                stats = entry
+                uid = stats.get("id")
+
             name = f"<@{uid}>"
             rank = stats.get("rank", 1000)
             trophies = stats.get("trophies", 0)
-            credits = stats.get("credits", 1000)
-            line = f"#{i:>2}  {name:<20} | 🏆 {trophies:<3} | 💰 {credits:<4} | 📈 {rank}"
+            credits = stats.get("credits", 0)
+
+            badge = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else ""
+
+            line = f"#{i:>2} {name:<20} | 🏆 {trophies:<3} | 💰 {credits:<4} | 📈 {rank} {badge}"
             lines.append(line)
-        return "\n".join(lines) if lines else "*No entries*"
+
+        if not lines:
+            lines = ["*No entries found.*"]
+
+        page_info = f"Page {self.page + 1} of {max(1, (len(self.entries) + self.page_size - 1) // self.page_size)}"
+        return "\n".join(lines) + f"\n\n{page_info}"
 
     async def update(self):
         self.update_buttons()
         embed = discord.Embed(
             title=self.title,
-            description=self.format_page(),
+            description=self.format_page(self.message.guild),
             color=discord.Color.gold()
         )
         await self.message.edit(embed=embed, view=self)
@@ -1530,25 +1581,11 @@ class LeaderboardView(discord.ui.View):
             self.view_obj = view_obj
 
         async def callback(self, interaction: discord.Interaction):
-            self.view_obj.page += 1
+            max_pages = (len(self.view_obj.entries) - 1) // self.view_obj.page_size
+            self.view_obj.page = min(max_pages, self.view_obj.page + 1)
             await self.view_obj.update()
             await interaction.response.defer()
 
-class PaginatedCourseSelect(discord.ui.Select):
-    def __init__(self, options, parent_view):
-        super().__init__(placeholder="Select a course", options=options)
-        self.view_obj = parent_view
-
-    async def callback(self, interaction: discord.Interaction):
-        course_id = self.values[0]
-        selected = next((c for c in self.view_obj.courses if str(c["id"]) == course_id), None)
-        if not selected:
-            await interaction.response.send_message("❌ Course not found.", ephemeral=True)
-            return
-
-        await interaction.response.send_modal(
-            SubmitScoreModal(course_name=selected["name"], course_id=course_id)
-        )
 
 
 class PaginatedCourseView(discord.ui.View):
@@ -1948,108 +1985,32 @@ async def init_triples(interaction: discord.Interaction):
 
 @tree.command(
     name="leaderboard",
-    description="Show the ELO leaderboard or stats for a specific user"
+    description="Show the paginated leaderboard"
 )
-@discord.app_commands.describe(user="User to check in the leaderboard")
-async def leaderboard_local(interaction: discord.Interaction, user: discord.User = None):
-    # 1️⃣ Fetch all players ordered by rank descending
+async def leaderboard_local(interaction: discord.Interaction):
+    # 1️⃣ Fetch all players sorted by rank descending
     res = await run_db(lambda: supabase.table("players").select("*").order("rank", desc=True).execute())
-    if res.data is None:
-        await interaction.response.send_message("📭 No players have stats yet.", ephemeral=True)
+    if not res.data:
+        await interaction.response.send_message("📭 No players found.", ephemeral=True)
         return
 
-    sorted_stats = res.data
+    # 2️⃣ Prepare entries as (id, stats)
+    entries = [(row["id"], row) for row in res.data]
 
-    # 2️⃣ If specific user, show their rank entry
-    if user:
-        user_id = user.id
-        rank = next((i + 1 for i, row in enumerate(sorted_stats) if row["id"] == user_id), None)
-        if rank is None:
-            await interaction.response.send_message(f"⚠️ {user.display_name} is not on the leaderboard.", ephemeral=True)
-            return
+    # 3️⃣ Create the unified LeaderboardView with pagination
+    view = LeaderboardView(entries, page_size=10, title="🏆 ELO Leaderboard")
 
-        stats = next(row for row in sorted_stats if row["id"] == user_id)
-        elo = stats.get("rank", 1000)
-        trophies = stats.get("trophies", 0)
-        badge = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else ""
+    # 4️⃣ Send the first page
+    embed = discord.Embed(
+        title=view.title,
+        description=view.format_page(interaction.guild),
+        color=discord.Color.gold()
+    )
+    await interaction.response.send_message(embed=embed, view=view)
 
-        line = f"#{rank:>2}  {user.display_name[:20]:<20} | {elo:<4} | 🏆 {trophies} {badge}"
-        embed = discord.Embed(
-            title=f"📊 Leaderboard Entry for {user.display_name}",
-            description=line,
-            color=discord.Color.blue()
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
+    # 5️⃣ Bind the view to the sent message for updates
+    view.message = await interaction.original_response()
 
-    # 3️⃣ Otherwise, show paginated leaderboard
-
-    class LeaderboardView(discord.ui.View):
-        def __init__(self, entries, per_page=10):
-            super().__init__(timeout=120)
-            self.entries = entries
-            self.per_page = per_page
-            self.page = 0
-            self.message = None
-            self.update_buttons()
-
-        def update_buttons(self):
-            self.clear_items()
-            if self.page > 0:
-                self.add_item(self.Prev(self))
-            if (self.page + 1) * self.per_page < len(self.entries):
-                self.add_item(self.Next(self))
-
-        def format_embed(self, guild):
-            start = self.page * self.per_page
-            end = start + self.per_page
-            embed = discord.Embed(
-                title="🏆 Leaderboard",
-                color=discord.Color.gold()
-            )
-            for i, row in enumerate(self.entries[start:end], start=start + 1):
-                member = guild.get_member(int(row["id"]))
-                name = member.display_name if member else f"User {row['id']}"
-                elo = row.get("rank", 1000)
-                trophies = row.get("trophies", 0)
-                badge = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else ""
-                embed.add_field(
-                    name=f"#{i} {name}",
-                    value=f"ELO: {elo} | 🏆 {trophies} {badge}",
-                    inline=False
-                )
-            return embed
-
-        async def update(self):
-            self.update_buttons()
-            embed = self.format_embed(self.message.guild)
-            await self.message.edit(embed=embed, view=self)
-
-        class Prev(discord.ui.Button):
-            def __init__(self, view):
-                super().__init__(label="⬅ Prev", style=discord.ButtonStyle.secondary)
-                self.v = view
-
-            async def callback(self, i):
-                self.v.page -= 1
-                await self.v.update()
-                await i.response.defer()
-
-        class Next(discord.ui.Button):
-            def __init__(self, view):
-                super().__init__(label="Next ➡", style=discord.ButtonStyle.secondary)
-                self.v = view
-
-            async def callback(self, i):
-                self.v.page += 1
-                await self.v.update()
-                await i.response.defer()
-
-    # Create view and send
-    view = LeaderboardView(sorted_stats)
-    first_embed = view.format_embed(interaction.guild)
-    msg = await interaction.response.send_message(embed=first_embed, view=view)
-    view.message = await msg.original_response()
 
 @tree.command(
     name="stats_reset",
