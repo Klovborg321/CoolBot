@@ -623,7 +623,9 @@ class GameView(discord.ui.View):
                     label += f" • {odds_b * 100:.1f}%"
                 player_lines.append(label)
 
-        embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
+        # ✅ Wrap in ``` for monospaced code block:
+        players_field = f"```\n" + "\n".join(player_lines) + "\n```"
+        embed.add_field(name="👥 Players", value=players_field, inline=False)
         embed.add_field(name="\u200b", value="\u200b", inline=False)
 
         if self.bets:
