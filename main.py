@@ -352,12 +352,20 @@ async def start_new_game_button(channel, game_type, max_players=None):
 async def show_betting_phase(self):
     self.clear_items()
     self.add_item(BettingButtonDropdown(self))
-    await self.update_message()
+
+    # ✅ Delay once to avoid "Unknown Channel" if thread is too fresh
+    await asyncio.sleep(1)
+
+    try:
+        await self.update_message()
+    except discord.NotFound:
+        print("⚠️ Thread channel not ready yet, skipping initial update.")
 
     await asyncio.sleep(120)
-    self.betting_closed = True  # ✅ Mark it closed
+    self.betting_closed = True
     self.clear_items()
-    await self.update_message()  # ✅ This will now show "Betting is closed" in footer
+    await self.update_message()
+
 
 async def update_message(self, no_image=True):
     if self.message:
