@@ -1886,7 +1886,7 @@ class TournamentManager:
                 embed = await view.build_embed(guild)
 
                 # ✅ create INSIDE the main tournament thread!
-                match_thread = await self.main_thread.create_thread(
+                match_thread = await self.parent_channel.create_thread(
                     name=f"Match-{p1}-{p2}",
                     type=discord.ChannelType.private_thread
                 )
@@ -1960,7 +1960,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
     def __init__(self):
         super().__init__()
         self.player_count = discord.ui.TextInput(
-            label="Number of players (even number)", 
+            label="Number of players (even number)",
             placeholder="E.g. 4, 8, 16",
             required=True
         )
@@ -1978,16 +1978,17 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
             )
             return
 
+        # ✅ Create TournamentManager properly
         manager = TournamentManager(creator=interaction.user.id, max_players=count)
         manager.parent_channel = interaction.channel
 
-        # ✅ If TEST_MODE: auto-fill with test player IDs
+        # ✅ Add test players if TEST_MODE is on
         if IS_TEST_MODE:
             for pid in TEST_PLAYER_IDS:
                 if len(manager.players) < manager.max_players and pid not in manager.players:
                     manager.players.append(pid)
 
-        # ✅ Use your standard embed
+        # ✅ Build dummy embed with GameView
         dummy = GameView("tournament", interaction.user.id, 2)
         dummy.players = manager.players.copy()
         dummy.max_players = manager.max_players
@@ -1998,7 +1999,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         view = TournamentLobbyView(manager)
         manager.message = await interaction.channel.send(embed=embed, view=view)
 
-        # ✅ If lobby is already full, start immediately!
+        # ✅ If already full, start immediately
         if len(manager.players) == manager.max_players:
             view.clear_items()
             await manager.message.edit(view=None)
@@ -2010,6 +2011,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
             f"✅ Tournament lobby created for **{count} players!**",
             ephemeral=True
         )
+
 
 
 @tree.command(name="init_tournament")
