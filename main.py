@@ -387,42 +387,29 @@ class RoomNameGenerator:
 room_name_generator = RoomNameGenerator()
 
 
-class GameJoinView(discord.ui.View):
-    def __init__(self, game_type, max_players):
-        super().__init__(timeout=None)
-        self.game_type = game_type
-        self.max_players = max_players
+@discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
+async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+    if self.game_type in pending_games and pending_games[self.game_type]:
+        await interaction.response.send_message(
+            "A game of this type is already pending.", ephemeral=True)
+        return
 
-    @discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
-    async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # ✅ Block duplicate games of the same type
-        if self.game_type in pending_games and pending_games[self.game_type]:
-            await interaction.response.send_message(
-                "A game of this type is already pending.", ephemeral=True)
-            return
+    if player_manager.is_active(interaction.user.id):
+        await interaction.response.send_message(
+            "🚫 You are already in another game or have not voted yet.", ephemeral=True)
+        return
 
-        # ✅ Block ANY other active game (cross-lobby)
-        if player_manager.is_active(interaction.user.id):
-            await interaction.response.send_message(
-                "🚫 You are already in another game or have not voted yet.", ephemeral=True)
-            return
+    player_manager.activate(interaction.user.id)
 
-        # ✅ OK! Activate and start the game
-        player_manager.activate(interaction.user.id)
+    view = GameView(self.game_type, interaction.user.id, self.max_players)
+    embed = await view.build_embed(interaction.guild, no_image=True)
 
-        # Pass max_players to the GameView initialization
-        view = GameView(self.game_type, interaction.user.id, self.max_players)
-        embed = await view.build_embed(interaction.guild, no_image=True)
-        view.message = await interaction.channel.send(embed=embed, view=view)
-        pending_games[self.game_type] = view  # Update pending game with the current view
+    view.message = interaction.message   # ✅ RE-USE the same message
+    await interaction.message.edit(embed=embed, view=view)
 
-        # Remove the "Start new game" button after the game has started
-        try:
-            await interaction.message.delete()
-        except discord.NotFound:
-            pass
+    pending_games[self.game_type] = view
 
-        await interaction.response.send_message("✅ Game started!", ephemeral=True)
+    await interaction.response.send_message("✅ Game started!", ephemeral=True)
 
 
 class LeaveGameButton(discord.ui.Button):
