@@ -2006,9 +2006,9 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
 @tree.command(name="init_tournament")
 @app_commands.describe(max_players="Even number of players (e.g. 4, 8, 16)")
 async def init_tournament(interaction: discord.Interaction, max_players: int = 8):
-    if max_players % 2 != 0 or max_players < 2:
+    if max_players % 2 != 0 or max_players < 4:
         await interaction.response.send_message(
-            "❌ Number must be even and at least 2.", ephemeral=True
+            "❌ Number must be even and at least 4.", ephemeral=True
         )
 
         return
@@ -2016,7 +2016,7 @@ async def init_tournament(interaction: discord.Interaction, max_players: int = 8
     manager = TournamentManager(creator=interaction.user.id, max_players=max_players)
     manager.parent_channel = interaction.channel
 
-    dummy = GameView("tournament", interaction.user.id, 2)
+    dummy = GameView("tournament", interaction.user.id, max_players)
     dummy.players = [interaction.user.id]
     embed = await dummy.build_embed(interaction.guild, no_image=True)
 
