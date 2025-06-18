@@ -1040,7 +1040,7 @@ class TournamentStartButtonView(discord.ui.View):
 
     @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary)
     async def start_tournament(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # ✅ Remove the original start button if exists
+        # ✅ Remove the original start button if it exists
         key = (interaction.channel.id, "tournament")
         old = start_buttons.get(key)
         if old:
@@ -1050,8 +1050,10 @@ class TournamentStartButtonView(discord.ui.View):
                 pass
             start_buttons[key] = None
 
-        # ✅ Show modal to pick players or default to 8
-        await interaction.response.send_modal(PlayerCountModal())
+        # ✅ ✅ ✅ CORRECT: pass parent_channel and creator to the modal
+        await interaction.response.send_modal(
+            PlayerCountModal(parent_channel=interaction.channel, creator=interaction.user)
+        )
 
 class GameView(discord.ui.View):
     def __init__(self, game_type, creator, max_players):
