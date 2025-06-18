@@ -1872,24 +1872,25 @@ class TournamentManager:
         players = self.round_players.copy()
         random.shuffle(players)
         self.current_matches = []
-        self.winners = []
+        self.winners = []  # holds match winners only
+        self.next_round_players = []  # holds odd carryover + match winners
 
         for i in range(0, len(players), 2):
             if i + 1 < len(players):
                 p1 = players[i]
                 p2 = players[i + 1]
 
-                # ✅ Same GameView as singles for each match:
                 view = GameView("singles", p1, 2)
                 view.players = [p1, p2]
 
                 embed = await view.build_embed(guild)
 
-                # ✅ Private thread for each match:
-                match_thread = await self.parent_channel.create_thread(
-                    name=f"Match-{p1}-{p2}", 
+                # ✅ create INSIDE the main tournament thread!
+                match_thread = await self.main_thread.create_thread(
+                    name=f"Match-{p1}-{p2}",
                     type=discord.ChannelType.private_thread
                 )
+
                 msg = await match_thread.send(embed=embed, view=view)
                 view.message = msg
 
@@ -1899,20 +1900,28 @@ class TournamentManager:
 
                 self.current_matches.append(view)
             else:
+                # Odd player → immediately in next round pool
                 await self.main_thread.send(f"✅ <@{players[i]}> advances automatically!")
-                self.winners.append(players[i])
+                self.next_round_players.append(players[i])
+
 
     async def match_complete(self, winner_id):
         self.winners.append(winner_id)
-        expected = len(self.current_matches) + (len(self.round_players) % 2)
+        self.next_round_players.append(winner_id)
+
+        expected = len(self.current_matches)  # matches only, odd player already in next_round_players
+
         if len(self.winners) >= expected:
-            if len(self.winners) == 1:
-                await self.main_thread.send(f"🏆 Champion: <@{self.winners[0]}> 🎉")
+            if len(self.next_round_players) == 1:
+                await self.main_thread.send(f"🏆 Champion: <@{self.next_round_players[0]}> 🎉")
                 await start_new_game_button(self.parent_channel, "tournament")
             else:
-                self.round_players = self.winners.copy()
-                await self.main_thread.send(f"➡️ Next round with {len(self.round_players)} players...")
+                self.round_players = self.next_round_players.copy()
+                await self.main_thread.send(
+                    f"➡️ Next round with {len(self.round_players)} players..."
+                )
                 await self.run_round(self.main_thread.guild)
+
 
 
 class TournamentLobbyView(discord.ui.View):
