@@ -1,3 +1,4 @@
+
 import requests
 import discord
 from discord.ext import commands, tasks
@@ -12,7 +13,6 @@ from functools import partial
 from discord import app_commands, Interaction, SelectOption, ui, Embed
 from supabase import create_client, Client
 import os
-from discord import ui
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -518,12 +518,8 @@ class TournamentLobbyView(discord.ui.View):
                 "You already joined or tournament is full.", ephemeral=True)
             return
 
-        embed = discord.Embed(
-            title="🏆 Tournament Lobby",
-            description=f"Players: {len(self.manager.players)}/{self.manager.max_players}",
-            color=discord.Color.orange()
-        )
-        await self.manager.message.edit(embed=embed)
+        embed = await self.manager.build_lobby_embed(interaction.guild)
+        await self.manager.message.edit(embed=embed, view=self)
 
         await interaction.response.send_message("✅ Joined the tournament!", ephemeral=True)
 
@@ -533,6 +529,7 @@ class TournamentLobbyView(discord.ui.View):
             if self.manager.abandon_task:
                 self.manager.abandon_task.cancel()
             await self.manager.start_bracket(interaction)
+
 
 
 class GameView(discord.ui.View):
@@ -1327,24 +1324,20 @@ class VoteButton(discord.ui.Button):
         if len(self.view_obj.votes) == len(self.view_obj.players):
             await self.view_obj.finalize_game()
 
-class TournamentManager(discord.ui.View):
-    def __init__(self, creator: int, game_type="singles", max_players=8):
-        super().__init__(timeout=None)
+class TournamentManager:
+    def __init__(self, creator: int, max_players: int = 8):
         self.creator = creator
         self.players = [creator]
         self.max_players = max_players
-        self.game_type = game_type
-
         self.message = None
         self.main_thread = None
         self.current_matches = []
         self.winners = []
-        self.round_players = []  # players in current round
-
+        self.round_players = []
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
 
     async def abandon_if_not_filled(self):
-        await asyncio.sleep(300)
+        await asyncio.sleep(300)  # 5 min
         if len(self.players) < self.max_players:
             await self.abandon_tournament("⏰ Tournament timed out.")
 
@@ -1357,24 +1350,15 @@ class TournamentManager(discord.ui.View):
         if self.message:
             await self.message.edit(embed=embed, view=None)
 
-    async def add_player(self, user_id: int, interaction: discord.Interaction):
-        if user_id in self.players:
+    async def add_player(self, user: discord.User):
+        if user.id in self.players or len(self.players) >= self.max_players:
             return False
-
-        self.players.append(user_id)
-        embed = await self.build_embed(interaction.guild)
-        await self.message.edit(embed=embed, view=self)
-
-        if len(self.players) == self.max_players:
-            if self.abandon_task:
-                self.abandon_task.cancel()
-            await self.start_bracket(interaction)
-
+        self.players.append(user.id)
         return True
 
-    async def build_embed(self, guild):
+    async def build_lobby_embed(self, guild):
         embed = discord.Embed(
-            title=f"🏆 Tournament Lobby",
+            title="🏆 Tournament Lobby",
             description=f"Players joined: **{len(self.players)}/{self.max_players}**",
             color=discord.Color.orange()
         )
@@ -1385,7 +1369,7 @@ class TournamentManager(discord.ui.View):
                 name = member.display_name if member else f"User {self.players[idx]}"
                 lines.append(f"✅ {name}")
             else:
-                lines.append(f"▫️ Slot {idx + 1}: [Waiting...]")
+                lines.append(f"▫️ Slot {idx+1}: [Waiting...]")
         embed.add_field(name="Players", value="\n".join(lines))
         return embed
 
@@ -1398,16 +1382,15 @@ class TournamentManager(discord.ui.View):
         await self.run_round(interaction.guild)
 
     async def run_round(self, guild):
-        players = self.round_players
+        players = self.round_players.copy()
+        random.shuffle(players)
         self.current_matches = []
         self.winners = []
 
-        random.shuffle(players)
         for i in range(0, len(players), 2):
             if i+1 < len(players):
                 p1, p2 = players[i], players[i+1]
-
-                view = GameView(game_type=self.game_type, creator=p1, max_players=2)
+                view = GameView(game_type="singles", creator=p1, max_players=2)
                 view.players = [p1, p2]
 
                 embed = await view.build_embed(guild)
@@ -1418,30 +1401,23 @@ class TournamentManager(discord.ui.View):
                 view.message = msg
 
                 view.on_tournament_complete = self.match_complete
-
-                # ✅ Trigger betting phase immediately
                 await view.show_betting_phase()
 
                 self.current_matches.append(view)
             else:
-                # Odd player auto advances
+                # odd player auto advances
                 await self.main_thread.send(f"✅ <@{players[i]}> advances automatically!")
                 self.winners.append(players[i])
 
     async def match_complete(self, winner_id):
         self.winners.append(winner_id)
-        print(f"✅ Match complete: {winner_id}")
-
-        total_matches = len(self.current_matches)
-        if len(self.winners) >= total_matches or len(self.winners) + len(self.current_matches) >= len(self.round_players):
-            # If only one winner left, tournament done!
+        if len(self.winners) >= len(self.current_matches) + (len(self.round_players) % 2):
             if len(self.winners) == 1:
-                await self.main_thread.send(f"🏆 Tournament Champion: <@{self.winners[0]}> ! Congratulations!")
+                await self.main_thread.send(f"🏆 Tournament Champion: <@{self.winners[0]}> 🎉")
             else:
-                await self.main_thread.send(f"➡️ Next round with {len(self.winners)} players...")
                 self.round_players = self.winners.copy()
+                await self.main_thread.send(f"➡️ Next round with {len(self.round_players)} players...")
                 await self.run_round(self.main_thread.guild)
-
 
 
 class TournamentStartButtonView(discord.ui.View):
@@ -1464,21 +1440,19 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
     async def on_submit(self, interaction: discord.Interaction):
         try:
             count = int(self.player_count.value.strip())
-            if count < 4 or count > 64 or count % 2 != 0:
+            if count < 4 or count > 64:
                 raise ValueError()
         except ValueError:
-            await interaction.response.send_message("❌ Invalid number. Must be even and 4–64.", ephemeral=True)
+            await interaction.response.send_message("❌ Invalid number.", ephemeral=True)
             return
 
-        # ✅ Proper manager
-        manager = TournamentManager(creator=interaction.user.id, max_players=count)
-        embed = await manager.build_embed(interaction.guild)
-        manager.message = await interaction.channel.send(embed=embed, view=manager)
+        # Start the actual tournament lobby
+        view = GameView("tournament", interaction.user.id, count)
+        embed = await view.build_embed(interaction.guild)
+        view.message = await interaction.channel.send(embed=embed, view=view)
 
-        await interaction.response.send_message(
-            f"✅ Tournament lobby created for **{count}** players!",
-            ephemeral=True
-        )
+        await interaction.response.send_message(f"✅ Tournament lobby created for **{count}** players!", ephemeral=True)
+
 
 class Tournament:
     def __init__(self, host_id, players, channel):
@@ -2464,15 +2438,17 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 
 
 @tree.command(name="init_tournament")
-async def init_tournament(interaction: discord.Interaction):
-    """Post button to start Tournament (shows modal)"""
-    view = TournamentStartButtonView()
-    await interaction.response.send_message(
-        "🏆 Click below to configure your Tournament:",
-        view=view,
-        ephemeral=True
-    )
+@app_commands.describe(max_players="Even number of players (e.g. 4, 8, 16)")
+async def init_tournament(interaction: discord.Interaction, max_players: int = 8):
+    if max_players % 2 != 0 or max_players < 2:
+        await interaction.response.send_message("❌ Number must be even and at least 2.", ephemeral=True)
+        return
 
+    manager = TournamentManager(creator=interaction.user.id, max_players=max_players)
+    embed = await manager.build_lobby_embed(interaction.guild)
+    view = TournamentLobbyView(manager)
+    manager.message = await interaction.channel.send(embed=embed, view=view)
+    await interaction.response.send_message("✅ Tournament lobby created!", ephemeral=True)
 
 
 @tree.command(
