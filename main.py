@@ -35,6 +35,7 @@ intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+bot.tournaments = {}
 tree = bot.tree
 
 
@@ -2944,7 +2945,7 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
         f"🆔 **{user.display_name}**'s Discord ID: `{user.id}`",
         ephemeral=True  # Only the caller can see it
     )
-	
+
 
 @bot.event
 async def on_ready():
