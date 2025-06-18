@@ -1091,11 +1091,15 @@ class GameView(discord.ui.View):
             await clear_pending_game(self.game_type)
 
     async def build_embed(self, guild=None, winner=None, no_image=True):
-        embed = discord.Embed(
+        # ✅ Compute the title first
         if self.game_type == "tournament":
             title = "🏆 Tournament Lobby"
         else:
-            title=f"🎮 {self.game_type.title()} Match Lobby",
+            title = f"🎮 {self.game_type.title()} Match Lobby"
+
+        # ✅ Then build the embed using that variable
+        embed = discord.Embed(
+            title=title,
             description="Awaiting players for a new match..." if not winner else "",
             color=discord.Color.orange() if not winner else discord.Color.dark_gray(),
             timestamp=discord.utils.utcnow()
