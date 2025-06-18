@@ -1085,10 +1085,13 @@ class GameView(discord.ui.View):
 
     async def build_embed(self, guild=None, winner=None, no_image=True):
         embed = discord.Embed(
-            title=f"🎮 {self.game_type.title()} Match Lobby",
-            description="Awaiting players for a new match..." if not winner else "",
-            color=discord.Color.orange() if not winner else discord.Color.dark_gray(),
-            timestamp=discord.utils.utcnow()
+            if self.game_type == "tournament":
+                title = "🏆 Tournament Lobby"
+            else:
+                title=f"🎮 {self.game_type.title()} Match Lobby",
+                description="Awaiting players for a new match..." if not winner else "",
+                color=discord.Color.orange() if not winner else discord.Color.dark_gray(),
+                timestamp=discord.utils.utcnow()
         )
         embed.set_author(
             name="LEAGUE OF EXTRAORDINARY MISFITS",
@@ -1915,7 +1918,7 @@ class TournamentLobbyView(discord.ui.View):
             return
 
         # ✅ Again: use dummy GameView to update embed with same layout
-        dummy = GameView("singles", interaction.user.id, 2)
+        dummy = GameView("tournament", interaction.user.id, 2)
         dummy.players = self.manager.players.copy()
         dummy.max_players = self.manager.max_players
 
@@ -1960,7 +1963,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         manager.parent_channel = interaction.channel
 
         # ✅ Use dummy GameView to render embed with your standard layout
-        dummy = GameView("singles", interaction.user.id, 2)  # type doesn't matter for format
+        dummy = GameView("tournament", interaction.user.id, 2)  # type doesn't matter for format
         dummy.players = manager.players.copy()
         dummy.max_players = manager.max_players
 
@@ -1983,12 +1986,13 @@ async def init_tournament(interaction: discord.Interaction, max_players: int = 8
         await interaction.response.send_message(
             "❌ Number must be even and at least 2.", ephemeral=True
         )
+
         return
 
     manager = TournamentManager(creator=interaction.user.id, max_players=max_players)
     manager.parent_channel = interaction.channel
 
-    dummy = GameView("singles", interaction.user.id, 2)
+    dummy = GameView("tournament", interaction.user.id, 2)
     dummy.players = [interaction.user.id]
     embed = await dummy.build_embed(interaction.guild, no_image=True)
 
