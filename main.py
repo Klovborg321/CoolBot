@@ -2912,6 +2912,19 @@ class AdminSubmitScoreModal(discord.ui.Modal, title="Admin: Set Best Score"):
         )
 
 
+@tree.command(
+    name="get_user_id",
+    description="Show the Discord ID of a chosen member"
+)
+@app_commands.describe(
+    user="The user whose ID you want to get"
+)
+async def get_user_id(interaction: discord.Interaction, user: discord.User):
+    await interaction.response.send_message(
+        f"🆔 **{user.display_name}**'s Discord ID: `{user.id}`",
+        ephemeral=True  # Only the caller can see it
+    )
+	
 
 @bot.event
 async def on_ready():
