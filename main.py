@@ -2006,22 +2006,37 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
 @tree.command(name="init_tournament")
 @app_commands.describe(max_players="Even number of players (e.g. 4, 8, 16)")
 async def init_tournament(interaction: discord.Interaction, max_players: int = 8):
-    if max_players % 2 != 0 or max_players < 4:
+    if max_players % 2 != 0 or max_players < 2:
         await interaction.response.send_message(
-            "❌ Number must be even and at least 4.", ephemeral=True
+            "❌ Number must be even and at least 2.", ephemeral=True
         )
-
         return
 
     manager = TournamentManager(creator=interaction.user.id, max_players=max_players)
     manager.parent_channel = interaction.channel
 
-    dummy = GameView("tournament", interaction.user.id, max_players)
-    dummy.players = [interaction.user.id]
+    # ✅ SAME TEST_MODE logic
+    if IS_TEST_MODE:
+        for pid in TEST_PLAYER_IDS:
+            if len(manager.players) < manager.max_players and pid not in manager.players:
+                manager.players.append(pid)
+
+    dummy = GameView("tournament", interaction.user.id, 2)
+    dummy.players = manager.players.copy()
+    dummy.max_players = manager.max_players
+
     embed = await dummy.build_embed(interaction.guild, no_image=True)
 
     view = TournamentLobbyView(manager)
     manager.message = await interaction.channel.send(embed=embed, view=view)
+
+    # ✅ If lobby is full immediately, start!
+    if len(manager.players) == manager.max_players:
+        view.clear_items()
+        await manager.message.edit(view=None)
+        if manager.abandon_task:
+            manager.abandon_task.cancel()
+        await manager.start_bracket(interaction)
 
     await interaction.response.send_message(
         f"✅ Tournament lobby created for **{max_players} players!**",
