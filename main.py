@@ -781,7 +781,8 @@ class GameView(discord.ui.View):
             lobby_message=self.message,
             lobby_embed=thread_embed,
             game_view=self,
-            course_name=self.course_name
+            course_name=self.course_name,
+            course_id=self.course_id
         )
         room_view.original_embed = thread_embed.copy()
 
@@ -1003,6 +1004,7 @@ class RoomView(discord.ui.View):
 
         # ✅ Store course_name robustly:
         self.course_name = course_name or getattr(game_view, "course_name", None)
+        self.course_id = course_id or getattr(game_view, "course_id", None)
 
         self.votes = {}
         self.vote_timeout = None
