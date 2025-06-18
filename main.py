@@ -1330,11 +1330,15 @@ class TournamentManager:
         self.creator = creator
         self.players = [creator]
         self.max_players = max_players
-        self.message = None
-        self.main_thread = None
+
+        self.message = None  # main lobby message
+        self.parent_channel = None  # ✅ base text channel
+        self.main_thread = None  # bracket update thread
+
         self.current_matches = []
         self.winners = []
         self.round_players = []
+
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
 
     async def add_player(self, user):
@@ -1353,7 +1357,8 @@ class TournamentManager:
         for i in range(self.max_players):
             if i < len(self.players):
                 member = guild.get_member(self.players[i])
-                lines.append(f"✅ {member.display_name if member else self.players[i]}")
+                name = member.display_name if member else f"User {self.players[i]}"
+                lines.append(f"✅ {name}")
             else:
                 lines.append(f"▫️ Slot {i+1}: [Waiting...]")
         embed.add_field(name="Players", value="\n".join(lines))
@@ -1370,17 +1375,21 @@ class TournamentManager:
             if self.message:
                 await self.message.edit(embed=embed, view=None)
 
+            # ✅ Repost start button
+            await start_new_game_button(self.parent_channel, "tournament")
+
     async def start_bracket(self, interaction):
+        self.parent_channel = interaction.channel  # ✅ store the base text channel!
+
         self.round_players = self.players.copy()
         random.shuffle(self.round_players)
 
-        # ✅ Create parent thread for bracket
-        self.main_thread = await interaction.channel.create_thread(
+        # ✅ Create general bracket thread for announcements
+        self.main_thread = await self.parent_channel.create_thread(
             name=f"Tournament-{random.randint(1000,9999)}"
         )
         await self.main_thread.send(f"🏆 Tournament started with {len(self.players)} players!")
 
-        # ✅ Start first round
         await self.run_round(interaction.guild)
 
     async def run_round(self, guild):
@@ -1394,25 +1403,22 @@ class TournamentManager:
                 p1 = players[i]
                 p2 = players[i + 1]
 
-                # ✅ Make a *new* standard 1v1 GameView for each pair
                 view = GameView("singles", p1, 2)
                 view.players = [p1, p2]
 
                 embed = await view.build_embed(guild)
 
-                # ✅ Make a sub-thread for this match
-                match_thread = await self.main_thread.create_thread(name=f"Match-{p1}-{p2}")
+                # ✅ NEW: each match thread is created in parent channel!
+                match_thread = await self.parent_channel.create_thread(name=f"Match-{p1}-{p2}")
                 msg = await match_thread.send(embed=embed, view=view)
                 view.message = msg
 
-                # ✅ Attach callback so winner feeds back to bracket
+                # ✅ Hook so winner feeds back to bracket
                 view.on_tournament_complete = self.match_complete
 
-                # ✅ Start betting for this pair
                 await view.show_betting_phase()
 
                 self.current_matches.append(view)
-
             else:
                 # ✅ Odd player auto-advances
                 await self.main_thread.send(f"✅ <@{players[i]}> advances automatically!")
@@ -1420,14 +1426,18 @@ class TournamentManager:
 
     async def match_complete(self, winner_id):
         self.winners.append(winner_id)
-        if len(self.winners) >= len(self.current_matches) + (len(self.round_players) % 2):
+        expected = len(self.current_matches) + (len(self.round_players) % 2)
+        if len(self.winners) >= expected:
             if len(self.winners) == 1:
                 await self.main_thread.send(f"🏆 Champion: <@{self.winners[0]}> 🎉")
+
+                # ✅ After final match → repost start button
+                await start_new_game_button(self.parent_channel, "tournament")
             else:
                 self.round_players = self.winners.copy()
                 await self.main_thread.send(f"➡️ Next round with {len(self.round_players)} players...")
                 await self.run_round(self.main_thread.guild)
-    
+
     async def abandon_tournament(self, reason):
         embed = discord.Embed(
             title="❌ Tournament Abandoned",
@@ -1437,16 +1447,8 @@ class TournamentManager:
         if self.message:
             await self.message.edit(embed=embed, view=None)
 
-        # ✅ Repost the Start Tournament button!
-        await start_new_game_button(self.message.channel, "tournament")
-
-    async def match_complete(self, winner_id):
-        # same as before: when the final winner is decided:
-        if len(self.winners) == 1:
-            await self.main_thread.send(f"🏆 Champion: <@{self.winners[0]}> 🎉")
-
-            # ✅ After final match → repost Start Tournament button
-            await start_new_game_button(self.message.channel, "tournament")
+        # ✅ Repost start button
+        await start_new_game_button(self.parent_channel, "tournament")
 
 
 class TournamentStartButtonView(discord.ui.View):
@@ -1455,7 +1457,7 @@ class TournamentStartButtonView(discord.ui.View):
 
     @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary)
     async def start_tournament(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # ✅ Remove the original start button!
+        # ✅ Remove the original start button if exists
         key = (interaction.channel.id, "tournament")
         old = start_buttons.get(key)
         if old:
@@ -1465,8 +1467,9 @@ class TournamentStartButtonView(discord.ui.View):
                 pass
             start_buttons[key] = None
 
-        # ✅ Now show modal to pick players or auto set to 8
+        # ✅ Show modal to pick players or default to 8
         await interaction.response.send_modal(PlayerCountModal())
+
 
 
 class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
