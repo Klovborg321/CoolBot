@@ -1835,9 +1835,9 @@ class TournamentManager:
         self.players = [creator]
         self.max_players = max_players
 
-        self.message = None  # main lobby message
-        self.parent_channel = None  # base channel for threads
-        self.main_thread = None  # bracket announcement thread
+        self.message = None  # the main lobby message in the parent channel
+        self.parent_channel = None  # the base text channel holding threads
+        self.main_thread = None  # the main bracket thread for announcements
 
         self.current_matches = []
         self.winners = []
@@ -1865,12 +1865,14 @@ class TournamentManager:
             await start_new_game_button(self.parent_channel, "tournament")
 
     async def start_bracket(self, interaction):
-        self.parent_channel = interaction.channel
+        self.parent_channel = interaction.channel  # the base text channel
         self.round_players = self.players.copy()
         random.shuffle(self.round_players)
 
+        # ✅ Create the main bracket thread
         self.main_thread = await self.parent_channel.create_thread(
-            name=f"Tournament-{random.randint(1000,9999)}"
+            name=f"Tournament-{random.randint(1000, 9999)}",
+            type=discord.ChannelType.public_thread  # always public for visibility
         )
         await self.main_thread.send(f"🏆 Tournament started with {len(self.players)} players!")
 
@@ -1879,6 +1881,7 @@ class TournamentManager:
     async def run_round(self, guild):
         players = self.round_players.copy()
         random.shuffle(players)
+
         self.current_matches = []
         self.winners = []
         self.next_round_players = []
@@ -1893,43 +1896,41 @@ class TournamentManager:
 
                 embed = await view.build_embed(guild)
 
-                # ✅ Create match thread under the parent channel
+                # ✅ Create each match as a sibling thread in the parent channel
                 match_thread = await self.parent_channel.create_thread(
                     name=f"Match-{p1}-{p2}",
-                    type=discord.ChannelType.public_thread
+                    type=discord.ChannelType.public_thread  # or private + add_user if needed
                 )
 
-                # ✅ Link back to the main thread
+                # Link back to the main bracket thread
                 await match_thread.send(f"🏆 This match is part of {self.main_thread.mention}!")
 
                 msg = await match_thread.send(embed=embed, view=view)
                 view.message = msg
                 view.on_tournament_complete = self.match_complete
 
-                # ✅ Announce in the main thread too
+                # ✅ Announce in the main bracket thread so players can find it
                 await self.main_thread.send(
-                    f"📣 Match created: {match_thread.mention} — <@{p1}> vs <@{p2}>"
+                    f"📣 New match created: {match_thread.mention} — <@{p1}> vs <@{p2}>"
                 )
 
                 self.current_matches.append(view)
-
             else:
-                await self.main_thread.send(
-                    f"✅ <@{players[i]}> advances automatically!"
-                )
+                # Odd player — direct advance announcement in bracket thread
+                await self.main_thread.send(f"✅ <@{players[i]}> advances automatically!")
                 self.next_round_players.append(players[i])
-
-
 
     async def match_complete(self, winner_id):
         self.winners.append(winner_id)
         self.next_round_players.append(winner_id)
 
-        expected = len(self.current_matches)  # matches only, odd player already in next_round_players
+        expected_matches = len(self.current_matches)
 
-        if len(self.winners) >= expected:
+        if len(self.winners) >= expected_matches:
             if len(self.next_round_players) == 1:
-                await self.main_thread.send(f"🏆 Champion: <@{self.next_round_players[0]}> 🎉")
+                await self.main_thread.send(
+                    f"🏆 Champion: <@{self.next_round_players[0]}> 🎉"
+                )
                 await start_new_game_button(self.parent_channel, "tournament")
             else:
                 self.round_players = self.next_round_players.copy()
@@ -1937,7 +1938,6 @@ class TournamentManager:
                     f"➡️ Next round with {len(self.round_players)} players..."
                 )
                 await self.run_round(self.main_thread.guild)
-
 
 
 class TournamentLobbyView(discord.ui.View):
