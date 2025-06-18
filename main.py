@@ -1843,48 +1843,39 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
             await interaction.response.send_message("❌ Invalid score.", ephemeral=True)
             return
 
-        # Get course info
-        res = await run_db(lambda: supabase
-            .table("courses")
-            .select("course_par", "avg_par")
-            .eq("id", self.course_id)
-            .maybe_single()
-            .execute()
-        )
-
-        if not res or not res.data:
-            await interaction.response.send_message("❌ Course not found.", ephemeral=True)
-            return
-
-        avg_par = res.data.get("avg_par", res.data.get("course_par", 0))
-
-        handicap = score - avg_par
-
-        # ✅ Save player's score + handicap
+        # 1️⃣ Insert raw score
         await run_db(lambda: supabase
             .table("handicaps")
             .upsert({
                 "player_id": str(interaction.user.id),
                 "course_id": self.course_id,
                 "course_name": self.course_name,
-                "score": score,
-                "handicap": handicap
+                "score": score
             })
             .execute()
         )
 
-        # ✅ NOW recompute avg_par robustly
+        # 2️⃣ Recompute avg_par
         new_avg = await update_course_average_par(self.course_id)
 
-        print(f"[DEBUG] Updated avg_par: {new_avg}")
+        # 3️⃣ Compute correct handicap
+        handicap = score - new_avg
+
+        # 4️⃣ Update the same row
+        await run_db(lambda: supabase
+            .table("handicaps")
+            .update({"handicap": handicap})
+            .eq("player_id", str(interaction.user.id))
+            .eq("course_id", self.course_id)
+            .execute()
+        )
 
         await interaction.response.send_message(
             f"✅ Saved score: **{score}**\n"
-            f"🎯 Handicap: **{handicap:+.1f}**\n"
-            f"📊 New avg_par: **{new_avg:.1f}**",
+            f"🎯 Handicap vs avg: **{handicap:+.1f}**\n"
+            f"📊 Updated course avg: **{new_avg:.1f}**",
             ephemeral=True
         )
-
 
 
 class CourseSelect(discord.ui.Select):
