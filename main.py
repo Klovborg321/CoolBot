@@ -1823,7 +1823,6 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
     def __init__(self, course_name: str, course_id: str):
         super().__init__()
 
-        # Safely shorten long names for Discord UI
         short_name = (course_name[:30] + "...") if len(course_name) > 30 else course_name
 
         self.best_score = discord.ui.TextInput(
@@ -1839,16 +1838,16 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            # 1️⃣ Parse input
+            # ✅ Parse score
             best_score = int(self.best_score.value.strip())
         except ValueError:
             await interaction.response.send_message(
-                "❌ Invalid score — please enter a whole number.",
+                "❌ Invalid score — must be a number.",
                 ephemeral=True
             )
             return
 
-        # 2️⃣ Fetch par + avg_par
+        # ✅ Fetch course info
         res = await run_db(lambda: supabase
             .table("courses")
             .select("course_par", "avg_par")
@@ -1859,18 +1858,18 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
 
         if not res or not res.data:
             await interaction.response.send_message(
-                "❌ Course not found in the database.",
+                f"❌ Could not find course in DB.",
                 ephemeral=True
             )
             return
 
         course_par = res.data.get("course_par", 0)
-        avg_par = res.data.get("avg_par", course_par)  # fallback to par if no avg
+        avg_par = res.data.get("avg_par", course_par)
 
-        # 3️⃣ Compute simple handicap: score minus avg_par
+        # ✅ Compute handicap for this score (vs avg)
         handicap = best_score - avg_par
 
-        # 4️⃣ Save to handicaps table
+        # ✅ Save player's score + handicap
         await run_db(lambda: supabase
             .table("handicaps")
             .upsert({
@@ -1883,14 +1882,14 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
             .execute()
         )
 
-        # 5️⃣ Update the avg_par for this course
+        # ✅ NOW update course avg_par properly using your helper!
         new_avg = await update_course_average_par(self.course_id)
 
-        # 6️⃣ Confirm
+        # ✅ Confirm to user
         await interaction.response.send_message(
-            f"✅ Best score for **{self.course_name}** saved: **{best_score}**\n"
-            f"🎯 Handicap (vs avg): **{handicap:+.1f}**\n"
-            f"📊 Updated course avg score: **{new_avg:.1f}**",
+            f"✅ Score saved: **{best_score}**\n"
+            f"🎯 Handicap vs avg: **{handicap:+.1f}**\n"
+            f"📊 Updated course average: **{new_avg:.1f}**",
             ephemeral=True
         )
 
