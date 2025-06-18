@@ -1852,7 +1852,6 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
             .upsert({
                 "player_id": str(interaction.user.id),
                 "course_id": self.course_id,
-                "course_id": self.course_id,
                 "score": score
             })
             .execute()
