@@ -1886,19 +1886,23 @@ class TournamentManager:
         self.winners = []
         self.next_round_players = []
 
+        # ✅ 1️⃣ Pick ONE course for this round:
+        res = await run_db(lambda: supabase.table("courses").select("*").execute())
+        chosen = random.choice(res.data or [{}])
+        course_id = chosen.get("id")
+        course_name = chosen.get("name", "Unknown")
+        course_image = chosen.get("image_url", "")
+
+        await self.main_thread.send(
+            f"🏌️ New round starting on course: **{course_name}**"
+        )
+
+        # ✅ 2️⃣ Loop through pairs:
         for i in range(0, len(players), 2):
             if i + 1 < len(players):
                 p1 = players[i]
                 p2 = players[i + 1]
 
-                # ✅ 1️⃣ Pick a random course:
-                res = await run_db(lambda: supabase.table("courses").select("*").execute())
-                chosen = random.choice(res.data or [{}])
-                course_id = chosen.get("id")
-                course_name = chosen.get("name", "Unknown")
-                course_image = chosen.get("image_url", "")
-
-                # ✅ 2️⃣ Create the RoomView directly instead of GameView:
                 room_name = await room_name_generator.get_unique_word()
 
                 match_thread = await self.parent_channel.create_thread(
@@ -1908,19 +1912,15 @@ class TournamentManager:
 
                 players_list = [p1, p2]
 
-                # ✅ RoomView takes players, game_type, room name, course info:
                 room_view = RoomView(
                     players=players_list,
                     game_type="singles",
                     room_name=room_name,
-                    course_name=course_name,
+                    course_name=course_name,   # ✅ SAME course for this round!
                     course_id=course_id
                 )
-
-                # ✅ Optional: link bracket thread if you want for logs:
                 room_view.parent_thread = self.main_thread
 
-                # ✅ 3️⃣ Build the room embed:
                 embed = await room_view.build_lobby_end_embed(winner=None)
                 embed.title = f"Room: {room_name}"
                 embed.description = f"Course: {course_name}"
@@ -1934,12 +1934,10 @@ class TournamentManager:
                 )
                 room_view.message = msg
 
-                # ✅ Announce in main bracket thread:
                 await self.main_thread.send(
                     f"📣 New match: {match_thread.mention} — {mentions}"
                 )
 
-                # ✅ Store RoomView instead of GameView:
                 self.current_matches.append(room_view)
 
             else:
@@ -1948,25 +1946,24 @@ class TournamentManager:
                 )
                 self.next_round_players.append(players[i])
 
+            async def match_complete(self, winner_id):
+                self.winners.append(winner_id)
+                self.next_round_players.append(winner_id)
 
-        async def match_complete(self, winner_id):
-            self.winners.append(winner_id)
-            self.next_round_players.append(winner_id)
+                expected_matches = len(self.current_matches)
 
-            expected_matches = len(self.current_matches)
-
-            if len(self.winners) >= expected_matches:
-                if len(self.next_round_players) == 1:
-                    await self.main_thread.send(
-                        f"🏆 Champion: <@{self.next_round_players[0]}> 🎉"
-                    )
-                    await start_new_game_button(self.parent_channel, "tournament")
-                else:
-                    self.round_players = self.next_round_players.copy()
-                    await self.main_thread.send(
-                        f"➡️ Next round with {len(self.round_players)} players..."
-                    )
-                    await self.run_round(self.main_thread.guild)
+                if len(self.winners) >= expected_matches:
+                    if len(self.next_round_players) == 1:
+                        await self.main_thread.send(
+                            f"🏆 Champion: <@{self.next_round_players[0]}> 🎉"
+                        )
+                        await start_new_game_button(self.parent_channel, "tournament")
+                    else:
+                        self.round_players = self.next_round_players.copy()
+                        await self.main_thread.send(
+                            f"➡️ Next round with {len(self.round_players)} players..."
+                        )
+                        await self.run_round(self.main_thread.guild)
 
 
 class TournamentLobbyView(discord.ui.View):
