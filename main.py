@@ -1945,19 +1945,26 @@ class TournamentManager:
 
                 players_list = [p1, p2]
 
+                # 2️⃣ Create RoomView
                 room_view = RoomView(
                     players=players_list,
                     game_type="singles",
                     room_name=room_name,
-                    course_name=course_name,   # ✅ SAME course for this round!
+                    course_name=course_name,
                     course_id=course_id
                 )
                 room_view.parent_thread = self.main_thread
-                room_view.course_image = course_image  # 
+                room_view.course_image = course_image
 
+                # ✅ Explicitly re-set to avoid accidental mismatch:
+                room_view.players = players_list
+
+                # ✅ Also set lobby_embed to avoid .copy() error:
                 embed = await room_view.build_room_embed()
                 embed.title = f"Room: {room_name}"
                 embed.description = f"Course: {course_name}"
+
+                room_view.lobby_embed = embed  # ✅ <- add this!
 
                 mentions = " ".join(f"<@{p}>" for p in players_list)
 
