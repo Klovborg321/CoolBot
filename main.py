@@ -2852,6 +2852,78 @@ async def update_course_average_par(course_id: str):
 
     return new_avg
 
+
+@tree.command(
+    name="set_user_handicap_admin",
+    description="Admin: Set a player's best score for a course"
+)
+@app_commands.describe(
+    user="The player whose score you want to update"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def set_user_handicap_admin(interaction: discord.Interaction, user: discord.User):
+    await interaction.response.defer(ephemeral=True)
+
+    res = await run_db(lambda: supabase.table("courses").select("*").execute())
+    courses = res.data or []
+
+    if not courses:
+        await interaction.followup.send("❌ No courses found.", ephemeral=True)
+        return
+
+    # Create a view that carries the selected user
+    class AdminPaginatedCourseView(PaginatedCourseView):
+        def __init__(self, courses, target_user):
+            super().__init__(courses)
+            self.target_user = target_user
+
+        def update_children(self):
+            self.clear_items()
+            start = self.page * self.per_page
+            end = start + self.per_page
+            page_courses = self.courses[start:end]
+
+            if page_courses:
+                options = [
+                    discord.SelectOption(label=c["name"], value=str(c["id"]))
+                    for c in page_courses
+                ]
+                self.add_item(AdminCourseSelect(options, self, self.target_user))
+
+            if self.page > 0:
+                self.add_item(self.PrevButton(self))
+            if end < len(self.courses):
+                self.add_item(self.NextButton(self))
+
+    class AdminCourseSelect(PaginatedCourseSelect):
+        def __init__(self, options, parent_view, target_user):
+            super().__init__(options, parent_view)
+            self.target_user = target_user
+
+        async def callback(self, interaction: discord.Interaction):
+            course_id = self.values[0]
+            selected = next((c for c in self.view_obj.courses if str(c["id"]) == course_id), None)
+            if not selected:
+                await interaction.response.send_message("❌ Course not found.", ephemeral=True)
+                return
+
+            await interaction.response.send_modal(
+                AdminSubmitScoreModal(
+                    course_name=selected["name"],
+                    course_id=course_id,
+                    target_user=self.target_user
+                )
+            )
+
+    view = AdminPaginatedCourseView(courses, user)
+    msg = await interaction.followup.send(
+        f"Pick a course to update best score for **{user.display_name}**:",
+        view=view,
+        ephemeral=True
+    )
+    view.message = msg
+
+
 @bot.event
 async def on_ready():
     # Sync the slash commands with Discord
