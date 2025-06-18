@@ -387,29 +387,36 @@ class RoomNameGenerator:
 room_name_generator = RoomNameGenerator()
 
 
-@discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
-async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
-    if self.game_type in pending_games and pending_games[self.game_type]:
-        await interaction.response.send_message(
-            "A game of this type is already pending.", ephemeral=True)
-        return
+class GameJoinView(discord.ui.View):
+    def __init__(self, game_type, max_players):
+        super().__init__(timeout=None)
+        self.game_type = game_type
+        self.max_players = max_players
 
-    if player_manager.is_active(interaction.user.id):
-        await interaction.response.send_message(
-            "🚫 You are already in another game or have not voted yet.", ephemeral=True)
-        return
+    @discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
+    async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.game_type in pending_games and pending_games[self.game_type]:
+            await interaction.response.send_message(
+                "A game of this type is already pending.", ephemeral=True)
+            return
 
-    player_manager.activate(interaction.user.id)
+        if player_manager.is_active(interaction.user.id):
+            await interaction.response.send_message(
+                "🚫 You are already in another game or have not voted yet.", ephemeral=True)
+            return
 
-    view = GameView(self.game_type, interaction.user.id, self.max_players)
-    embed = await view.build_embed(interaction.guild, no_image=True)
+        player_manager.activate(interaction.user.id)
 
-    view.message = interaction.message   # ✅ RE-USE the same message
-    await interaction.message.edit(embed=embed, view=view)
+        view = GameView(self.game_type, interaction.user.id, self.max_players)
+        embed = await view.build_embed(interaction.guild, no_image=True)
 
-    pending_games[self.game_type] = view
+        view.message = interaction.message   # ✅ RE-USE the same message
+        await interaction.message.edit(embed=embed, view=view)
 
-    await interaction.response.send_message("✅ Game started!", ephemeral=True)
+        pending_games[self.game_type] = view
+
+        await interaction.response.send_message("✅ Game started!", ephemeral=True)
+
 
 
 class LeaveGameButton(discord.ui.Button):
