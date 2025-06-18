@@ -1885,7 +1885,7 @@ class TournamentManager:
 
                 embed = await view.build_embed(guild)
 
-                # ✅ create INSIDE the main tournament thread!
+                # ✅ CORRECT: create match threads under the parent channel, NOT inside the main thread!
                 match_thread = await self.parent_channel.create_thread(
                     name=f"Match-{p1}-{p2}",
                     type=discord.ChannelType.private_thread
@@ -1900,9 +1900,10 @@ class TournamentManager:
 
                 self.current_matches.append(view)
             else:
-                # Odd player → immediately in next round pool
+                # ✅ Send the auto-advance announcement in the main thread (bracket thread)
                 await self.main_thread.send(f"✅ <@{players[i]}> advances automatically!")
                 self.next_round_players.append(players[i])
+
 
 
     async def match_complete(self, winner_id):
