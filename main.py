@@ -1911,21 +1911,20 @@ class TournamentLobbyView(discord.ui.View):
         success = await self.manager.add_player(interaction.user)
         if not success:
             await interaction.response.send_message(
-                "You already joined or tournament is full.", ephemeral=True)
+                "You already joined or the tournament is full.", ephemeral=True)
             return
 
-        # ✅ Build an updated embed:
-        players_mentions = ", ".join(f"<@{p}>" for p in self.manager.players)
-        embed = discord.Embed(
-            title="🏆 Tournament Lobby",
-            description=f"Players: {players_mentions}",
-            color=discord.Color.gold()
-        )
-        embed.add_field(name="Slots", value=f"{len(self.manager.players)}/{self.manager.max_players}")
+        # ✅ Again: use dummy GameView to update embed with same layout
+        dummy = GameView("singles", interaction.user.id, 2)
+        dummy.players = self.manager.players.copy()
+        dummy.max_players = self.manager.max_players
+
+        embed = await dummy.build_embed(interaction.guild, no_image=True)
 
         await self.manager.message.edit(embed=embed, view=self)
         await interaction.response.send_message("✅ Joined the tournament!", ephemeral=True)
 
+        # ✅ When lobby is full, lock & start
         if len(self.manager.players) == self.manager.max_players:
             self.clear_items()
             await self.manager.message.edit(view=None)
@@ -1934,12 +1933,11 @@ class TournamentLobbyView(discord.ui.View):
             await self.manager.start_bracket(interaction)
 
 
-
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
     def __init__(self):
         super().__init__()
         self.player_count = discord.ui.TextInput(
-            label="Number of players (even number)",
+            label="Number of players (even number)", 
             placeholder="E.g. 4, 8, 16",
             required=True
         )
@@ -1957,19 +1955,18 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
             )
             return
 
-        # ✅ 1️⃣ Create TournamentManager
+        # ✅ Create the TournamentManager with desired size
         manager = TournamentManager(creator=interaction.user.id, max_players=count)
         manager.parent_channel = interaction.channel
 
-        # ✅ 2️⃣ Make a clear Tournament Lobby embed:
-        embed = discord.Embed(
-            title="🏆 Tournament Lobby",
-            description=f"Players: <@{interaction.user.id}>",
-            color=discord.Color.gold()
-        )
-        embed.add_field(name="Slots", value=f"{1}/{count}")
+        # ✅ Use dummy GameView to render embed with your standard layout
+        dummy = GameView("singles", interaction.user.id, 2)  # type doesn't matter for format
+        dummy.players = manager.players.copy()
+        dummy.max_players = manager.max_players
 
-        # ✅ 3️⃣ Send with TournamentLobbyView:
+        embed = await dummy.build_embed(interaction.guild, no_image=True)
+
+        # ✅ Create TournamentLobbyView
         view = TournamentLobbyView(manager)
         manager.message = await interaction.channel.send(embed=embed, view=view)
 
@@ -1977,7 +1974,6 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
             f"✅ Tournament lobby created for **{count} players!**",
             ephemeral=True
         )
-
 
 
 @tree.command(name="init_tournament")
