@@ -1880,8 +1880,8 @@ class TournamentManager:
         players = self.round_players.copy()
         random.shuffle(players)
         self.current_matches = []
-        self.winners = []  # holds match winners only
-        self.next_round_players = []  # holds odd carryover + match winners
+        self.winners = []
+        self.next_round_players = []
 
         for i in range(0, len(players), 2):
             if i + 1 < len(players):
@@ -1893,23 +1893,30 @@ class TournamentManager:
 
                 embed = await view.build_embed(guild)
 
-                # ✅ CORRECT: create match threads under the parent channel, NOT inside the main thread!
+                # ✅ Create match thread under the parent channel
                 match_thread = await self.parent_channel.create_thread(
                     name=f"Match-{p1}-{p2}",
-                    type=discord.ChannelType.private_thread
+                    type=discord.ChannelType.public_thread
                 )
+
+                # ✅ Link back to the main thread
+                await match_thread.send(f"🏆 This match is part of {self.main_thread.mention}!")
 
                 msg = await match_thread.send(embed=embed, view=view)
                 view.message = msg
-
                 view.on_tournament_complete = self.match_complete
 
-                #await view.show_betting_phase()
+                # ✅ Announce in the main thread too
+                await self.main_thread.send(
+                    f"📣 Match created: {match_thread.mention} — <@{p1}> vs <@{p2}>"
+                )
 
                 self.current_matches.append(view)
+
             else:
-                # ✅ Send the auto-advance announcement in the main thread (bracket thread)
-                await self.main_thread.send(f"✅ <@{players[i]}> advances automatically!")
+                await self.main_thread.send(
+                    f"✅ <@{players[i]}> advances automatically!"
+                )
                 self.next_round_players.append(players[i])
 
 
