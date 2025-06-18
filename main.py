@@ -2092,12 +2092,8 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
 
 @bot.tree.command(name="init_tournament")
 async def init_tournament(interaction: discord.Interaction):
-    await interaction.response.send_modal(
-        PlayerCountModal(
-            parent_channel=interaction.channel,
-            creator=interaction.user
-        )
-    )
+    # ✅ Just open modal, don’t create manager here
+    await interaction.response.send_modal(PlayerCountModal(parent_channel=interaction.channel, creator=interaction.user))
 
 @tree.command(name="set_user_handicap")
 async def set_user_handicap(interaction: discord.Interaction):
