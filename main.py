@@ -2853,75 +2853,64 @@ async def update_course_average_par(course_id: str):
     return new_avg
 
 
-@tree.command(
-    name="set_user_handicap_admin",
-    description="Admin: Set a player's best score for a course"
-)
-@app_commands.describe(
-    user="The player whose score you want to update"
-)
-@app_commands.checks.has_permissions(administrator=True)
-async def set_user_handicap_admin(interaction: discord.Interaction, user: discord.User):
-    await interaction.response.defer(ephemeral=True)
+class AdminSubmitScoreModal(discord.ui.Modal, title="Admin: Set Best Score"):
+    def __init__(self, course_name: str, course_id: str, target_user: discord.User):
+        super().__init__()
 
-    res = await run_db(lambda: supabase.table("courses").select("*").execute())
-    courses = res.data or []
+        self.course_name = course_name
+        self.course_id = course_id
+        self.target_user = target_user  # ✅ Carry the correct user!
 
-    if not courses:
-        await interaction.followup.send("❌ No courses found.", ephemeral=True)
-        return
+        short_name = (course_name[:30] + "...") if len(course_name) > 30 else course_name
 
-    # Create a view that carries the selected user
-    class AdminPaginatedCourseView(PaginatedCourseView):
-        def __init__(self, courses, target_user):
-            super().__init__(courses)
-            self.target_user = target_user
+        self.best_score = discord.ui.TextInput(
+            label=f"Best score for {short_name}",
+            placeholder="e.g. 44",
+            required=True
+        )
+        self.add_item(self.best_score)
 
-        def update_children(self):
-            self.clear_items()
-            start = self.page * self.per_page
-            end = start + self.per_page
-            page_courses = self.courses[start:end]
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            score = int(self.best_score.value.strip())
+        except ValueError:
+            await interaction.response.send_message("❌ Invalid score.", ephemeral=True)
+            return
 
-            if page_courses:
-                options = [
-                    discord.SelectOption(label=c["name"], value=str(c["id"]))
-                    for c in page_courses
-                ]
-                self.add_item(AdminCourseSelect(options, self, self.target_user))
+        # 1️⃣ Insert raw score for the target_user
+        await run_db(lambda: supabase
+            .table("handicaps")
+            .upsert({
+                "player_id": str(self.target_user.id),
+                "course_id": self.course_id,
+                "course_name": self.course_name,
+                "score": score
+            })
+            .execute()
+        )
 
-            if self.page > 0:
-                self.add_item(self.PrevButton(self))
-            if end < len(self.courses):
-                self.add_item(self.NextButton(self))
+        # 2️⃣ Recompute average
+        new_avg = await update_course_average_par(self.course_id)
 
-    class AdminCourseSelect(PaginatedCourseSelect):
-        def __init__(self, options, parent_view, target_user):
-            super().__init__(options, parent_view)
-            self.target_user = target_user
+        # 3️⃣ Compute & update the handicap for the same user
+        handicap = score - new_avg
 
-        async def callback(self, interaction: discord.Interaction):
-            course_id = self.values[0]
-            selected = next((c for c in self.view_obj.courses if str(c["id"]) == course_id), None)
-            if not selected:
-                await interaction.response.send_message("❌ Course not found.", ephemeral=True)
-                return
+        await run_db(lambda: supabase
+            .table("handicaps")
+            .update({"handicap": handicap})
+            .eq("player_id", str(self.target_user.id))
+            .eq("course_id", self.course_id)
+            .execute()
+        )
 
-            await interaction.response.send_modal(
-                AdminSubmitScoreModal(
-                    course_name=selected["name"],
-                    course_id=course_id,
-                    target_user=self.target_user
-                )
-            )
+        await interaction.response.send_message(
+            f"✅ Updated **{self.target_user.display_name}**:\n"
+            f"• Score: **{score}**\n"
+            f"• Handicap: **{handicap:+.1f}**\n"
+            f"• New avg par: **{new_avg:.1f}**",
+            ephemeral=True
+        )
 
-    view = AdminPaginatedCourseView(courses, user)
-    msg = await interaction.followup.send(
-        f"Pick a course to update best score for **{user.display_name}**:",
-        view=view,
-        ephemeral=True
-    )
-    view.message = msg
 
 
 @bot.event
