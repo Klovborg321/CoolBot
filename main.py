@@ -2421,7 +2421,7 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
     )
 
 
-@@tree.command(name="init_tournament")
+@tree.command(name="init_tournament")
 @app_commands.describe(max_players="Total number of players (even number)")
 async def init_tournament(interaction: discord.Interaction, max_players: int = 8):
     if max_players % 2 != 0 or max_players < 2:
