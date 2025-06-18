@@ -583,7 +583,7 @@ class GameView(discord.ui.View):
             if idx < len(self.players):
                 user_id = self.players[idx]
                 member = guild.get_member(user_id) if guild else None
-                raw_name = member.display_name if member else f"Player {idx + 1}"
+                name = member.display_name if member else f"Player {idx + 1}"
                 rank = ranks[idx]
                 hcp_txt = f" 🎯 HCP: {handicaps[idx]}" if handicaps[idx] is not None else ""
 
