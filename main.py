@@ -1,4 +1,3 @@
-
 import requests
 import discord
 from discord.ext import commands, tasks
@@ -69,6 +68,35 @@ default_template = {
 }
 
 # Helpers
+async def update_course_average_par(course_id: str):
+    """
+    Recalculate and update the avg_par for the given course_id.
+    """
+    # 1) Get all scores for this course
+    res = await run_db(lambda: supabase
+        .table("handicaps")
+        .select("score")
+        .eq("course_id", course_id)
+        .execute()
+    )
+    scores = [row["score"] for row in res.data or []]
+
+    if not scores:
+        # If no scores exist, skip update.
+        return None
+
+    new_avg = round(sum(scores) / len(scores), 1)
+
+    # 2) Update the course row
+    await run_db(lambda: supabase
+        .table("courses")
+        .update({"avg_par": new_avg})
+        .eq("id", course_id)
+        .execute()
+    )
+
+    return new_avg
+
 
 def format_page(self, guild):
     start = self.page * self.page_size
@@ -1810,17 +1838,22 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
                 "❌ Invalid score — please enter a whole number.", ephemeral=True
             )
 
-        # ✅ Upsert into your Supabase handicaps table
+        # Save the score + handicap
         await run_db(lambda: supabase
             .table("handicaps")
             .upsert({
                 "player_id": str(interaction.user.id),
                 "course_id": self.course_id,
                 "course_name": self.course_name,
-                "score": best_score
+                "score": best_score,
+                "handicap": handicap
             })
             .execute()
         )
+
+        # Update avg_par using the helper
+        new_avg = await update_course_average_par(self.course_id)
+
 
         await interaction.response.send_message(
             f"✅ Best score for **{self.course_name}** updated to **{best_score}**!",
@@ -2773,6 +2806,34 @@ async def set_course_rating(interaction: discord.Interaction):
     )
     view.message = await msg
 
+async def update_course_average_par(course_id: str):
+    """
+    Recalculate and update the avg_par for the given course_id.
+    """
+    # 1) Get all scores for this course
+    res = await run_db(lambda: supabase
+        .table("handicaps")
+        .select("score")
+        .eq("course_id", course_id)
+        .execute()
+    )
+    scores = [row["score"] for row in res.data or []]
+
+    if not scores:
+        # If no scores exist, skip update.
+        return None
+
+    new_avg = round(sum(scores) / len(scores), 1)
+
+    # 2) Update the course row
+    await run_db(lambda: supabase
+        .table("courses")
+        .update({"avg_par": new_avg})
+        .eq("id", course_id)
+        .execute()
+    )
+
+    return new_avg
 
 @bot.event
 async def on_ready():
