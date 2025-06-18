@@ -318,14 +318,6 @@ async def update_message(self, no_image=True):
         embed = await self.build_embed(self.message.guild, no_image=no_image)
         await self.message.edit(embed=embed, view=self)
 
-def fixed_width_name(name: str, width: int = 20) -> str:
-    """Truncate or pad name to exactly `width` characters."""
-    name = name.strip()
-    if len(name) > width:
-        return name[:width - 3] + "..."
-    return name.ljust(width)
-
-
 class PlayerManager:
     def __init__(self):
         self.active_players = set()
@@ -410,13 +402,12 @@ class GameJoinView(discord.ui.View):
         view = GameView(self.game_type, interaction.user.id, self.max_players)
         embed = await view.build_embed(interaction.guild, no_image=True)
 
-        view.message = interaction.message   # ✅ RE-USE the same message
+        view.message = interaction.message   # ✅ reuse the button message
         await interaction.message.edit(embed=embed, view=view)
 
         pending_games[self.game_type] = view
 
-        await interaction.response.send_message("✅ Game started!", ephemeral=True)
-
+        await interaction.response.defer()  # ✅ no new message
 
 
 class LeaveGameButton(discord.ui.Button):
@@ -593,7 +584,6 @@ class GameView(discord.ui.View):
                 user_id = self.players[idx]
                 member = guild.get_member(user_id) if guild else None
                 raw_name = member.display_name if member else f"Player {idx + 1}"
-                name = f"**{fixed_width_name(raw_name, 20)}**"
                 rank = ranks[idx]
                 hcp_txt = f" 🎯 HCP: {handicaps[idx]}" if handicaps[idx] is not None else ""
 
@@ -887,7 +877,6 @@ class BetDropdown(discord.ui.Select):
             for i, (player_id, odds) in enumerate(zip(players, [p1_odds, p2_odds]), start=1):
                 member = guild.get_member(player_id) if guild else None
                 name = member.display_name if member else f"Player {i}"
-                name = fixed_width_name(name)
                 options.append(discord.SelectOption(
                     label=f"{name} ({odds * 100:.1f}%)", value=str(i)
                 ))
@@ -913,7 +902,6 @@ class BetDropdown(discord.ui.Select):
             for i, (player_id, o) in enumerate(zip(players, odds), start=1):
                 member = guild.get_member(player_id) if guild else None
                 name = member.display_name if member else f"Player {i}"
-                name = fixed_width_name(name)
                 options.append(discord.SelectOption(
                     label=f"{name} ({o * 100:.1f}%)", value=str(i)
                 ))
@@ -1009,7 +997,6 @@ class RoomView(discord.ui.View):
         elif isinstance(winner, int):
             member = self.message.guild.get_member(winner)
             name = member.display_name if member else f"User {winner}"
-            name = fixed_width_name(name)
             embed.add_field(name="🏁 Winner", value=f"🎉 {name}", inline=False)
         elif winner in ("Team A", "Team B"):
             embed.add_field(name="🏁 Winner", value=f"🎉 {winner}", inline=False)
@@ -1358,7 +1345,6 @@ class TournamentView(discord.ui.View):
                 user_id = self.players[idx]
                 member = guild.get_member(user_id) if guild else None
                 name = f"**{member.display_name}**" if member else f"**User {user_id}**"
-                name = fixed_width_name(name)
                 rank = ranks[idx]
                 hcp = f" 🎯 HCP: {handicaps[idx]}" if handicaps[idx] not in (None, "-") else ""
 
@@ -2685,7 +2671,6 @@ async def handicap_leaderboard(interaction: discord.Interaction):
     for rank, (pid, index) in enumerate(leaderboard, start=1):
         member = interaction.guild.get_member(int(pid))
         name = member.display_name if member else f"User {pid}"
-        name = fixed_width_name(name)  # ← ✅ fixed width here
         lines.append(f"**#{rank}** — {name} | Index: `{index}`")
 
     embed.description = "\n".join(lines)
