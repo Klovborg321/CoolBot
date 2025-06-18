@@ -39,6 +39,13 @@ tree = bot.tree
 
 
 IS_TEST_MODE = os.getenv("TEST_MODE", "1") == "1"
+
+TEST_PLAYER_IDS = [
+    970268488239317023,
+    807840646764429342,
+    701689044635091124
+]
+
 start_buttons = {}  # (channel_id, game_type) => Message
 
 # Globals
@@ -1085,13 +1092,13 @@ class GameView(discord.ui.View):
 
     async def build_embed(self, guild=None, winner=None, no_image=True):
         embed = discord.Embed(
-            if self.game_type == "tournament":
-                title = "🏆 Tournament Lobby"
-            else:
-                title=f"🎮 {self.game_type.title()} Match Lobby",
-                description="Awaiting players for a new match..." if not winner else "",
-                color=discord.Color.orange() if not winner else discord.Color.dark_gray(),
-                timestamp=discord.utils.utcnow()
+        if self.game_type == "tournament":
+            title = "🏆 Tournament Lobby"
+        else:
+            title=f"🎮 {self.game_type.title()} Match Lobby",
+            description="Awaiting players for a new match..." if not winner else "",
+            color=discord.Color.orange() if not winner else discord.Color.dark_gray(),
+            timestamp=discord.utils.utcnow()
         )
         embed.set_author(
             name="LEAGUE OF EXTRAORDINARY MISFITS",
@@ -1961,6 +1968,12 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         # ✅ Create the TournamentManager with desired size
         manager = TournamentManager(creator=interaction.user.id, max_players=count)
         manager.parent_channel = interaction.channel
+
+        if IS_TEST_MODE:
+            # Add up to max_players, skipping duplicates
+            for pid in TEST_PLAYER_IDS:
+                if len(manager.players) < manager.max_players and pid not in manager.players:
+                    manager.players.append(pid)
 
         # ✅ Use dummy GameView to render embed with your standard layout
         dummy = GameView("tournament", interaction.user.id, 2)  # type doesn't matter for format
