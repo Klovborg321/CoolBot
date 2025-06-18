@@ -504,6 +504,34 @@ class BettingButtonDropdown(discord.ui.Button):
         )
 
 
+class TournamentLobbyView(discord.ui.View):
+    def __init__(self, manager):
+        super().__init__(timeout=None)
+        self.manager = manager
+
+    @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success)
+    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        success = await self.manager.add_player(interaction.user.id)
+        if not success:
+            await interaction.response.send_message("You already joined or tournament is full.", ephemeral=True)
+            return
+
+        await interaction.response.send_message("✅ Joined the tournament!", ephemeral=True)
+
+        embed = discord.Embed(
+            title="🎮 Tournament Lobby",
+            description=f"{len(self.manager.players)}/{self.manager.max_players} players joined.",
+            color=discord.Color.orange()
+        )
+        await self.manager.message.edit(embed=embed)
+
+        if len(self.manager.players) == self.manager.max_players:
+            self.clear_items()
+            await self.manager.message.edit(view=None)
+            if self.manager.abandon_task:
+                self.manager.abandon_task.cancel()
+            await self.manager.start_tournament(interaction)
+
 
 class GameView(discord.ui.View):
     def __init__(self, game_type, creator, max_players):
@@ -1297,25 +1325,30 @@ class VoteButton(discord.ui.Button):
         if len(self.view_obj.votes) == len(self.view_obj.players):
             await self.view_obj.finalize_game()
 
-# Tournament View Class
-class TournamentView(discord.ui.View):
-    def __init__(self, creator, max_players=None):
+class TournamentManager(discord.ui.View):
+    def __init__(self, creator: int, game_type="singles", max_players=8):
         super().__init__(timeout=None)
         self.creator = creator
         self.players = [creator]
         self.max_players = max_players
+        self.game_type = game_type
+
         self.message = None
+        self.main_thread = None
+        self.current_matches = []
+        self.winners = []
+
+        self.bets = []  # optional: keep bets per tournament
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
-        self.bets = []  # Store bets for the tournament
+
+    async def abandon_if_not_filled(self):
+        """Abandon if not filled within 5 minutes"""
+        await asyncio.sleep(300)
+        if len(self.players) < self.max_players:
+            await self.abandon_tournament("⏰ Tournament timed out.")
 
     async def abandon_tournament(self, reason):
-        """Handle abandonment of the tournament"""
-        global pending_game
-        pending_games["tournament"] = None
-
-        for p in self.players:
-            player_manager.deactivate(p)
-
+        """Fully abandon"""
         embed = discord.Embed(
             title="❌ Tournament Abandoned",
             description=reason,
@@ -1324,140 +1357,92 @@ class TournamentView(discord.ui.View):
         if self.message:
             await self.message.edit(embed=embed, view=None)
 
-        # Reset for new games
-        await start_new_game_button(self.message.channel, "tournament", self.max_players)
+    async def add_player(self, user_id: int, interaction: discord.Interaction):
+        """Add player & check for full"""
+        if user_id in self.players:
+            return
 
-    async def abandon_if_not_filled(self):
-        """Automatically abandon the tournament if it's not filled within 5 minutes"""
-        await asyncio.sleep(300)
-        if len(self.players) < self.max_players:
-            await self.abandon_tournament("⏰ Tournament timed out due to inactivity.")
-            await clear_pending_game("tournament")
+        self.players.append(user_id)
+        embed = await self.build_embed(interaction.guild)
+        await self.message.edit(embed=embed, view=self)
 
-    async def build_embed(self, guild=None, winner=None, no_image=False):
+        if len(self.players) == self.max_players:
+            if self.abandon_task:
+                self.abandon_task.cancel()
+            await self.start_bracket(interaction)
+
+    async def build_embed(self, guild):
         embed = discord.Embed(
-            title=f"🎮 {self.game_type.title()} Match Lobby",
-            description="Awaiting players for a new match...",
-            color=discord.Color.orange() if not winner else discord.Color.dark_gray(),
-            timestamp=discord.utils.utcnow()
+            title=f"🏆 Tournament Lobby",
+            description=f"Players joined: **{len(self.players)}/{self.max_players}**",
+            color=discord.Color.orange()
         )
-        embed.set_author(
-            name="LEAGUE OF EXTRAORDINARY MISFITS",
-            icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
-        )
-
-        # ✅ IMAGE: only if allowed + exists
-        if not no_image and getattr(self, "course_image", None):
-            embed.set_image(url=self.course_image)
-
-        # ✅ Ranks & handicaps safe
-        ranks = []
-        handicaps = []
-        # Inside your build_embed loop:
-        for p in self.players:
-            pdata = await get_player(p)
-            ranks.append(pdata.get("rank", 1000))
-
-            if not no_image:
-                res = await run_db(lambda: supabase
-                    .table("handicaps")
-                    .select("handicap")
-                    .eq("player_id", str(p))
-                    .eq("course_id", self.course_id)
-                    .maybe_single()
-                    .execute()
-                )
-                if res and res.data and "handicap" in res.data:
-                    handicap = round(res.data["handicap"], 1)
-                else:
-                    handicap = "-"
-                handicaps.append(handicap)
-            else:
-                handicaps.append(None)
-
-
-        game_full = len(self.players) == self.max_players
-
-        # ✅ Odds safe
-        odds = []
-        if self.game_type == "doubles" and game_full:
-            e1 = sum(ranks[:2]) / 2
-            e2 = sum(ranks[2:]) / 2
-            odds_a = 1 / (1 + 10 ** ((e2 - e1) / 400))
-            odds_b = 1 - odds_a
-        elif self.game_type == "triples" and game_full and ranks:
-            sum_exp = sum([10 ** (e / 400) for e in ranks])
-            odds = [(10 ** (e / 400)) / sum_exp for e in ranks]
-
-        # ✅ Player lines
-        player_lines = []
-        if self.game_type == "doubles":
-            player_lines.append("\u200b")
-            label = "__**🅰️ Team A**__"
-            if game_full:
-                label += f" • {odds_a * 100:.1f}%"
-            player_lines.append(label)
-
+        lines = []
         for idx in range(self.max_players):
             if idx < len(self.players):
-                user_id = self.players[idx]
-                member = guild.get_member(user_id) if guild else None
-                name = f"**{member.display_name}**" if member else f"**User {user_id}**"
-                name = fixed_width_name(name)
-                rank = ranks[idx]
-                hcp = f" 🎯 HCP: {handicaps[idx]}" if handicaps[idx] not in (None, "-") else ""
-
-                if self.game_type == "singles" and game_full:
-                    e1, e2 = ranks
-                    o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
-                    player_odds = o1 if idx == 0 else 1 - o1
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%{hcp}"
-                elif self.game_type == "triples" and game_full:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%{hcp}"
-                else:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}){hcp}"
+                member = guild.get_member(self.players[idx])
+                name = member.display_name if member else f"User {self.players[idx]}"
+                lines.append(f"✅ {name}")
             else:
-                line = f"○ Player {idx + 1}: [Waiting...]"
-
-            player_lines.append(line)
-
-            if self.game_type == "doubles" and idx == 1:
-                player_lines.append("\u200b")
-                label = "__**🅱️ Team B**__"
-                if game_full:
-                    label += f" • {odds_b * 100:.1f}%"
-                player_lines.append(label)
-
-        embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
-
-        # ✅ Winner footer
-        if winner == "draw":
-            embed.set_footer(text="🎮 Game has ended. Result: 🤝 Draw")
-        elif isinstance(winner, int):
-            member = guild.get_member(winner) if guild else None
-            winner_name = member.display_name if member else f"User {winner}"
-            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
-        elif winner in ("Team A", "Team B"):
-            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}")
-
-        # ✅ Bets
-        if self.bets:
-            bet_lines = []
-            for _, uname, amt, ch in self.bets:
-                if self.game_type == "singles":
-                    label = "Player 1" if ch == "1" else "Player 2"
-                elif self.game_type == "doubles":
-                    label = "Team A" if ch.upper() == "A" else "Team B"
-                elif self.game_type == "triples":
-                    label = f"Player {ch}"
-                else:
-                    label = ch
-                bet_lines.append(f"💰 {uname} bet {amt} on {label}")
-            embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
-
+                lines.append(f"▫️ Slot {idx + 1}: [Waiting...]")
+        embed.add_field(name="Players", value="\n".join(lines))
         return embed
 
+    async def start_bracket(self, interaction):
+        """Start bracket rounds"""
+        players = self.players.copy()
+        random.shuffle(players)
 
+        # Create main thread
+        self.main_thread = await interaction.channel.create_thread(
+            name=f"Tournament-{random.randint(1000,9999)}"
+        )
+        await self.main_thread.send(f"🏆 Tournament started with {len(players)} players!")
+
+        await self.run_round(players)
+
+    async def run_round(self, players):
+        """Pair up players for a round"""
+        self.current_matches = []
+        self.winners = []
+
+        random.shuffle(players)
+        for i in range(0, len(players), 2):
+            if i + 1 < len(players):
+                p1, p2 = players[i], players[i+1]
+
+                game_view = GameView(game_type=self.game_type, creator=p1, max_players=2)
+                game_view.players = [p1, p2]
+
+                embed = await game_view.build_embed(self.message.guild)
+                match_thread = await self.main_thread.create_thread(
+                    name=f"Match-{p1}-{p2}"
+                )
+                msg = await match_thread.send(embed=embed, view=game_view)
+                game_view.message = msg
+
+                # connect callback
+                game_view.on_tournament_complete = self.match_complete
+
+                self.current_matches.append(game_view)
+            else:
+                # odd player: auto advance
+                await self.main_thread.send(f"✅ <@{players[i]}> advances automatically!")
+                self.winners.append(players[i])
+
+    async def match_complete(self, winner_id):
+        """Each match reports winner here"""
+        self.winners.append(winner_id)
+        print(f"🎉 Match complete, winner: {winner_id}")
+
+        # All matches done?
+        total = len(self.current_matches)
+        if len(self.winners) >= total or len(self.winners) + len(self.current_matches) >= len(self.players):
+            if len(self.winners) == 1:
+                await self.main_thread.send(f"🏆 Tournament Champion: <@{self.winners[0]}> ! Congratulations!")
+            else:
+                await self.main_thread.send(f"➡️ Starting next round with {len(self.winners)} players...")
+                await self.run_round(self.winners.copy())
 
 
     async def update_message(self):
@@ -1496,17 +1481,21 @@ class TournamentView(discord.ui.View):
             await self.tournament_full(interaction)
 
     async def tournament_full(self, interaction):
-        """Trigger when the tournament is full and ready to start"""
-        global pending_game
-        self.clear_items()
+        """Trigger when the tournament is full"""
         if self.abandon_task:
             self.abandon_task.cancel()
 
-        await start_new_game_button(self.message.channel, "tournament", self.max_players)
+        # ✅ Clear lobby & start new tournament
         pending_games["tournament"] = None
 
-        # Start tournament after betting phase
-        await self.start_tournament(interaction)
+        # ✅ Post confirmation
+        await interaction.followup.send(
+            "✅ Tournament is full! Creating bracket and matches...",
+            ephemeral=True
+        )
+
+        # ✅ Start bracket generation
+        await self.start_tournament(interaction.channel)
 
     async def start_tournament(self, interaction):
         """Start the tournament logic"""
@@ -1571,51 +1560,57 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
 
 
 class Tournament:
-    def __init__(self, host_id, players, channel, game_type="singles"):
+    def __init__(self, host_id, players, channel):
         self.host_id = host_id
         self.players = players
         self.channel = channel
-        self.game_type = game_type
         self.round = 1
-        self.bracket = []
-        self.current_matches = []
-        self.thread = None
+        self.current_matches = []  # list of GameViews or winner IDs
 
     async def start(self):
-        # Create main tournament thread
+        # Create a new thread for the bracket chat
         self.thread = await self.channel.create_thread(name=f"Tournament {random.randint(1000, 9999)}")
-
-        await self.thread.send(f"🏆 **Tournament started!** Players: {', '.join(f'<@{p}>' for p in self.players)}")
+        await self.thread.send(f"🏆 Tournament started with players: {', '.join(f'<@{p}>' for p in self.players)}")
         await self.next_round()
 
     async def next_round(self):
         if len(self.players) == 1:
-            await self.thread.send(f"🎉 **Winner: <@{self.players[0]}>!**")
+            await self.thread.send(f"🎉 **Winner: <@{self.players[0]}>**")
             return
 
         random.shuffle(self.players)
         self.current_matches = []
+        next_round_players = []
 
         for i in range(0, len(self.players), 2):
             if i+1 < len(self.players):
-                match_players = [self.players[i], self.players[i+1]]
-                view = GameView("singles", match_players[0])
-                view.players = match_players
-                view.max_players = 2
+                p1 = self.players[i]
+                p2 = self.players[i+1]
+
+                view = GameView("singles", p1, max_players=2)
+                view.players = [p1, p2]  # override
                 embed = await view.build_embed(self.channel.guild)
                 msg = await self.thread.send(embed=embed, view=view)
                 view.message = msg
-                view.on_tournament_complete = self.match_complete  # Hook!
+
+                # Hook: when match ends → call `match_complete`
+                view.on_tournament_complete = self.match_complete
+
                 self.current_matches.append(view)
             else:
-                # Odd player advances automatically
-                await self.thread.send(f"✅ <@{self.players[i]}> advances (bye).")
-                self.current_matches.append(self.players[i])
+                # odd player → free win
+                await self.thread.send(f"✅ <@{self.players[i]}> advances automatically!")
+                next_round_players.append(self.players[i])
+
+        self.players = next_round_players  # advance odd players now
 
     async def match_complete(self, winner_id):
-        self.players = [winner_id if isinstance(m, GameView) and m.winner == winner_id else p
-                        for m, p in zip(self.current_matches, self.players)]
-        await self.next_round()
+        # winner_id comes from GameView when match finalizes
+        self.players.append(winner_id)
+        # Check if all matches in this round are done
+        if len(self.players) == len(self.current_matches) or all(isinstance(m, int) for m in self.current_matches):
+            await self.next_round()
+
 
 
 class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
@@ -2547,32 +2542,23 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
     )
 
 
-@tree.command(name="init_tournament")
-async def init_tournament(interaction: discord.Interaction):
-    """Creates a tournament game lobby with the start button"""
-
-    # Defer the interaction immediately to avoid timeout
-    await interaction.response.defer(ephemeral=True)
-
-    # Fast check if a game is already pending
-    if pending_games.get("tournament") or any(k[0] == interaction.channel.id for k in start_buttons):
-        await interaction.followup.send(
-            "⚠️ A tournament game is already pending or a button is active here.",
-            ephemeral=True
-        )
+@bot.tree.command(name="init_tournament")
+@app_commands.describe(max_players="Total number of players in the tournament (must be even)")
+async def init_tournament(interaction: discord.Interaction, max_players: int = 8):
+    if max_players % 2 != 0 or max_players < 2:
+        await interaction.response.send_message("❌ Player count must be an even number ≥ 2.", ephemeral=True)
         return
 
-    # Set max_players for tournament game
-    max_players = 4
-
-    # Create the button
-    await start_new_game_button(interaction.channel, "tournament", max_players=max_players)
-
-    # Send confirmation to the user
-    await interaction.followup.send(
-        "✅ Tournament game button posted and ready for players to join!",
-        ephemeral=True
+    manager = TournamentManager(creator=interaction.user.id, game_type="singles", max_players=max_players)
+    embed = discord.Embed(
+        title="🎮 Tournament Lobby",
+        description=f"Click Join to enter the tournament! ({len(manager.players)}/{max_players})",
+        color=discord.Color.orange()
     )
+    view = TournamentLobbyView(manager)
+    manager.message = await interaction.channel.send(embed=embed, view=view)
+    await interaction.response.send_message("🧾 Tournament lobby created!", ephemeral=True)
+
 
 
 @tree.command(
