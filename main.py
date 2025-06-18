@@ -2941,7 +2941,11 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
         f"🆔 **{user.display_name}**'s Discord ID: `{user.id}`",
         ephemeral=True  # Only the caller can see it
     )
-	
+
+bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
+
+# ✅ Add a global dictionary for tournaments
+bot.tournaments = {}
 
 @bot.event
 async def on_ready():
