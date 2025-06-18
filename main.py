@@ -1391,26 +1391,31 @@ class TournamentManager:
 
         for i in range(0, len(players), 2):
             if i + 1 < len(players):
-                p1, p2 = players[i], players[i+1]
+                p1 = players[i]
+                p2 = players[i + 1]
 
-                # ✅ Create standard 1v1 GameView!
+                # ✅ Make a *new* standard 1v1 GameView for each pair
                 view = GameView("singles", p1, 2)
                 view.players = [p1, p2]
 
                 embed = await view.build_embed(guild)
 
-                # ✅ Create match thread INSIDE parent bracket
+                # ✅ Make a sub-thread for this match
                 match_thread = await self.main_thread.create_thread(name=f"Match-{p1}-{p2}")
                 msg = await match_thread.send(embed=embed, view=view)
                 view.message = msg
 
+                # ✅ Attach callback so winner feeds back to bracket
                 view.on_tournament_complete = self.match_complete
+
+                # ✅ Start betting for this pair
                 await view.show_betting_phase()
 
                 self.current_matches.append(view)
+
             else:
-                # Odd player auto-advance
-                await self.main_thread.send(f"✅ <@{players[i]}> auto advances!")
+                # ✅ Odd player auto-advances
+                await self.main_thread.send(f"✅ <@{players[i]}> advances automatically!")
                 self.winners.append(players[i])
 
     async def match_complete(self, winner_id):
@@ -1422,7 +1427,26 @@ class TournamentManager:
                 self.round_players = self.winners.copy()
                 await self.main_thread.send(f"➡️ Next round with {len(self.round_players)} players...")
                 await self.run_round(self.main_thread.guild)
+    
+    async def abandon_tournament(self, reason):
+        embed = discord.Embed(
+            title="❌ Tournament Abandoned",
+            description=reason,
+            color=discord.Color.red()
+        )
+        if self.message:
+            await self.message.edit(embed=embed, view=None)
 
+        # ✅ Repost the Start Tournament button!
+        await start_new_game_button(self.message.channel, "tournament")
+
+    async def match_complete(self, winner_id):
+        # same as before: when the final winner is decided:
+        if len(self.winners) == 1:
+            await self.main_thread.send(f"🏆 Champion: <@{self.winners[0]}> 🎉")
+
+            # ✅ After final match → repost Start Tournament button
+            await start_new_game_button(self.message.channel, "tournament")
 
 
 class TournamentStartButtonView(discord.ui.View):
@@ -1431,6 +1455,17 @@ class TournamentStartButtonView(discord.ui.View):
 
     @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary)
     async def start_tournament(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # ✅ Remove the original start button!
+        key = (interaction.channel.id, "tournament")
+        old = start_buttons.get(key)
+        if old:
+            try:
+                await old.delete()
+            except:
+                pass
+            start_buttons[key] = None
+
+        # ✅ Now show modal to pick players or auto set to 8
         await interaction.response.send_modal(PlayerCountModal())
 
 
@@ -1438,25 +1473,32 @@ class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
     def __init__(self):
         super().__init__()
         self.player_count = discord.ui.TextInput(
-            label="Number of players (4, 8, 16...)", placeholder="4, 8, 16...", max_length=4
+            label="Number of players (4, 8, 16...)",
+            placeholder="4, 8, 16...",
+            max_length=4
         )
         self.add_item(self.player_count)
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
             count = int(self.player_count.value.strip())
-            if count < 4 or count > 64:
+            if count < 4 or count > 64 or count % 2 != 0:
                 raise ValueError()
         except ValueError:
             await interaction.response.send_message("❌ Invalid number.", ephemeral=True)
             return
 
-        # Start the actual tournament lobby
-        view = GameView("tournament", interaction.user.id, count)
-        embed = await view.build_embed(interaction.guild)
-        view.message = await interaction.channel.send(embed=embed, view=view)
+        # ✅ Create TournamentManager + LobbyView
+        manager = TournamentManager(creator=interaction.user.id, max_players=count)
+        embed = await manager.build_lobby_embed(interaction.guild)
+        view = TournamentLobbyView(manager)
+        manager.message = await interaction.channel.send(embed=embed, view=view)
 
-        await interaction.response.send_message(f"✅ Tournament lobby created for **{count}** players!", ephemeral=True)
+        await interaction.response.send_message(
+            f"✅ Tournament lobby created for **{count}** players!",
+            ephemeral=True
+        )
+
 
 
 class Tournament:
