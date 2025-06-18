@@ -721,6 +721,33 @@ class RoomView(discord.ui.View):
         self.voting_closed = False
         self.add_item(GameEndedButton(self))
 
+    async def build_room_embed(self):
+        """Builds the LIVE room embed (same as normal match embed)."""
+        embed = discord.Embed(
+            title=f"🎮 {self.game_type.title()} Match Room",
+            color=discord.Color.orange(),
+            timestamp=discord.utils.utcnow()
+        )
+
+        lines = []
+        for p in self.players:
+            pdata = await get_player(p)
+            rank = pdata.get("rank", 1000)
+            trophies = pdata.get("trophies", 0)
+
+            lines.append(f"<@{p}> | Rank: {rank} | Trophies: {trophies}")
+
+        embed.description = "\n".join(lines)
+        embed.add_field(name="🎮 Status", value="Match in progress.", inline=False)
+
+        # ✅ Show the course image if available:
+        if self.lobby_embed and self.lobby_embed.image:
+            embed.set_image(url=self.lobby_embed.image.url)
+        elif hasattr(self, "course_image") and self.course_image:
+            embed.set_image(url=self.course_image)
+
+        return embed
+
     def get_vote_options(self):
         if self.game_type in ("singles", "triples"):
             return self.players
@@ -1920,8 +1947,9 @@ class TournamentManager:
                     course_id=course_id
                 )
                 room_view.parent_thread = self.main_thread
+                room_view.course_image = course_image  # 
 
-                embed = await room_view.build_lobby_end_embed(winner=None)
+                embed = await room_view.build_room_embed()
                 embed.title = f"Room: {room_name}"
                 embed.description = f"Course: {course_name}"
 
