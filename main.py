@@ -992,7 +992,7 @@ class BetDropdown(discord.ui.Select):
 
 
 class RoomView(discord.ui.View):
-    def __init__(self, players, game_type, room_name, lobby_message=None, lobby_embed=None, game_view=None, course_name=None):
+    def __init__(self, players, game_type, room_name, lobby_message=None, lobby_embed=None, game_view=None, course_name=None, course_id=None):
         super().__init__(timeout=None)
         self.players = players
         self.game_type = game_type
