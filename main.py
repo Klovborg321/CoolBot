@@ -312,24 +312,33 @@ def player_display(user_id, data):
 
 async def start_new_game_button(channel, game_type, max_players=None):
     key = (channel.id, game_type)
+
+    # ✅ 1) Always clean up the old tracked button if it exists
     old = start_buttons.get(key)
     if old:
         try:
             await old.delete()
+            print(f"🗑️ Deleted old start button for {game_type} in #{channel.name}")
         except discord.NotFound:
-            pass
+            print(f"⚠️ Old button already deleted for {game_type} in #{channel.name}")
+        except Exception as e:
+            print(f"⚠️ Could not delete old start button: {e}")
 
+    # ✅ 2) Create and send the new button
     if game_type == "tournament":
-        # Show the tournament start button — user picks # of players later
         view = TournamentStartButtonView()
         msg = await channel.send("🏆 Click to start a **Tournament**:", view=view)
     else:
-        # Normal game join view
         view = GameJoinView(game_type, max_players)
         msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
 
+    # ✅ 3) Store the new one
     start_buttons[key] = msg
+
+    print(f"✅ New start button posted for {game_type} in #{channel.name}")
+
     return msg
+
 
 
 async def show_betting_phase(self):
