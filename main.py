@@ -2004,24 +2004,26 @@ class TournamentLobbyView(discord.ui.View):
         success = await self.manager.add_player(interaction.user)
         if not success:
             await interaction.response.send_message(
-                "❌ You already joined or the tournament is full.", ephemeral=True)
+                "You already joined or the tournament is full.", ephemeral=True)
             return
 
+        # ✅ Again: use dummy GameView to update embed with same layout
         dummy = GameView("tournament", interaction.user.id, 2)
         dummy.players = self.manager.players.copy()
         dummy.max_players = self.manager.max_players
+
         embed = await dummy.build_embed(interaction.guild, no_image=True)
 
         await self.manager.message.edit(embed=embed, view=self)
         await interaction.response.send_message("✅ Joined the tournament!", ephemeral=True)
 
+        # ✅ When lobby is full, lock & start
         if len(self.manager.players) == self.manager.max_players:
             self.clear_items()
             await self.manager.message.edit(view=None)
             if self.manager.abandon_task:
                 self.manager.abandon_task.cancel()
             await self.manager.start_bracket(interaction)
-
 
 
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
@@ -2049,33 +2051,27 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
             )
             return
 
-        # ✅ Defer immediately to avoid Unknown Interaction
         await interaction.response.defer(ephemeral=True)
 
-        # ✅ Create manager with correct values
         manager = TournamentManager(creator=self.creator.id, max_players=count)
         manager.parent_channel = self.parent_channel
+    
+        # ✅ Register manager in bot.tournaments properly:
+        interaction.client.tournaments[self.parent_channel.id] = manager
 
-        bot.tournaments[self.parent_channel.id] = manager
-
-        # ✅ Fill with test IDs if needed
         if IS_TEST_MODE:
             for pid in TEST_PLAYER_IDS:
                 if len(manager.players) < manager.max_players and pid not in manager.players:
                     manager.players.append(pid)
 
-        # ✅ Build dummy embed
         dummy = GameView("tournament", self.creator.id, 2)
         dummy.players = manager.players.copy()
         dummy.max_players = manager.max_players
 
         embed = await dummy.build_embed(interaction.guild, no_image=True)
-
-        # ✅ Create view
         view = TournamentLobbyView(manager)
         manager.message = await interaction.channel.send(embed=embed, view=view)
 
-        # ✅ If already full, start immediately
         if len(manager.players) == manager.max_players:
             view.clear_items()
             await manager.message.edit(view=None)
@@ -2083,17 +2079,19 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
                 manager.abandon_task.cancel()
             await manager.start_bracket(interaction)
 
-        # ✅ Followup since we deferred
         await interaction.followup.send(
             f"✅ Tournament lobby created for **{count} players!**",
             ephemeral=True
         )
 
 
+
 @bot.tree.command(name="init_tournament")
 async def init_tournament(interaction: discord.Interaction):
-    # ✅ Just open modal, don’t create manager here
-    await interaction.response.send_modal(PlayerCountModal(parent_channel=interaction.channel, creator=interaction.user))
+    # Always pass parent_channel & creator to modal
+    modal = PlayerCountModal(parent_channel=interaction.channel, creator=interaction.user)
+    await interaction.response.send_modal(modal)
+
 
 @tree.command(name="set_user_handicap")
 async def set_user_handicap(interaction: discord.Interaction):
@@ -2941,11 +2939,7 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
         f"🆔 **{user.display_name}**'s Discord ID: `{user.id}`",
         ephemeral=True  # Only the caller can see it
     )
-
-bot = commands.Bot(command_prefix="!", intents=discord.Intents.all())
-
-# ✅ Add a global dictionary for tournaments
-bot.tournaments = {}
+	
 
 @bot.event
 async def on_ready():
