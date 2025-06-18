@@ -1838,16 +1838,12 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            # ✅ Parse score
-            best_score = int(self.best_score.value.strip())
+            score = int(self.best_score.value.strip())
         except ValueError:
-            await interaction.response.send_message(
-                "❌ Invalid score — must be a number.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("❌ Invalid score.", ephemeral=True)
             return
 
-        # ✅ Fetch course info
+        # Get course info
         res = await run_db(lambda: supabase
             .table("courses")
             .select("course_par", "avg_par")
@@ -1857,17 +1853,12 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
         )
 
         if not res or not res.data:
-            await interaction.response.send_message(
-                f"❌ Could not find course in DB.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("❌ Course not found.", ephemeral=True)
             return
 
-        course_par = res.data.get("course_par", 0)
-        avg_par = res.data.get("avg_par", course_par)
+        avg_par = res.data.get("avg_par", res.data.get("course_par", 0))
 
-        # ✅ Compute handicap for this score (vs avg)
-        handicap = best_score - avg_par
+        handicap = score - avg_par
 
         # ✅ Save player's score + handicap
         await run_db(lambda: supabase
@@ -1876,22 +1867,24 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
                 "player_id": str(interaction.user.id),
                 "course_id": self.course_id,
                 "course_name": self.course_name,
-                "score": best_score,
+                "score": score,
                 "handicap": handicap
             })
             .execute()
         )
 
-        # ✅ NOW update course avg_par properly using your helper!
+        # ✅ NOW recompute avg_par robustly
         new_avg = await update_course_average_par(self.course_id)
 
-        # ✅ Confirm to user
+        print(f"[DEBUG] Updated avg_par: {new_avg}")
+
         await interaction.response.send_message(
-            f"✅ Score saved: **{best_score}**\n"
-            f"🎯 Handicap vs avg: **{handicap:+.1f}**\n"
-            f"📊 Updated course average: **{new_avg:.1f}**",
+            f"✅ Saved score: **{score}**\n"
+            f"🎯 Handicap: **{handicap:+.1f}**\n"
+            f"📊 New avg_par: **{new_avg:.1f}**",
             ephemeral=True
         )
+
 
 
 class CourseSelect(discord.ui.Select):
