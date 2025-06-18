@@ -1333,7 +1333,7 @@ class TournamentManager:
 
         self.message = None  # main lobby message
         self.parent_channel = None  # ✅ base text channel
-        self.main_thread = None  # bracket update thread
+        self.main_thread = None  # bracket updates
 
         self.current_matches = []
         self.winners = []
@@ -1376,17 +1376,18 @@ class TournamentManager:
                 await self.message.edit(embed=embed, view=None)
 
             # ✅ Repost start button
-            await start_new_game_button(self.parent_channel, "tournament")
+            if self.parent_channel:
+                await start_new_game_button(self.parent_channel, "tournament")
 
     async def start_bracket(self, interaction):
-        self.parent_channel = interaction.channel  # ✅ store the base text channel!
+        self.parent_channel = interaction.channel  # ✅ store text channel
 
         self.round_players = self.players.copy()
         random.shuffle(self.round_players)
 
-        # ✅ Create general bracket thread for announcements
+        # ✅ Create main bracket info thread
         self.main_thread = await self.parent_channel.create_thread(
-            name=f"Tournament-{random.randint(1000,9999)}"
+            name=f"Tournament-{random.randint(1000, 9999)}"
         )
         await self.main_thread.send(f"🏆 Tournament started with {len(self.players)} players!")
 
@@ -1403,40 +1404,42 @@ class TournamentManager:
                 p1 = players[i]
                 p2 = players[i + 1]
 
+                # ✅ fresh 1v1 GameView
                 view = GameView("singles", p1, 2)
                 view.players = [p1, p2]
 
                 embed = await view.build_embed(guild)
 
-                # ✅ NEW: each match thread is created in parent channel!
+                # ✅ CORRECT: match thread in parent channel
                 match_thread = await self.parent_channel.create_thread(name=f"Match-{p1}-{p2}")
                 msg = await match_thread.send(embed=embed, view=view)
                 view.message = msg
 
-                # ✅ Hook so winner feeds back to bracket
                 view.on_tournament_complete = self.match_complete
 
                 await view.show_betting_phase()
 
                 self.current_matches.append(view)
             else:
-                # ✅ Odd player auto-advances
+                # ✅ odd player auto-advances
                 await self.main_thread.send(f"✅ <@{players[i]}> advances automatically!")
                 self.winners.append(players[i])
 
     async def match_complete(self, winner_id):
         self.winners.append(winner_id)
         expected = len(self.current_matches) + (len(self.round_players) % 2)
+
         if len(self.winners) >= expected:
             if len(self.winners) == 1:
                 await self.main_thread.send(f"🏆 Champion: <@{self.winners[0]}> 🎉")
 
-                # ✅ After final match → repost start button
-                await start_new_game_button(self.parent_channel, "tournament")
+                # ✅ Repost start button for next tournament
+                if self.parent_channel:
+                    await start_new_game_button(self.parent_channel, "tournament")
             else:
                 self.round_players = self.winners.copy()
                 await self.main_thread.send(f"➡️ Next round with {len(self.round_players)} players...")
-                await self.run_round(self.main_thread.guild)
+                await self.run_round(self.parent_channel.guild)
 
     async def abandon_tournament(self, reason):
         embed = discord.Embed(
@@ -1447,8 +1450,9 @@ class TournamentManager:
         if self.message:
             await self.message.edit(embed=embed, view=None)
 
-        # ✅ Repost start button
-        await start_new_game_button(self.parent_channel, "tournament")
+        if self.parent_channel:
+            await start_new_game_button(self.parent_channel, "tournament")
+
 
 
 class TournamentStartButtonView(discord.ui.View):
