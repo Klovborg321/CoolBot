@@ -1904,7 +1904,7 @@ class TournamentManager:
 
                 view.on_tournament_complete = self.match_complete
 
-                await view.show_betting_phase()
+                #await view.show_betting_phase()
 
                 self.current_matches.append(view)
             else:
