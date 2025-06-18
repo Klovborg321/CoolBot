@@ -1966,8 +1966,11 @@ class TournamentLobbyView(discord.ui.View):
 
 
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
-    def __init__(self):
+    def __init__(self, parent_channel, creator):
         super().__init__()
+        self.parent_channel = parent_channel
+        self.creator = creator  # the user who started it
+
         self.player_count = discord.ui.TextInput(
             label="Number of players (even number)",
             placeholder="E.g. 4, 8, 16",
@@ -1987,24 +1990,27 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
             )
             return
 
-        # ✅ Create TournamentManager properly
-        manager = TournamentManager(creator=interaction.user.id, max_players=count)
-        manager.parent_channel = interaction.channel
+        # ✅ Defer immediately to avoid Unknown Interaction
+        await interaction.response.defer(ephemeral=True)
 
-        # ✅ Add test players if TEST_MODE is on
+        # ✅ Create manager with correct values
+        manager = TournamentManager(creator=self.creator.id, max_players=count)
+        manager.parent_channel = self.parent_channel
+
+        # ✅ Fill with test IDs if needed
         if IS_TEST_MODE:
             for pid in TEST_PLAYER_IDS:
                 if len(manager.players) < manager.max_players and pid not in manager.players:
                     manager.players.append(pid)
 
-        # ✅ Build dummy embed with GameView
-        dummy = GameView("tournament", interaction.user.id, 2)
+        # ✅ Build dummy embed
+        dummy = GameView("tournament", self.creator.id, 2)
         dummy.players = manager.players.copy()
         dummy.max_players = manager.max_players
 
         embed = await dummy.build_embed(interaction.guild, no_image=True)
 
-        # ✅ Tournament lobby view
+        # ✅ Create view
         view = TournamentLobbyView(manager)
         manager.message = await interaction.channel.send(embed=embed, view=view)
 
@@ -2016,32 +2022,19 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
                 manager.abandon_task.cancel()
             await manager.start_bracket(interaction)
 
-        await interaction.response.send_message(
+        # ✅ Followup since we deferred
+        await interaction.followup.send(
             f"✅ Tournament lobby created for **{count} players!**",
             ephemeral=True
         )
 
 
-
 @tree.command(name="init_tournament")
 async def init_tournament(interaction: discord.Interaction):
-    """Start a tournament and prompt for player count using a modal"""
-    await interaction.response.send_modal(PlayerCountModal())
-
-    # ✅ SAME TEST_MODE logic
-    if IS_TEST_MODE:
-        for pid in TEST_PLAYER_IDS:
-            if len(manager.players) < manager.max_players and pid not in manager.players:
-                manager.players.append(pid)
-
-    dummy = GameView("tournament", interaction.user.id, 2)
-    dummy.players = manager.players.copy()
-    dummy.max_players = manager.max_players
-
-    embed = await dummy.build_embed(interaction.guild, no_image=True)
-
-    view = TournamentLobbyView(manager)
-    manager.message = await interaction.channel.send(embed=embed, view=view)
+    """Start a tournament and prompt for player count with a modal"""
+    await interaction.response.send_modal(
+        PlayerCountModal(parent_channel=interaction.channel, creator=interaction.user)
+    )
 
     # ✅ If lobby is full immediately, start!
     if len(manager.players) == manager.max_players:
