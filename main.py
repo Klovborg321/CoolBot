@@ -602,7 +602,7 @@ class GameView(discord.ui.View):
                     .table("handicaps")
                     .select("handicap")
                     .eq("player_id", str(p))
-                    .eq("course_name", self.course_name)
+                    .eq("course_id", self.course_id)
                     .maybe_single()
                     .execute()
                 )
@@ -759,8 +759,9 @@ class GameView(discord.ui.View):
         await start_new_game_button(self.message.channel, self.game_type, self.max_players)
 
         # ✅ Select random course from DB
-        res = await run_db(lambda: supabase.table("courses").select("name", "image_url").execute())
+        res = await run_db(lambda: supabase.table("courses").select("id", "name", "image_url").execute())
         chosen = random.choice(res.data or [{}])
+        self.course_id = chosen.get("id")
         self.course_name = chosen.get("name", "Unknown")
         self.course_image = chosen.get("image_url", "")
 
@@ -1033,7 +1034,7 @@ class RoomView(discord.ui.View):
                     .table("handicaps")
                     .select("handicap")
                     .eq("player_id", str(p))
-                    .eq("course_name", self.course_name)
+                    .eq("course_id", self.course_id)
                     .maybe_single()
                     .execute()
                 )
@@ -1360,7 +1361,7 @@ class TournamentView(discord.ui.View):
                     .table("handicaps")
                     .select("handicap")
                     .eq("player_id", str(p))
-                    .eq("course_name", self.course_name)
+                    .eq("course_id", self.course_id)
                     .maybe_single()
                     .execute()
                 )
@@ -1849,7 +1850,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
             .upsert({
                 "player_id": str(interaction.user.id),
                 "course_id": self.course_id,
-                "course_name": self.course_name,
+                "course_id": self.course_id,
                 "score": score
             })
             .execute()
@@ -2883,7 +2884,6 @@ class AdminSubmitScoreModal(discord.ui.Modal, title="Admin: Set Best Score"):
             .upsert({
                 "player_id": str(self.target_user.id),
                 "course_id": self.course_id,
-                "course_name": self.course_name,
                 "score": score
             })
             .execute()
