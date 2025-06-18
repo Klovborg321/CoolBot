@@ -1418,33 +1418,42 @@ class TournamentStartButtonView(discord.ui.View):
 
 
 
-class PlayerCountModal(discord.ui.Modal, title="Select Number of Players"):
+class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
     def __init__(self):
         super().__init__()
         self.player_count = discord.ui.TextInput(
-            label="Number of players (4, 8, 16...)",
-            placeholder="4, 8, 16...",
-            max_length=4
+            label="Number of players (even number)", 
+            placeholder="E.g. 4, 8, 16",
+            required=True
         )
         self.add_item(self.player_count)
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
             count = int(self.player_count.value.strip())
-            if count < 4 or count > 64 or count % 2 != 0:
+            if count % 2 != 0 or count < 2:
                 raise ValueError()
         except ValueError:
-            await interaction.response.send_message("❌ Invalid number.", ephemeral=True)
+            await interaction.response.send_message(
+                "❌ Please enter an **even number** ≥ 2.", ephemeral=True
+            )
             return
 
-        # ✅ Create TournamentManager + LobbyView
+        # ✅ Create TournamentManager
         manager = TournamentManager(creator=interaction.user.id, max_players=count)
-        embed = await manager.build_lobby_embed(interaction.guild)
+        manager.parent_channel = interaction.channel
+
+        # ✅ Use a dummy GameView for consistent embed
+        dummy = GameView("singles", interaction.user.id, 2)
+        dummy.players = [interaction.user.id]
+        embed = await dummy.build_embed(interaction.guild, no_image=True)
+
+        # ✅ Tournament lobby view
         view = TournamentLobbyView(manager)
         manager.message = await interaction.channel.send(embed=embed, view=view)
 
         await interaction.response.send_message(
-            f"✅ Tournament lobby created for **{count}** players!",
+            f"✅ Tournament lobby created for **{count} players!**",
             ephemeral=True
         )
 
