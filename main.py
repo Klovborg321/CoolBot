@@ -2461,21 +2461,14 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 
 
 @tree.command(name="init_tournament")
-@app_commands.describe(max_players="Total number of players (even number)")
-async def init_tournament(interaction: discord.Interaction, max_players: int = 8):
-    if max_players % 2 != 0 or max_players < 2:
-        await interaction.response.send_message("❌ Number must be even and at least 2.", ephemeral=True)
-        return
-
-    manager = TournamentManager(creator=interaction.user.id, max_players=max_players)
-    embed = discord.Embed(
-        title="🏆 Tournament Lobby",
-        description=f"Players: 1/{max_players}\nClick Join Tournament below!",
-        color=discord.Color.orange()
+async def init_tournament(interaction: discord.Interaction):
+    """Post button to start Tournament (shows modal)"""
+    view = TournamentStartButtonView()
+    await interaction.response.send_message(
+        "🏆 Click below to configure your Tournament:",
+        view=view,
+        ephemeral=True
     )
-    view = TournamentLobbyView(manager)
-    manager.message = await interaction.channel.send(embed=embed, view=view)
-    await interaction.response.send_message("✅ Tournament lobby created!", ephemeral=True)
 
 
 
