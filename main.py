@@ -2433,8 +2433,6 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
     )
 
 
-from your_game_file import GameView  # ✅ adjust this import to where your GameView is!
-
 @tree.command(name="init_tournament")
 @app_commands.describe(max_players="Even number of players (e.g. 4, 8, 16)")
 async def init_tournament(interaction: discord.Interaction, max_players: int = 8):
@@ -2446,7 +2444,7 @@ async def init_tournament(interaction: discord.Interaction, max_players: int = 8
 
     manager = TournamentManager(creator=interaction.user.id, max_players=max_players)
 
-    # ✅ SAFE: use dummy GameView only for embed matching:
+    # ✅ Directly use GameView which you already defined in this file:
     dummy = GameView("singles", interaction.user.id, 2)
     dummy.players = [interaction.user.id]
     embed = await dummy.build_embed(interaction.guild, no_image=True)
@@ -2455,6 +2453,9 @@ async def init_tournament(interaction: discord.Interaction, max_players: int = 8
     manager.message = await interaction.channel.send(embed=embed, view=view)
     manager.parent_channel = interaction.channel
 
+    await interaction.response.send_message(
+        f"✅ Tournament lobby created for **{max_players} players!**", ephemeral=True
+    )
 
 
 
