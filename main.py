@@ -1933,7 +1933,7 @@ class TournamentManager:
                 room_name = await room_name_generator.get_unique_word()
 
                 match_thread = await self.parent_channel.create_thread(
-                    name=f"Match-{p1}-{p2}",
+                    name=f"Match-{room_name}",
                     type=discord.ChannelType.public_thread
                 )
 
