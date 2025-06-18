@@ -1288,9 +1288,9 @@ class TournamentManager:
         self.players = [creator]
         self.max_players = max_players
 
-        self.message = None  # the main lobby message
-        self.parent_channel = None  # the text channel where it started
-        self.main_thread = None  # thread for bracket updates
+        self.message = None  # main lobby message
+        self.parent_channel = None  # text channel where created
+        self.main_thread = None  # bracket announcement thread
 
         self.current_matches = []
         self.winners = []
@@ -1323,20 +1323,11 @@ class TournamentManager:
         self.round_players = self.players.copy()
         random.shuffle(self.round_players)
 
-        # ✅ Create main bracket info thread
+        # ✅ Bracket info thread
         self.main_thread = await self.parent_channel.create_thread(
             name=f"Tournament-{random.randint(1000, 9999)}"
         )
-
-        # ✅ Use GameView for consistent embed style
-        view = GameView("singles", self.creator, 2)
-        view.players = self.players.copy()
-        embed = await view.build_embed(interaction.guild, no_image=True)
-
-        await self.main_thread.send(
-            f"🏆 Tournament started with {len(self.players)} players!",
-            embed=embed
-        )
+        await self.main_thread.send(f"🏆 Tournament started with {len(self.players)} players!")
 
         await self.run_round(interaction.guild)
 
@@ -1350,24 +1341,42 @@ class TournamentManager:
             if i + 1 < len(players):
                 p1, p2 = players[i], players[i + 1]
 
+                # ✅ Use GameView for consistent embed
                 view = GameView("singles", p1, 2)
                 view.players = [p1, p2]
 
                 embed = await view.build_embed(guild)
 
+                # ✅ PRIVATE THREAD for these players only
                 match_thread = await self.parent_channel.create_thread(
-                    name=f"Match-{p1}-{p2}"
+                    name=f"Match-{p1}-{p2}",
+                    type=discord.ChannelType.private_thread
                 )
-                msg = await match_thread.send(embed=embed, view=view)
-                view.message = msg
+                # Add both players to the thread
+                member1 = guild.get_member(p1)
+                member2 = guild.get_member(p2)
+                if member1: await match_thread.add_user(member1)
+                if member2: await match_thread.add_user(member2)
 
-                view.on_tournament_complete = self.match_complete
+                # ✅ RoomView for voting & match flow
+                room_view = RoomView(
+                    players=[p1, p2],
+                    game_type="singles",
+                    room_name=f"Match-{p1}-{p2}",
+                    game_view=view
+                )
+                room_view.on_tournament_complete = self.match_complete  # feed winner back
 
+                msg = await match_thread.send(embed=embed, view=room_view)
+                room_view.message = msg
+
+                self.current_matches.append(room_view)
+
+                # ✅ Start betting in main lobby style:
                 await view.show_betting_phase()
 
-                self.current_matches.append(view)
             else:
-                # Odd player auto-advances
+                # ✅ Odd player auto-advances
                 await self.main_thread.send(f"✅ <@{players[i]}> advances automatically!")
                 self.winners.append(players[i])
 
@@ -1386,18 +1395,6 @@ class TournamentManager:
                     f"➡️ Next round with {len(self.round_players)} players..."
                 )
                 await self.run_round(self.parent_channel.guild)
-
-    async def abandon_tournament(self, reason):
-        embed = discord.Embed(
-            title="❌ Tournament Abandoned",
-            description=reason,
-            color=discord.Color.red()
-        )
-        if self.message:
-            await self.message.edit(embed=embed, view=None)
-        if self.parent_channel:
-            await start_new_game_button(self.parent_channel, "tournament")
-
 
 
 class TournamentStartButtonView(discord.ui.View):
@@ -2437,26 +2434,31 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
 
 
 @tree.command(name="init_tournament")
-@app_commands.describe(max_players="Number of players (must be even)")
+@app_commands.describe(max_players="Even number of players (e.g. 4, 8, 16)")
 async def init_tournament(interaction: discord.Interaction, max_players: int = 8):
     if max_players % 2 != 0 or max_players < 2:
         await interaction.response.send_message(
-            "❌ Number must be even and at least 2.",
-            ephemeral=True
+            "❌ Number must be even and at least 2.", ephemeral=True
         )
         return
 
+    # ✅ Create manager
     manager = TournamentManager(creator=interaction.user.id, max_players=max_players)
 
-    # ✅ Reuse GameView embed style for main lobby message
-    view = GameView("singles", interaction.user.id, 2)
-    view.players = [interaction.user.id]
-    embed = await view.build_embed(interaction.guild, no_image=True)
+    # ✅ Build same embed style as normal lobbies
+    dummy_game = GameView("singles", interaction.user.id, 2)
+    dummy_game.players = [interaction.user.id]
+    embed = await dummy_game.build_embed(interaction.guild, no_image=True)
 
-    lobby_view = TournamentLobbyView(manager)
-    manager.message = await interaction.channel.send(embed=embed, view=lobby_view)
+    # ✅ Tournament lobby view
+    view = TournamentLobbyView(manager)
+    manager.message = await interaction.channel.send(embed=embed, view=view)
+    manager.parent_channel = interaction.channel  # store base channel for safety
 
-    await interaction.response.send_message("✅ Tournament lobby created!", ephemeral=True)
+    await interaction.response.send_message(
+        f"✅ Tournament lobby created for **{max_players} players!**", ephemeral=True
+    )
+
 
 
 @tree.command(
