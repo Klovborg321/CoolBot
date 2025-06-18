@@ -2024,16 +2024,9 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
 
 
 @tree.command(name="init_tournament")
-@app_commands.describe(max_players="Even number of players (e.g. 4, 8, 16)")
-async def init_tournament(interaction: discord.Interaction, max_players: int = 8):
-    if max_players % 2 != 0 or max_players < 2:
-        await interaction.response.send_message(
-            "❌ Number must be even and at least 2.", ephemeral=True
-        )
-        return
-
-    manager = TournamentManager(creator=interaction.user.id, max_players=max_players)
-    manager.parent_channel = interaction.channel
+async def init_tournament(interaction: discord.Interaction):
+    """Start a tournament and prompt for player count using a modal"""
+    await interaction.response.send_modal(PlayerCountModal())
 
     # ✅ SAME TEST_MODE logic
     if IS_TEST_MODE:
