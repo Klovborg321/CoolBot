@@ -1944,29 +1944,40 @@ class TournamentManager:
                 self.next_round_players.append(players[i])
 
     async def match_complete(self, winner_id):
-        self.winners.append(winner_id)
-        self.next_round_players.append(winner_id)
+    self.winners.append(winner_id)
+    self.next_round_players.append(winner_id)
 
-        # ✅ Update MAIN LOBBY embed too:
-        embed = discord.Embed(
-            title="🏆 Tournament Complete",
-            description=f"**Champion:** <@{champ}>",
-            color=discord.Color.gold()
-        )
+    expected = len(self.current_matches)
 
-        expected = len(self.current_matches)
-        if len(self.winners) >= expected:
-            if len(self.next_round_players) == 1:
-                await self.main_thread.send(
-                    f"🏆 Champion: <@{self.next_round_players[0]}> 🎉"
-                )
-                await start_new_game_button(self.parent_channel, "tournament")
-            else:
-                self.round_players = self.next_round_players.copy()
-                await self.main_thread.send(
-                    f"➡️ Next round with {len(self.round_players)} players..."
-                )
-                await self.run_round(self.main_thread.guild)
+    if len(self.winners) >= expected:
+        if len(self.next_round_players) == 1:
+            champ = self.next_round_players[0]  # ✅ define champ here
+            await self.main_thread.send(
+                f"🏆 Champion: <@{champ}> 🎉"
+            )
+
+            # ✅ NOW create embed:
+            embed = discord.Embed(
+                title="🏆 Tournament Complete",
+                description=f"**Champion:** <@{champ}>",
+                color=discord.Color.gold()
+            )
+            embed.add_field(name="Status", value="Tournament has ended.", inline=False)
+
+            # ✅ Edit the main lobby message too:
+            if self.message:
+                await self.message.edit(embed=embed, view=None)
+
+            # ✅ Allow new tournaments
+            await start_new_game_button(self.parent_channel, "tournament")
+
+        else:
+            self.round_players = self.next_round_players.copy()
+            await self.main_thread.send(
+                f"➡️ Next round with {len(self.round_players)} players..."
+            )
+            await self.run_round(self.main_thread.guild)
+
 
 
 
