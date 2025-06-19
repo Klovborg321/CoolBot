@@ -2041,7 +2041,7 @@ class TournamentLobbyView(discord.ui.View):
         super().__init__(timeout=None)
         self.manager = manager
         self.creator = creator
-        self.players = [creator.id]
+        self.players = [creator]
         self.max_players = max_players
         self.message = None
         self.betting_closed = False
