@@ -1857,6 +1857,8 @@ class TournamentManager:
         self.round_players = []
         self.next_round_players = []
 
+        self.bets = []  # ✅ NEW: store live bets (uid, uname, amount, choice)
+
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
 
     async def add_player(self, user):
@@ -1877,19 +1879,15 @@ class TournamentManager:
             if self.message:
                 await self.message.edit(embed=embed, view=None)
 
-            # ✅ Deactivate all players cleanly
             for p in self.players:
                 player_manager.deactivate(p)
 
-            # ✅ Post new tournament start button
             await start_new_game_button(self.parent_channel, "tournament")
 
     async def start_bracket(self, interaction):
         self.parent_channel = interaction.channel
         self.round_players = self.players.copy()
         random.shuffle(self.round_players)
-
-        # ❌ Do NOT announce in parent channel
         await self.run_round(interaction.guild)
 
     async def run_round(self, guild):
@@ -1900,14 +1898,11 @@ class TournamentManager:
         self.winners = []
         self.next_round_players = []
 
-        # ✅ Pick one course for all matches this round
         res = await run_db(lambda: supabase.table("courses").select("*").execute())
         chosen = random.choice(res.data or [{}])
         course_id = chosen.get("id")
         course_name = chosen.get("name", "Unknown")
         course_image = chosen.get("image_url", "")
-
-        # ❌ Do NOT announce new round in parent channel
 
         for i in range(0, len(players), 2):
             if i + 1 < len(players):
@@ -1922,7 +1917,6 @@ class TournamentManager:
                     invitable=False
                 )
 
-                # ✅ Add only the 2 players
                 for pid in [p1, p2]:
                     member = guild.get_member(pid)
                     if member:
@@ -1935,7 +1929,6 @@ class TournamentManager:
                     course_name=course_name,
                     course_id=course_id
                 )
-                room_view.parent_thread = None
                 room_view.course_image = course_image
                 room_view.guild = guild
                 room_view.on_tournament_complete = self.match_complete
@@ -1954,18 +1947,15 @@ class TournamentManager:
                 )
                 room_view.message = msg
 
-                # ❌ Do NOT announce match in parent channel
                 self.current_matches.append(room_view)
 
             else:
-                # Odd player advances automatically — no announcement
                 self.next_round_players.append(players[i])
 
     async def match_complete(self, winner_id):
         self.winners.append(winner_id)
         self.next_round_players.append(winner_id)
 
-        # ✅ Figure out the loser in this match
         loser_id = None
         for match in self.current_matches:
             if winner_id in match.players:
@@ -1973,9 +1963,7 @@ class TournamentManager:
                 break
 
         if loser_id:
-            # You can mark them as inactive and update stats
             player_manager.deactivate(loser_id)
-            # ✅ Fetch loser from Supabase
             loser_data = await get_player(loser_id)
             loser_data["losses"] += 1
             loser_data["games_played"] += 1
@@ -1983,16 +1971,14 @@ class TournamentManager:
             loser_data["current_streak"] = 0
             await save_player(loser_id, loser_data)
 
-        # ✅ Fetch winner from Supabase
         winner_data = await get_player(winner_id)
         winner_data["wins"] += 1
         winner_data["games_played"] += 1
-        winner_data["rank"] += 10  # or use your elo formula!
+        winner_data["rank"] += 10
         winner_data["trophies"] += 1
         winner_data["current_streak"] += 1
         winner_data["best_streak"] = max(winner_data.get("best_streak", 0), winner_data["current_streak"])
         await save_player(winner_id, winner_data)
-
 
         expected = len(self.current_matches)
 
@@ -2000,19 +1986,42 @@ class TournamentManager:
             if len(self.next_round_players) == 1:
                 champ = self.next_round_players[0]
                 player_manager.deactivate(champ)
-                # ✅ Build final embed showing the champion
+
+                # ✅ Process tournament bets:
+                for uid, uname, amount, choice in self.bets:
+                    try:
+                        won = int(choice) == champ
+                    except:
+                        won = False
+
+                    await run_db(lambda: supabase
+                        .table("bets")
+                        .update({"won": won})
+                        .eq("player_id", uid)
+                        .eq("game_id", self.message.id)
+                        .eq("choice", choice)
+                        .execute()
+                    )
+
+                    if won:
+                        odds = 0.5  # For now: static, or store at bet time!
+                        payout = int(amount / odds)
+                        await add_credits_internal(uid, payout)
+                        print(f"💰 {uname} won! Payout: {payout}")
+                    else:
+                        print(f"❌ {uname} lost {amount}")
+
+                # ✅ Final champion embed
                 dummy = GameView("tournament", self.creator, 2)
                 dummy.players = self.players
                 dummy.max_players = self.max_players
 
                 embed = await dummy.build_embed(self.parent_channel.guild, winner=champ)
 
-                # ✅ Add footer with clear champion label
                 member = self.parent_channel.guild.get_member(champ)
                 champ_name = member.display_name if member else f"User {champ}"
                 embed.set_footer(text=f"🏆 Champion: {champ_name}")
 
-                # ✅ Edit the original lobby message only — no new post
                 if self.message:
                     await self.message.edit(embed=embed, view=None)
 
@@ -2021,11 +2030,14 @@ class TournamentManager:
                 await self.run_round(self.parent_channel.guild)
 
 
+
 class TournamentLobbyView(discord.ui.View):
     def __init__(self, manager):
         super().__init__(timeout=None)
         self.manager = manager
         self.manager.started = False  # ✅ Safeguard flag
+        self.betting_closed = False
+        self.bets = []  # ✅ Track bets for live embed
 
     @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2036,26 +2048,13 @@ class TournamentLobbyView(discord.ui.View):
             return
 
         # ✅ Rebuild embed with joined players:
-        players_lines = []
-        for pid in self.manager.players:
-            member = interaction.guild.get_member(pid)
-            display = member.display_name if member else f"ID {pid}"
-            players_lines.append(f"• {display}")
-
-        embed = discord.Embed(
-            title="🏆 Tournament Lobby",
-            description="\n".join(players_lines),
-            color=discord.Color.gold()
-        )
-        embed.add_field(name="Max Players", value=f"{self.manager.max_players}", inline=False)
-        embed.add_field(name="Status", value="Waiting for more players...", inline=False)
-
+        embed = await self.build_embed(interaction.guild)
         await self.manager.message.edit(embed=embed, view=self)
         await interaction.response.send_message("✅ Joined the tournament!", ephemeral=True)
 
         # ✅ WHEN FULL → do it right:
         if len(self.manager.players) == self.manager.max_players and not self.manager.started:
-            self.manager.started = True  # 🚫 prevent multiple brackets
+            self.manager.started = True  # prevent duplicate start
 
             if self.manager.abandon_task:
                 self.manager.abandon_task.cancel()
@@ -2065,17 +2064,46 @@ class TournamentLobbyView(discord.ui.View):
             # ✅ Start bracket immediately:
             await self.manager.start_bracket(interaction)
 
-            # ✅ Replace Join button with Bet button:
+            # ✅ Replace Join with Bet button:
             self.clear_items()
-            self.add_item(BettingButtonDropdown(self.manager))
-            embed.set_field_at(1, name="Status", value="✅ Tournament full! Matches running — place your bets!")
+            self.add_item(BettingButtonDropdown(self))
+            embed = await self.build_embed(interaction.guild, status="✅ Tournament full! Matches running — place your bets!")
             await self.manager.message.edit(embed=embed, view=self)
 
-            # ✅ Keep Bet button for 2 minutes:
+            # ✅ Keep bet button for 2 mins
             await asyncio.sleep(120)
+            self.betting_closed = True
             self.clear_items()
-            embed.set_field_at(1, name="Status", value="🕐 Betting closed. Good luck!")
+            embed = await self.build_embed(interaction.guild, status="🕐 Betting closed. Good luck!")
             await self.manager.message.edit(embed=embed, view=None)
+
+    async def build_embed(self, guild, status="Waiting for more players..."):
+        players_lines = []
+        for pid in self.manager.players:
+            member = guild.get_member(pid)
+            display = member.display_name if member else f"ID {pid}"
+            players_lines.append(f"• {display}")
+
+        embed = discord.Embed(
+            title="🏆 Tournament Lobby",
+            description="\n".join(players_lines),
+            color=discord.Color.gold()
+        )
+        embed.add_field(name="Max Players", value=f"{self.manager.max_players}", inline=False)
+        embed.add_field(name="Status", value=status, inline=False)
+
+        if self.bets:
+            bet_lines = [f"💰 {uname} bet {amt} on {choice}" for _, uname, amt, choice in self.bets]
+            embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
+
+        return embed
+
+    async def add_bet(self, user_id, user_name, amount, choice):
+        self.bets.append((user_id, user_name, amount, choice))
+        embed = await self.build_embed(self.manager.message.guild, 
+                                       status="✅ Tournament full! Matches running — place your bets!" if not self.betting_closed else "🕐 Betting closed. Good luck!")
+        await self.manager.message.edit(embed=embed, view=self if not self.betting_closed else None)
+
 
 
 
