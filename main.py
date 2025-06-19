@@ -512,9 +512,12 @@ class BettingButtonDropdown(discord.ui.Button):
         self.game_view = game_view
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)  # ✅ immediately defer!
+        if not interaction.response.is_done():
+            await interaction.response.defer(ephemeral=True)
+
         view = BettingDropdownView(self.game_view)
         await view.prepare()
+
         await interaction.followup.send(
             "Select who you want to bet on:",
             view=view,
