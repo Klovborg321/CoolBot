@@ -344,13 +344,9 @@ async def start_new_game_button(channel, game_type, max_players=None):
         view = GameJoinView(game_type, max_players)
         msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
 
-        # ✅ If full from test players, trigger `game_full` immediately
+        # ✅ Auto start if prefilled
         if len(view.players) >= view.max_players:
-            # Fake interaction with minimal fields
-            class Dummy:
-                channel = channel
-                guild = getattr(channel, "guild", None)
-            await view.game_full(Dummy())
+            await view.game_full(None)
 
     # ✅ 3) Store the new one
     start_buttons[key] = msg
@@ -489,6 +485,10 @@ class GameJoinView(discord.ui.View):
             pass
 
         await interaction.response.send_message("✅ Game started!", ephemeral=True)
+
+        # ✅ If already full (e.g. test-mode prefill), run game_full now
+        if len(self.game_view.players) >= self.game_view.max_players:
+            await self.game_view.game_full(None)
 
 
 class LeaveGameButton(discord.ui.Button):
@@ -1115,14 +1115,6 @@ class GameView(discord.ui.View):
         # ✅ Add Leave button if not yet full
         if len(self.players) < self.max_players:
             self.add_item(LeaveGameButton(self))
-
-        # ✅ If FULL immediately → skip lobby, create match room automatically
-        asyncio.create_task(self.check_full_on_create())
-
-    async def check_full_on_create(self):
-        await asyncio.sleep(0)  # allow message attach
-        if len(self.players) >= self.max_players and self.message:
-            await self.game_full(None)
 
     @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
