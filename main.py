@@ -1348,37 +1348,38 @@ class GameView(discord.ui.View):
         if not self.bets:
             return "No bets placed yet."
 
-        lines = []
         guild = self.message.guild if self.message else None
+        lines = []
 
         for _, uname, amt, ch in self.bets:
-            label = str(ch)  # fallback
+            label = str(ch)
 
             if self.game_type == "doubles":
-                label = "Team A" if ch.upper() == "A" else "Team B"
+                label = f"Team {normalize_team(ch)}"
 
             elif self.game_type in ("singles", "triples", "tournament"):
                 try:
                     val = int(ch)
-                    # Try to find matching player ID:
-                    player_id = None
+                    # If it's an exact player ID
                     if val in self.players:
                         player_id = val
                     elif (val - 1) < len(self.players):
                         player_id = self.players[val - 1]
+                    else:
+                        player_id = None
 
                     if player_id:
-                        if guild:
-                            member = guild.get_member(player_id)
-                            label = member.display_name if member else f"Player {val}"
-                        else:
-                            label = f"Player {val}"
+                        member = guild.get_member(player_id) if guild else None
+                        label = member.display_name if member else f"Player {val}"
+
                 except ValueError:
-                    pass  # if ch is not int-like, keep fallback
+                    # Not a number, fallback raw
+                    label = str(ch)
 
             lines.append(f"**{uname}** bet {amt} on **{label}**")
 
         return "\n".join(lines)
+
 
 
     async def show_betting_phase(self):
