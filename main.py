@@ -1967,7 +1967,7 @@ class TournamentManager:
                 await self.message.edit(embed=embed, view=None)
 
                 # ✅ Allow new tournaments
-            await start_new_game_button(self.parent_channel, "tournament")
+                await start_new_game_button(self.parent_channel, "tournament")
 
             else:
                 self.round_players = self.next_round_players.copy()
