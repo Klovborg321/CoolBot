@@ -722,7 +722,7 @@ class RoomView(discord.ui.View):
         self.voting_closed = False
         self.add_item(GameEndedButton(self))
 
-    async def build_room_embed(self, guild):
+    async def build_room_embed(self, guild=None):
         """Builds the LIVE room embed (same as normal match embed)."""
         embed = discord.Embed(
             title=f"🎮 {self.game_type.title()} Match Room",
@@ -1955,10 +1955,10 @@ class TournamentManager:
                 )
                 room_view.parent_thread = self.main_thread
                 room_view.course_image = course_image
-
+                room_view.guild = guild  # ✅ store it once!
 
                 # ✅ Also set lobby_embed to avoid .copy() error:
-                embed = await room_view.build_room_embed(guild)
+                embed = await room_view.build_room_embed()
                 embed.title = f"Room: {room_name}"
                 embed.description = f"Course: {course_name}"
 
