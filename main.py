@@ -1853,7 +1853,7 @@ class TournamentManager:
         self.max_players = max_players
 
         self.message = None           # the main lobby message in parent channel
-        self.parent_channel = None    # the parent text channel (NO bracket thread)
+        self.parent_channel = None    # the parent text channel
 
         self.current_matches = []
         self.winners = []
@@ -1885,11 +1885,7 @@ class TournamentManager:
         self.round_players = self.players.copy()
         random.shuffle(self.round_players)
 
-        # ✅ Announce in parent channel
-        await self.parent_channel.send(
-            f"🏆 Tournament started with {len(self.players)} players!"
-        )
-
+        # ❌ Do NOT announce in parent channel
         await self.run_round(interaction.guild)
 
     async def run_round(self, guild):
@@ -1900,16 +1896,14 @@ class TournamentManager:
         self.winners = []
         self.next_round_players = []
 
-        # ✅ Pick one course
+        # ✅ Pick one course for all matches this round
         res = await run_db(lambda: supabase.table("courses").select("*").execute())
         chosen = random.choice(res.data or [{}])
         course_id = chosen.get("id")
         course_name = chosen.get("name", "Unknown")
         course_image = chosen.get("image_url", "")
 
-        await self.parent_channel.send(
-            f"🏌️ New round starting on course: **{course_name}**"
-        )
+        # ❌ Do NOT announce new round in parent channel
 
         for i in range(0, len(players), 2):
             if i + 1 < len(players):
@@ -1924,7 +1918,7 @@ class TournamentManager:
                     invitable=False
                 )
 
-                # ✅ Add only the 2 players to the private thread
+                # ✅ Add only the 2 players
                 for pid in [p1, p2]:
                     member = guild.get_member(pid)
                     if member:
@@ -1937,7 +1931,7 @@ class TournamentManager:
                     course_name=course_name,
                     course_id=course_id
                 )
-                room_view.parent_thread = None  # no bracket thread
+                room_view.parent_thread = None
                 room_view.course_image = course_image
                 room_view.guild = guild
                 room_view.on_tournament_complete = self.match_complete
@@ -1956,17 +1950,11 @@ class TournamentManager:
                 )
                 room_view.message = msg
 
-                await self.parent_channel.send(
-                    f"📣 New match: {match_thread.mention} — {mentions}"
-                )
-
+                # ❌ Do NOT announce match in parent channel
                 self.current_matches.append(room_view)
 
             else:
-                # Odd player advances automatically
-                await self.parent_channel.send(
-                    f"✅ <@{players[i]}> advances automatically!"
-                )
+                # Odd player advances automatically — no announcement
                 self.next_round_players.append(players[i])
 
     async def match_complete(self, winner_id):
@@ -1979,11 +1967,11 @@ class TournamentManager:
             if len(self.next_round_players) == 1:
                 champ = self.next_round_players[0]
 
+                # ✅ Champion announcement ONLY now
                 await self.parent_channel.send(
                     f"🏆 Champion: <@{champ}> 🎉"
                 )
 
-                # ✅ Consistent final lobby embed
                 dummy = GameView("tournament", self.creator, 2)
                 dummy.players = self.players
                 dummy.max_players = self.max_players
@@ -1997,10 +1985,9 @@ class TournamentManager:
 
             else:
                 self.round_players = self.next_round_players.copy()
-                await self.parent_channel.send(
-                    f"➡️ Next round with {len(self.round_players)} players..."
-                )
+                # ❌ Do NOT announce next round
                 await self.run_round(self.parent_channel.guild)
+
 
 
 class TournamentLobbyView(discord.ui.View):
