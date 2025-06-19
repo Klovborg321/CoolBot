@@ -453,6 +453,7 @@ class GameJoinView(discord.ui.View):
 
     @discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
     async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
         # ✅ Block duplicate games of the same type
         if self.game_type in pending_games and pending_games[self.game_type]:
             await interaction.response.send_message(
@@ -1212,7 +1213,7 @@ class GameView(discord.ui.View):
         title = "🏆 Tournament Lobby" if self.game_type == "tournament" else f"🎮 {self.game_type.title()} Match Lobby"
 
         if len(self.players) == self.max_players:
-            description="match full!"
+            description="A match has been created, betting is open for 2 min.!"
         else:
             description="Awaiting players for a new match..."
         embed = discord.Embed(
@@ -1491,7 +1492,7 @@ class GameView(discord.ui.View):
         # ✅ MAIN LOBBY embed — NO image, mark thread info
         lobby_embed = await self.build_embed(interaction.guild, no_image=True)
         lobby_embed.title = f"{self.game_type.title()} Game lobby!"
-        lobby_embed.description = "A match has been created, betting is open"
+        lobby_embed.description = "A match has been created, betting is open for 2 min."
         lobby_embed.color = discord.Color.orange()
 
         # ✅ Replace Join/Leave with Bet button:
