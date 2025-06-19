@@ -1357,24 +1357,23 @@ class GameView(discord.ui.View):
             if self.game_type == "doubles":
                 label = f"Team {normalize_team(ch)}"
 
-            elif self.game_type in ("singles", "triples", "tournament"):
+            else:
                 try:
                     val = int(ch)
-                    # If it's an exact player ID
+                    # Exact player ID?
                     if val in self.players:
-                        player_id = val
+                        member = guild.get_member(val) if guild else None
+                        label = member.display_name if member else f"Player {val}"
+
+                    # Index style? (1, 2, 3...)
                     elif (val - 1) < len(self.players):
                         player_id = self.players[val - 1]
-                    else:
-                        player_id = None
-
-                    if player_id:
                         member = guild.get_member(player_id) if guild else None
                         label = member.display_name if member else f"Player {val}"
 
                 except ValueError:
-                    # Not a number, fallback raw
-                    label = str(ch)
+                    # Not a number, fallback
+                    pass
 
             lines.append(f"**{uname}** bet {amt} on **{label}**")
 
