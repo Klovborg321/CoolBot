@@ -824,13 +824,16 @@ class RoomView(discord.ui.View):
 
         self.clear_items()
         options = self.get_vote_options()
+
         for option in options:
             if isinstance(option, int):
                 member = self.message.guild.get_member(option)
-                label = member.display_name if member else f"User {option}"
+                name = member.display_name if member else f"User {option}"
             else:
-                label = option
-            self.add_item(VoteButton(option, self, label))
+                name = option
+
+        label = f"Vote {name}"   # ✅ Add prefix for clarity
+        self.add_item(VoteButton(option, self, label))
 
         await self.message.edit(view=self)
         self.vote_timeout = asyncio.create_task(self.end_voting_after_timeout())
@@ -1016,7 +1019,7 @@ class GameEndedButton(discord.ui.Button):
 class VoteButton(discord.ui.Button):
     def __init__(self, value, view, label):
         super().__init__(label=label, style=discord.ButtonStyle.primary)
-        self.value = value               # the vote choice (player ID or Team A/B)
+        self.value = value               # player ID or "Team A/B"
         self.view_obj = view             # the RoomView instance
 
     async def callback(self, interaction: discord.Interaction):
@@ -1024,13 +1027,10 @@ class VoteButton(discord.ui.Button):
             await interaction.response.send_message("❌ Voting has ended.", ephemeral=True)
             return
 
-        # ✅ Save the vote in the RoomView memory
+        # ✅ Save the vote
         self.view_obj.votes[interaction.user.id] = self.value
 
-        # ✅ Optional: You can store this vote in Supabase too if you want an audit log
-        # Example: await run_db(lambda: supabase.table("votes").insert({...})
-
-        # ✅ Prepare feedback text
+        # ✅ Feedback text
         voter = interaction.guild.get_member(interaction.user.id)
         if isinstance(self.value, int):
             voted_for = interaction.guild.get_member(self.value)
@@ -1039,19 +1039,17 @@ class VoteButton(discord.ui.Button):
             voted_name = self.value
 
         await interaction.response.send_message(
-            f"✅ {voter.display_name} voted for **{voted_name}**.",
-            ephemeral=False
+            f"✅ You voted for **{voted_name}**.",
+            ephemeral=True  # ✅ Make this ephemeral for cleanliness
         )
 
-        # ✅ Mark this player as free to join other games again
+        # ✅ Mark player as free to join other games
         player_manager.deactivate(interaction.user.id)
 
-        # ✅ Optionally update player data in Supabase (for advanced audit)
-        # For example, you could store that this user has voted, or log timestamp.
-
-        # ✅ If everyone voted, finalize immediately
+        # ✅ If everyone voted or test mode, finalize
         if IS_TEST_MODE or len(self.view_obj.votes) == len(self.view_obj.players):
             await self.view_obj.finalize_game()
+
 
 
 class TournamentStartButtonView(discord.ui.View):
