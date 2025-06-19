@@ -1210,9 +1210,13 @@ class GameView(discord.ui.View):
         # Title
         title = "🏆 Tournament Lobby" if self.game_type == "tournament" else f"🎮 {self.game_type.title()} Match Lobby"
 
+        if len(self.players) == self.max_players:
+            description="match full!"
+        else:
+            description="Awaiting players for a new match..."
         embed = discord.Embed(
             title=title,
-            description="Awaiting players for a new match..." if not winner else "",
+            description=description if not winner else "",
             color=discord.Color.orange() if not winner else discord.Color.dark_gray(),
             timestamp=discord.utils.utcnow()
         )
@@ -1487,7 +1491,7 @@ class GameView(discord.ui.View):
 
         # ✅ MAIN LOBBY embed — NO image, mark thread info
         lobby_embed = await self.build_embed(interaction.guild, no_image=True)
-        lobby_embed.title = f"{self.game_type.title()} Match Created!"
+        lobby_embed.title = f"{self.game_type.title()} Game lobby!"
         lobby_embed.description = "A match has been created"
         lobby_embed.color = discord.Color.orange()
 
