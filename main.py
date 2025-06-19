@@ -723,31 +723,43 @@ class RoomView(discord.ui.View):
         self.add_item(GameEndedButton(self))
 
     async def build_room_embed(self, guild=None):
-        """Builds the LIVE room embed (same as normal match embed)."""
+        guild = guild or self.guild or (self.message.guild if self.message else None)
+        assert guild, "Guild is missing for RoomView!"
+
         embed = discord.Embed(
             title=f"🎮 {self.game_type.title()} Match Room",
             color=discord.Color.orange(),
             timestamp=discord.utils.utcnow()
         )
 
+        # ✅ 1️⃣ Show course name FIRST in description
+        embed.description = f"🏌️ Course: **{self.course_name}**"
+
+        # ✅ 2️⃣ Build detailed player lines
         lines = []
         for p in self.players:
             pdata = await get_player(p)
             rank = pdata.get("rank", 1000)
             trophies = pdata.get("trophies", 0)
 
-            lines.append(f"<@{p}> | Rank: {rank} | Trophies: {trophies}")
+            member = guild.get_member(p)
+            name = member.display_name if member else f"ID {p}"
+            lines.append(f"• **{name}** — Rank: {rank}, 🏆 {trophies}")
 
-        embed.description = "\n".join(lines)
+        # ✅ 3️⃣ Add Players field BELOW description
+        embed.add_field(name="👥 Players", value="\n".join(lines), inline=False)
+
+        # ✅ 4️⃣ Add status field
         embed.add_field(name="🎮 Status", value="Match in progress.", inline=False)
 
-        # ✅ Show the course image if available:
+        # ✅ 5️⃣ Add course image if available
         if self.lobby_embed and self.lobby_embed.image:
             embed.set_image(url=self.lobby_embed.image.url)
-        elif hasattr(self, "course_image") and self.course_image:
+        elif getattr(self, "course_image", None):
             embed.set_image(url=self.course_image)
 
         return embed
+
 
     def get_vote_options(self):
         if self.game_type in ("singles", "triples"):
