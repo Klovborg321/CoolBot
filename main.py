@@ -2203,7 +2203,8 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         dummy.max_players = manager.max_players
 
         embed = await dummy.build_embed(interaction.guild, no_image=True)
-        view = TournamentLobbyView(manager)
+        view = TournamentLobbyView(manager, creator=self.creator.id, max_players=count)
+        manager.view = view  # good practice
         manager.message = await interaction.channel.send(embed=embed, view=view)
 
         # ✅ If test filled to full, auto start
