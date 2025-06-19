@@ -887,7 +887,9 @@ class RoomView(discord.ui.View):
 
         self.voting_closed = True
         # ✅ REMOVE betting button:
+        self.betting_closed = True
         self.clear_items()
+        await self.message.edit(embed=new_embed, view=self)
 
         # ✅ 1️⃣ Update player stats & handle draw
         if winner == "draw":
