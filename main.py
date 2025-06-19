@@ -2060,6 +2060,8 @@ class TournamentLobbyView(discord.ui.View):
             if self.manager.abandon_task:
                 self.manager.abandon_task.cancel()
 
+            pending_games["tournament"] = None
+
             # ✅ POST NEW start tournament button (simulate /init_tournament)
             await start_new_game_button(interaction.channel, "tournament")
 
