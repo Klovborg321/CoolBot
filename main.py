@@ -881,7 +881,6 @@ class RoomView(discord.ui.View):
                 await self.lobby_message.edit(embed=lobby_embed, view=None)
 
             await self.message.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
-            await asyncio.sleep(30)
             await self.message.channel.edit(archived=True)
             return
 
@@ -1947,6 +1946,13 @@ class TournamentManager:
     async def match_complete(self, winner_id):
         self.winners.append(winner_id)
         self.next_round_players.append(winner_id)
+
+        # ✅ Update MAIN LOBBY embed too:
+        embed = discord.Embed(
+            title="🏆 Tournament Complete",
+            description=f"**Champion:** <@{champ}>",
+            color=discord.Color.gold()
+        )
 
         expected = len(self.current_matches)
         if len(self.winners) >= expected:
