@@ -1108,6 +1108,7 @@ class GameView(discord.ui.View):
         self.game_type = game_type
         self.creator = creator
         self.players = [creator]
+        self.max_players = max_players
         # ✅ Auto-fill with test players if in TEST_MODE
         if IS_TEST_MODE:
             for pid in TEST_PLAYER_IDS:
@@ -1115,8 +1116,7 @@ class GameView(discord.ui.View):
                     self.players.append(pid)
                     player_manager.activate(pid)
                     if len(self.players) >= self.max_players:
-                        break
-        self.max_players = max_players
+                        break        
         self.message = None
         self.betting_closed = False
         self.bets = []
