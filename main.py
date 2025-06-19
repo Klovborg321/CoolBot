@@ -2014,24 +2014,24 @@ class TournamentManager:
                 )
                 self.next_round_players.append(players[i])
 
-            async def match_complete(self, winner_id):
-                self.winners.append(winner_id)
-                self.next_round_players.append(winner_id)
+    async def match_complete(self, winner_id):
+        self.winners.append(winner_id)
+        self.next_round_players.append(winner_id)
 
-                expected_matches = len(self.current_matches)
+        expected_matches = len(self.current_matches)
 
-                if len(self.winners) >= expected_matches:
-                    if len(self.next_round_players) == 1:
-                        await self.main_thread.send(
-                            f"🏆 Champion: <@{self.next_round_players[0]}> 🎉"
-                        )
-                        await start_new_game_button(self.parent_channel, "tournament")
-                    else:
-                        self.round_players = self.next_round_players.copy()
-                        await self.main_thread.send(
-                            f"➡️ Next round with {len(self.round_players)} players..."
-                        )
-                        await self.run_round(self.main_thread.guild)
+        if len(self.winners) >= expected_matches:
+            if len(self.next_round_players) == 1:
+                await self.main_thread.send(
+                    f"🏆 Champion: <@{self.next_round_players[0]}> 🎉"
+                )
+                await start_new_game_button(self.parent_channel, "tournament")
+            else:
+                self.round_players = self.next_round_players.copy()
+                await self.main_thread.send(
+                    f"➡️ Next round with {len(self.round_players)} players..."
+                )
+                await self.run_round(self.main_thread.guild)
 
 
 class TournamentLobbyView(discord.ui.View):
