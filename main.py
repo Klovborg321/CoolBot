@@ -469,7 +469,7 @@ class GameJoinView(discord.ui.View):
         player_manager.activate(interaction.user.id)
 
         # Pass max_players to the GameView initialization
-        view = GameView(self.game_type, interaction.user.id, self.max_players)
+        view = GameView(self.game_type, interaction.user.id, self.max_players, interaction.channel)
 
         # ✅ TEST MODE: auto-fill dummy players
         if IS_TEST_MODE:
@@ -1122,6 +1122,7 @@ class GameView(discord.ui.View):
         self.creator = creator
         self.players = [creator]
         self.max_players = max_players
+        self.channel = channel  # ✅ store early
         self.message = None
         self.betting_closed = False
         self.bets = []
@@ -1409,7 +1410,7 @@ class GameView(discord.ui.View):
 
         # ✅ Mark no more pending game for this type
         pending_games[self.game_type] = None
-        await save_pending_game(self.game_type, self.players, self.message.channel.id, self.max_players)
+        await save_pending_game(self.game_type, self.players, self.channel.id, self.max_players)
 
         await start_new_game_button(self.message.channel, self.game_type, self.max_players)
 
