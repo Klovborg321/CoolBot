@@ -886,6 +886,8 @@ class RoomView(discord.ui.View):
             winner = most_common[0][0]
 
         self.voting_closed = True
+        # ✅ REMOVE betting button:
+        self.clear_items()
 
         # ✅ 1️⃣ Update player stats & handle draw
         if winner == "draw":
