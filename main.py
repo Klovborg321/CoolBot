@@ -512,18 +512,25 @@ class BettingButtonDropdown(discord.ui.Button):
         self.game_view = game_view
 
     async def callback(self, interaction: discord.Interaction):
-        if not interaction.response.is_done():
-            await interaction.response.defer(ephemeral=True)
-
+        # ✅ Create view and pre-build dropdown options safely:
         view = BettingDropdownView(self.game_view)
         await view.prepare()
 
-        await interaction.followup.send(
+        await interaction.response.send_message(
             "Select who you want to bet on:",
             view=view,
             ephemeral=True
         )
 
+
+class BettingDropdownView(discord.ui.View):
+    def __init__(self, game_view):
+        super().__init__(timeout=120)
+        self.dropdown = BetDropdown(game_view)
+        self.add_item(self.dropdown)
+
+    async def prepare(self):
+        await self.dropdown.build_options()
 
 
 class BettingButton(discord.ui.Button):
@@ -572,10 +579,7 @@ class BetModal(discord.ui.Modal, title="Place Your Bet"):
                 return
 
             # ✅ Validate choice
-            if self.game_view.game_type == "tournament":
-                valid_choices = {str(p) for p in self.game_view.players}
-            else:
-                valid_choices = {"A", "B", "1", "2"}
+            valid_choices = {"A", "B", "1", "2"}
             if choice not in valid_choices:
                 await interaction.response.send_message(f"❌ Invalid choice. Use one of: {', '.join(valid_choices)}.", ephemeral=True)
                 return
@@ -680,16 +684,15 @@ class BetDropdown(discord.ui.Select):
                     label=f"{name} ({o * 100:.1f}%)", value=str(i)
                 ))
         elif game_type == "tournament":
-            guild = self.game_view.message.guild if self.game_view.message else None
             for i, player_id in enumerate(players, start=1):
                 member = guild.get_member(player_id) if guild else None
                 name = member.display_name if member else f"Player {i}"
                 name = fixed_width_name(name)
                 options.append(discord.SelectOption(
                     label=name,
-                    value=str(player_id)
+                    value=str(player_id)  # ✅ use raw ID as the value!
                 ))
-        
+
         # ✅ Always fallback option if empty
         if not options:
             options = [
@@ -1303,31 +1306,33 @@ class GameView(discord.ui.View):
 
 
     async def get_odds(self, choice):
-        ranks = []
-        for p in self.players:
-            pdata = await get_player(p)
-            ranks.append(pdata.get("rank", 1000))
+        ranks = [ (await get_player(p)).get("rank", 1000) for p in self.players ]
 
-        if self.game_type == "singles":
+        if self.game_type == "singles" and len(ranks) >= 2:
             e1, e2 = ranks
             o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
             return o1 if choice in ("1", str(self.players[0])) else (1 - o1)
-        elif self.game_type == "doubles":
+
+        elif self.game_type == "doubles" and len(ranks) >= 4:
             e1 = sum(ranks[:2]) / 2
             e2 = sum(ranks[2:]) / 2
             o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
             return o1 if choice.upper() == "A" else (1 - o1)
-        elif self.game_type == "triples":
+
+        elif self.game_type == "triples" and len(ranks) >= 3:
             exp = [10 ** (e / 400) for e in ranks]
             total = sum(exp)
             expected = [v / total for v in exp]
-            if choice in ("1", str(self.players[0])):
-                return expected[0]
-            elif choice in ("2", str(self.players[1])):
-                return expected[1]
-            elif choice in ("3", str(self.players[2])):
-                return expected[2]
-            return 0.5
+            for idx, p in enumerate(self.players):
+                if choice in (str(idx + 1), str(p)):
+                    return expected[idx]
+            return 1 / len(ranks)
+
+        elif self.game_type == "tournament":
+            # Assume equal odds for now
+            return 1 / len(ranks) if ranks else 0.5
+
+        return 0.5
 
     async def add_bet(self, uid, uname, amount, choice):
         self.bets.append((uid, uname, amount, choice))
@@ -1479,17 +1484,6 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
             ephemeral=True
         )
 
-
-
-class BettingDropdownView(discord.ui.View):
-    def __init__(self, game_view):
-        super().__init__(timeout=None)
-        self.game_view = game_view
-        self.dropdown = BetDropdown(self)
-        self.add_item(self.dropdown)
-
-    async def prepare(self):
-        await self.dropdown.build_options()
 
 
 class LeaderboardView(discord.ui.View):
