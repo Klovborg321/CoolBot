@@ -964,7 +964,7 @@ class RoomView(discord.ui.View):
             await self.lobby_message.edit(embed=lobby_embed, view=None)
 
         await self.message.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
-        await asyncio.sleep(30)
+        await asyncio.sleep(3)
         await self.message.channel.edit(archived=True)
 
         if self.on_tournament_complete:
