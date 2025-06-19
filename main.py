@@ -968,13 +968,9 @@ class RoomView(discord.ui.View):
         await asyncio.sleep(30)
         await self.message.channel.edit(archived=True)
 
-        if self.game_view and self.game_view.on_tournament_complete:
-            if self.game_type == "singles" and isinstance(winner, int):
-                await self.game_view.on_tournament_complete(winner)
-
-        if self.game_view and self.game_view.on_tournament_complete:
-            if isinstance(winner, int):  # singles
-                await self.game_view.on_tournament_complete(winner)
+        if self.on_tournament_complete:
+            if isinstance(winner, int):
+                await self.on_tournament_complete(winner)
 
 
 class GameEndedButton(discord.ui.Button):
