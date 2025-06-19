@@ -1010,6 +1010,7 @@ class RoomView(discord.ui.View):
             for item in to_remove:
                 self.game_view.remove_item(item)
 
+        self.players=[]
         await target_message.edit(embed=lobby_embed, view=self.game_view)
 
         await self.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
@@ -1444,8 +1445,6 @@ class GameView(discord.ui.View):
         pending_games[self.game_type] = None
         await save_pending_game(self.game_type, self.players, self.channel.id, self.max_players)
 
-        await start_new_game_button(self.channel, self.game_type, self.max_players)
-
         # ✅ Select random course from DB
         res = await run_db(lambda: supabase.table("courses").select("id", "name", "image_url").execute())
         chosen = random.choice(res.data or [{}])
@@ -1492,7 +1491,7 @@ class GameView(discord.ui.View):
         # ✅ MAIN LOBBY embed — NO image, mark thread info
         lobby_embed = await self.build_embed(interaction.guild, no_image=True)
         lobby_embed.title = f"{self.game_type.title()} Game lobby!"
-        lobby_embed.description = "A match has been created"
+        lobby_embed.description = "A match has been created, betting is open"
         lobby_embed.color = discord.Color.orange()
 
         # ✅ Replace Join/Leave with Bet button:
@@ -1512,6 +1511,7 @@ class GameView(discord.ui.View):
         self.clear_items()
         await self.message.edit(embed=lobby_embed, view=self)
 
+        await start_new_game_button(self.channel, self.game_type, self.max_players)
 
 
 class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
