@@ -1359,9 +1359,7 @@ class GameView(discord.ui.View):
         target_message = self.manager.message if hasattr(self, "manager") and self.manager else self.message
 
         embed = await self.build_embed(
-            target_message.guild,
-            status="✅ Tournament full! Matches running — place your bets!"
-            if not self.betting_closed else "🕐 Betting closed. Good luck!"
+            target_message.guild,no_image=True
         )
         await target_message.edit(embed=embed, view=self if not self.betting_closed else None)
 
@@ -2193,7 +2191,7 @@ class TournamentLobbyView(discord.ui.View):
             await self.message.edit(embed=embed, view=self)
 
     async def add_bet(self, uid, uname, amount, choice):
-        self.bets.append((uid, uname, amount, choice))
+    self.bets.append((uid, uname, amount, choice))
 
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
     def __init__(self, parent_channel, creator):
