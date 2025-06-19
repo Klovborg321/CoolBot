@@ -972,6 +972,10 @@ class RoomView(discord.ui.View):
             if self.game_type == "singles" and isinstance(winner, int):
                 await self.game_view.on_tournament_complete(winner)
 
+        if self.game_view and self.game_view.on_tournament_complete:
+            if isinstance(winner, int):  # singles
+                await self.game_view.on_tournament_complete(winner)
+
 
 class GameEndedButton(discord.ui.Button):
     def __init__(self, view):
@@ -1434,11 +1438,19 @@ class Tournament:
         self.players = next_round_players  # advance odd players now
 
     async def match_complete(self, winner_id):
-        # winner_id comes from GameView when match finalizes
-        self.players.append(winner_id)
-        # Check if all matches in this round are done
-        if len(self.players) == len(self.current_matches) or all(isinstance(m, int) for m in self.current_matches):
-            await self.next_round()
+        self.winners.append(winner_id)
+        self.next_round_players.append(winner_id)
+
+        expected = len(self.current_matches)
+        if len(self.winners) >= expected:
+            if len(self.next_round_players) == 1:
+                await self.main_thread.send(f"🏆 Champion: <@{self.next_round_players[0]}> 🎉")
+                await start_new_game_button(self.parent_channel, "tournament")
+            else:
+                self.round_players = self.next_round_players.copy()
+                await self.main_thread.send(f"➡️ Next round with {len(self.round_players)} players...")
+                await self.run_round(self.main_thread.guild)
+
 
 
 
@@ -1972,6 +1984,7 @@ class TournamentManager:
                 room_view.parent_thread = self.main_thread
                 room_view.course_image = course_image
                 room_view.guild = guild  # ✅ store it once!
+                room_view.on_tournament_complete = self.match_complete
 
                 # ✅ Also set lobby_embed to avoid .copy() error:
                 embed = await room_view.build_room_embed()
