@@ -1,6 +1,3 @@
-
-
-
 import requests
 import discord
 from discord.ext import commands, tasks
@@ -1273,7 +1270,10 @@ class GameView(discord.ui.View):
         elif isinstance(winner, int):
             member = guild.get_member(winner) if guild else None
             winner_name = member.display_name if member else f"User {winner}"
-            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
+            if self.game_type == "tournament":
+                embed.set_footer(text=f"🏆 Champion: {winner_name}")
+            else:
+                embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
         elif winner in ("Team A", "Team B"):
             embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}")
 
@@ -1978,8 +1978,8 @@ class TournamentManager:
 
                 embed = await dummy.build_embed(self.parent_channel.guild, winner=champ)
 
-                if self.message:
-                    await self.message.edit(embed=embed, view=None)
+                #if self.message:
+                    #await self.message.edit(embed=embed, view=None)
 
                 await start_new_game_button(self.parent_channel, "tournament")
 
@@ -2033,8 +2033,13 @@ class TournamentLobbyView(discord.ui.View):
         if len(self.manager.players) == self.manager.max_players:
             self.clear_items()
             await self.manager.message.edit(view=None)
+
+            # ✅ Cancel the timeout task
             if self.manager.abandon_task:
                 self.manager.abandon_task.cancel()
+
+            # ✅ ⚡️ Post a NEW Start Tournament button immediately:
+            await start_new_game_button(self.manager.parent_channel, "tournament")
             await self.manager.start_bracket(interaction)
 
 
