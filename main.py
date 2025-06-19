@@ -2025,6 +2025,7 @@ class TournamentLobbyView(discord.ui.View):
     def __init__(self, manager):
         super().__init__(timeout=None)
         self.manager = manager
+        self.manager.started = False  # ✅ Safeguard flag
 
     @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2053,7 +2054,9 @@ class TournamentLobbyView(discord.ui.View):
         await interaction.response.send_message("✅ Joined the tournament!", ephemeral=True)
 
         # ✅ WHEN FULL → do it right:
-        if len(self.manager.players) == self.manager.max_players:
+        if len(self.manager.players) == self.manager.max_players and not self.manager.started:
+            self.manager.started = True  # 🚫 prevent multiple brackets
+
             self.clear_items()
             await self.manager.message.edit(view=None)
 
@@ -2061,9 +2064,6 @@ class TournamentLobbyView(discord.ui.View):
                 self.manager.abandon_task.cancel()
 
             pending_games["tournament"] = None
-
-            # ✅ POST NEW start tournament button (simulate /init_tournament)
-            await start_new_game_button(interaction.channel, "tournament")
 
             # ✅ AND start this bracket immediately
             await self.manager.start_bracket(interaction)
@@ -2123,9 +2123,12 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
             await manager.start_bracket(interaction)
 
         await interaction.followup.send(
-            f"✅ Tournament lobby created for **{count} players!**",
+            f"✅ Tournament rooms created for **{count} players!**",
             ephemeral=True
         )
+
+        # ✅ POST NEW start tournament button (simulate /init_tournament)
+        await start_new_game_button(interaction.channel, "tournament")
 
 
 
