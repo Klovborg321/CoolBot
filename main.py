@@ -915,37 +915,41 @@ class RoomView(discord.ui.View):
             await save_player(p, pdata)
 
         # ✅ 3️⃣ Resolve bets
-        for uid, uname, amount, choice in self.game_view.bets:
-            won = False
-            if self.game_type == "singles":
-                won = (choice == "1" and self.players[0] == winner) or \
-                      (choice == "2" and self.players[1] == winner)
-            elif self.game_type == "doubles":
-                won = normalize_team(choice) == normalize_team(winner)
-            elif self.game_type == "triples":
-                try:
-                    idx = int(choice) - 1
-                    won = self.players[idx] == winner
-                except:
-                    won = False
+        if self.game_view is None:
+            # Tournament match: skip bet resolution
+            pass  # or log something
+        else:
+            for uid, uname, amount, choice in self.game_view.bets:
+                won = False
+                if self.game_type == "singles":
+                    won = (choice == "1" and self.players[0] == winner) or \
+                          (choice == "2" and self.players[1] == winner)
+                elif self.game_type == "doubles":
+                    won = normalize_team(choice) == normalize_team(winner)
+                elif self.game_type == "triples":
+                    try:
+                        idx = int(choice) - 1
+                        won = self.players[idx] == winner
+                    except:
+                        won = False
 
-            await run_db(lambda: supabase
-                .table("bets")
-                .update({"won": won})
-                .eq("player_id", uid)
-                .eq("game_id", self.game_view.message.id)
-                .eq("choice", choice)
-                .execute()
-            )
+                await run_db(lambda: supabase
+                    .table("bets")
+                    .update({"won": won})
+                    .eq("player_id", uid)
+                    .eq("game_id", self.game_view.message.id)
+                    .eq("choice", choice)
+                    .execute()
+                )
 
-            if won:
-                odds = await self.game_view.get_odds(choice)
-                profit = int(amount / odds) if odds > 0 else amount
-                payout = profit + amount
-                await add_credits_internal(uid, payout)
-                print(f"💰 {uname} won! Payout: {payout} (bet {amount}, profit {profit})")
-            else:
-                print(f"❌ {uname} lost {amount} (stake was upfront)")
+                if won:
+                    odds = await self.game_view.get_odds(choice)
+                    profit = int(amount / odds) if odds > 0 else amount
+                    payout = profit + amount
+                    await add_credits_internal(uid, payout)
+                    print(f"💰 {uname} won! Payout: {payout} (bet {amount}, profit {profit})")
+                else:
+                    print(f"❌ {uname} lost {amount} (stake was upfront)")
 
         # ✅ 4️⃣ Final result:
         winner_name = winner
