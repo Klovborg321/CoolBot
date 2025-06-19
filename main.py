@@ -1012,7 +1012,7 @@ class RoomView(discord.ui.View):
 class GameEndedButton(discord.ui.Button):
     def __init__(self, view):
         super().__init__(label="Game Ended", style=discord.ButtonStyle.danger)
-        self.view_obj = view  # this is your RoomView
+        self.view_obj = view  # This is your RoomView
 
     async def callback(self, interaction: discord.Interaction):
         self.view_obj.game_has_ended = True
@@ -1027,23 +1027,16 @@ class GameEndedButton(discord.ui.Button):
         await self.view_obj.start_voting()
         await interaction.response.defer()
 
-        # ✅ Update the MAIN LOBBY embed to mark ended
+        # ✅ Correct: Update the MAIN LOBBY embed using RoomView itself!
         if self.view_obj.lobby_message:
-            game_view = self.view_obj.game_view
+            updated_embed = await self.view_obj.build_lobby_end_embed(winner="ended")
 
-            # Rebuild from DB — note winner param is for display only
-            updated_embed = await game_view.build_embed(self.view_obj.lobby_message.guild, winner="ended")
-            updated_embed.set_footer(text="🎮 Game has ended.")
+            # Remove bet buttons directly on the RoomView
+            for item in list(self.view_obj.children):
+                if isinstance(item, BettingButtonDropdown) or isinstance(item, BettingButton):
+                    self.view_obj.remove_item(item)
 
-            # 🔧 Remove betting buttons only
-            to_remove = [
-                item for item in game_view.children
-                if isinstance(item, BettingButton) or getattr(item, 'label', '') == 'Place Bet'
-            ]
-            for item in to_remove:
-                game_view.remove_item(item)
-
-            await self.view_obj.lobby_message.edit(embed=updated_embed, view=game_view)
+            await self.view_obj.lobby_message.edit(embed=updated_embed, view=self.view_obj)
 
 
 class VoteButton(discord.ui.Button):
