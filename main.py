@@ -478,6 +478,9 @@ class GameJoinView(discord.ui.View):
                     view.players.append(pid)
                     player_manager.activate(pid)
 
+        if len(view.players) == view.max_players:
+            await view.game_full(interaction)
+
         embed = await view.build_embed(interaction.guild, no_image=True)
         view.message = await interaction.channel.send(embed=embed, view=view)
         pending_games[self.game_type] = view  # Update pending game with the current view
