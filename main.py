@@ -2035,61 +2035,77 @@ class TournamentLobbyView(discord.ui.View):
     def __init__(self, manager):
         super().__init__(timeout=None)
         self.manager = manager
-        self.manager.started = False  # ✅ Safeguard flag
+        self.manager.started = False
         self.betting_closed = False
-        self.bets = []  # ✅ Track bets for live embed
+        self.bets = []
 
-    @discord.ui.button(label="Join Tournament", style=discord.ButtonStyle.success)
-    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # 🔑 Keep a reference to Join button so you can remove it later:
+        self.join_button = discord.ui.Button(label="Join Tournament", style=discord.ButtonStyle.success)
+        self.join_button.callback = self.join
+        self.add_item(self.join_button)
+
+    async def join(self, interaction: discord.Interaction):
+        # ✅ Block re-joining globally:
+        if player_manager.is_active(interaction.user.id):
+            await interaction.response.send_message(
+                "🚫 You are already in a game or tournament.", ephemeral=True
+            )
+            return
+
         success = await self.manager.add_player(interaction.user)
         if not success:
             await interaction.response.send_message(
                 "You already joined or the tournament is full.", ephemeral=True)
             return
 
-        # ✅ Rebuild embed with joined players:
+        player_manager.activate(interaction.user.id)
+
         embed = await self.build_embed(interaction.guild)
         await self.manager.message.edit(embed=embed, view=self)
         await interaction.response.send_message("✅ Joined the tournament!", ephemeral=True)
 
-        # ✅ WHEN FULL → do it right:
+        # ✅ WHEN FULL:
         if len(self.manager.players) == self.manager.max_players and not self.manager.started:
-            self.manager.started = True  # prevent duplicate start
+            self.manager.started = True
 
             if self.manager.abandon_task:
                 self.manager.abandon_task.cancel()
 
             pending_games["tournament"] = None
 
+            # ✅ Remove only the Join button — not the whole view!
+            self.remove_item(self.join_button)
+            # ✅ Add Bet button:
+            self.add_item(BettingButtonDropdown(self))
+
+            embed = await self.build_embed(interaction.guild, 
+                status="✅ Tournament full! Matches running — place your bets!")
+            await self.manager.message.edit(embed=embed, view=self)
+
             # ✅ Start bracket immediately:
             await self.manager.start_bracket(interaction)
 
-            # ✅ Replace Join with Bet button:
-            self.clear_items()
-            self.add_item(BettingButtonDropdown(self))
-            embed = await self.build_embed(interaction.guild, status="✅ Tournament full! Matches running — place your bets!")
-            await self.manager.message.edit(embed=embed, view=self)
-
-            # ✅ Keep bet button for 2 mins
+            # ✅ Keep bet button for 2 mins:
             await asyncio.sleep(120)
             self.betting_closed = True
             self.clear_items()
-            embed = await self.build_embed(interaction.guild, status="🕐 Betting closed. Good luck!")
+            embed = await self.build_embed(interaction.guild, 
+                status="🕐 Betting closed. Good luck!")
             await self.manager.message.edit(embed=embed, view=None)
 
     async def build_embed(self, guild, status="Waiting for more players..."):
-        players_lines = []
+        lines = []
         for pid in self.manager.players:
             member = guild.get_member(pid)
             display = member.display_name if member else f"ID {pid}"
-            players_lines.append(f"• {display}")
+            lines.append(f"• {display}")
 
         embed = discord.Embed(
             title="🏆 Tournament Lobby",
-            description="\n".join(players_lines),
+            description="\n".join(lines),
             color=discord.Color.gold()
         )
-        embed.add_field(name="Max Players", value=f"{self.manager.max_players}", inline=False)
+        embed.add_field(name="Max Players", value=str(self.manager.max_players), inline=False)
         embed.add_field(name="Status", value=status, inline=False)
 
         if self.bets:
@@ -2098,13 +2114,11 @@ class TournamentLobbyView(discord.ui.View):
 
         return embed
 
-    async def add_bet(self, user_id, user_name, amount, choice):
-        self.bets.append((user_id, user_name, amount, choice))
+    async def add_bet(self, uid, uname, amount, choice):
+        self.bets.append((uid, uname, amount, choice))
         embed = await self.build_embed(self.manager.message.guild, 
-                                       status="✅ Tournament full! Matches running — place your bets!" if not self.betting_closed else "🕐 Betting closed. Good luck!")
+            status="✅ Tournament full! Matches running — place your bets!" if not self.betting_closed else "🕐 Betting closed. Good luck!")
         await self.manager.message.edit(embed=embed, view=self if not self.betting_closed else None)
-
-
 
 
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
@@ -2121,6 +2135,13 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         self.add_item(self.player_count)
 
     async def on_submit(self, interaction: discord.Interaction):
+        if player_manager.is_active(self.creator.id):
+            await interaction.followup.send(
+                "🚫 You are already in a game or tournament. Finish it first.",
+                ephemeral=True
+            )
+            return
+
         try:
             count = int(self.player_count.value.strip())
             if count % 2 != 0 or count < 2:
