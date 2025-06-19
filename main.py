@@ -1482,7 +1482,7 @@ class BettingDropdownView(discord.ui.View):
     def __init__(self, game_view):
         super().__init__(timeout=None)
         self.game_view = game_view
-        self.dropdown = BettingDropdown(self)
+        self.dropdown = BetDropdown(self)
         self.add_item(self.dropdown)
 
     async def prepare(self):
