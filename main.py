@@ -585,7 +585,8 @@ class BetModal(discord.ui.Modal, title="Place Your Bet"):
                 return
 
             # ✅ Compute odds & payout safely
-            odds = await self.game_view.get_odds(choice)
+            odds_provider = getattr(self.game_view, "_embed_helper", self.game_view)
+            odds = await odds_provider.get_odds(self.choice)
             payout = max(1, int(amount / odds)) if odds > 0 else amount
 
             # ✅ Atomic balance deduction
@@ -1457,7 +1458,8 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
             return
 
         # ✅ Compute odds & payout
-        odds = await self.game_view.get_odds(self.choice)
+        odds_provider = getattr(self.game_view, "_embed_helper", self.game_view)
+        odds = await odds_provider.get_odds(self.choice)
         payout = int(amount / odds) if odds > 0 else amount
 
         # ✅ Atomic deduction
