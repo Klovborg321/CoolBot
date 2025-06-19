@@ -886,10 +886,6 @@ class RoomView(discord.ui.View):
             winner = most_common[0][0]
 
         self.voting_closed = True
-        # ✅ REMOVE betting button:
-        self.betting_closed = True
-        self.clear_items()
-        await self.message.edit(embed=new_embed, view=self)
 
         # ✅ 1️⃣ Update player stats & handle draw
         if winner == "draw":
@@ -921,8 +917,8 @@ class RoomView(discord.ui.View):
                 lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True)
                 await self.lobby_message.edit(embed=lobby_embed, view=None)
 
-            await self.message.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
-            await self.message.channel.edit(archived=True)
+            await self.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
+            await self.channel.edit(archived=True)
             return
 
         # ✅ 2️⃣ Win case: stats update
@@ -1004,9 +1000,9 @@ class RoomView(discord.ui.View):
             lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True)
             await self.lobby_message.edit(embed=lobby_embed, view=None)
 
-        await self.message.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
+        await self.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
         await asyncio.sleep(3)
-        await self.message.channel.edit(archived=True)
+        await self.channel.edit(archived=True)
 
         if self.on_tournament_complete:
             if isinstance(winner, int):
@@ -1120,13 +1116,12 @@ class TournamentStartButtonView(discord.ui.View):
 
 
 class GameView(discord.ui.View):
-    def __init__(self, game_type, creator, max_players, channel):
+    def __init__(self, game_type, creator, max_players):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
         self.players = [creator]
         self.max_players = max_players
-        self.channel = channel  # ✅ store early
         self.message = None
         self.betting_closed = False
         self.bets = []
@@ -1179,7 +1174,7 @@ class GameView(discord.ui.View):
             color=discord.Color.red()
         )
         await self.message.edit(embed=embed, view=None)
-        await start_new_game_button(self.channel, self.game_type, self.max_players)
+        await start_new_game_button(self.message.channel, self.game_type, self.max_players)
 
     async def abandon_if_not_filled(self):
         timeout_duration = 1000  # seconds
@@ -1323,86 +1318,40 @@ class GameView(discord.ui.View):
 
 
     async def get_odds(self, choice):
-        ranks = [ (await get_player(p)).get("rank", 1000) for p in self.players ]
+        ranks = []
+        for p in self.players:
+            pdata = await get_player(p)
+            ranks.append(pdata.get("rank", 1000))
 
-        if self.game_type == "singles" and len(ranks) >= 2:
+        if self.game_type == "singles":
             e1, e2 = ranks
             o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
             return o1 if choice in ("1", str(self.players[0])) else (1 - o1)
-
-        elif self.game_type == "doubles" and len(ranks) >= 4:
+        elif self.game_type == "doubles":
             e1 = sum(ranks[:2]) / 2
             e2 = sum(ranks[2:]) / 2
             o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
             return o1 if choice.upper() == "A" else (1 - o1)
-
-        elif self.game_type == "triples" and len(ranks) >= 3:
+        elif self.game_type == "triples":
             exp = [10 ** (e / 400) for e in ranks]
             total = sum(exp)
             expected = [v / total for v in exp]
-            for idx, p in enumerate(self.players):
-                if choice in (str(idx + 1), str(p)):
-                    return expected[idx]
-            return 1 / len(ranks)
+            if choice in ("1", str(self.players[0])):
+                return expected[0]
+            elif choice in ("2", str(self.players[1])):
+                return expected[1]
+            elif choice in ("3", str(self.players[2])):
+                return expected[2]
+            return 0.5
 
-        elif self.game_type == "tournament":
-            # Assume equal odds for now
-            return 1 / len(ranks) if ranks else 0.5
-
-        return 0.5
-
-    async def add_bet(self, uid, uname, amount, choice):
-        # Always store in the local bets
-        self.bets.append((uid, uname, amount, choice))
-
-        # If this game has a manager (e.g., tournament), store it there too:
-        if hasattr(self, "manager") and self.manager:
-            self.manager.bets.append((uid, uname, amount, choice))
-
-        # Rebuild embed for the LOBBY message:
-        target_message = self.manager.message if hasattr(self, "manager") and self.manager else self.message
-
-        embed = await self.build_embed(
-            target_message.guild,no_image=True
-        )
-        await target_message.edit(embed=embed, view=self if not self.betting_closed else None)
-
+    async def add_bet(self, user_id, user_name, amount, choice):
+        self.bets.append((user_id, user_name, amount, choice))
+        await self.update_message()
 
     def get_bet_summary(self):
         if not self.bets:
             return "No bets placed yet."
-
-        guild = self.message.guild if self.message else None
-        lines = []
-
-        for _, uname, amt, ch in self.bets:
-            # Default
-            label = str(ch)
-
-            if self.game_type == "tournament":
-                try:
-                    pid = int(ch)
-                    member = guild.get_member(pid) if guild else None
-                    label = member.display_name if member else f"User {pid}"
-                except:
-                    label = str(ch)
-            elif self.game_type == "doubles":
-                label = f"Team {normalize_team(ch)}"
-            else:
-                try:
-                    val = int(ch)
-                    if (val - 1) < len(self.players):
-                        pid = self.players[val - 1]
-                        member = guild.get_member(pid) if guild else None
-                        label = member.display_name if member else f"Player {val}"
-                except:
-                    pass
-
-            lines.append(f"**{uname}** bet {amt} on **{label}**")
-
-        return "\n".join(lines)
-
-
+        return "\n".join(f"**{uname}** bet {amt} on **{ch}**" for _, uname, amt, ch in self.bets)
 
     async def show_betting_phase(self):
         self.clear_items()
@@ -1422,9 +1371,9 @@ class GameView(discord.ui.View):
 
         # ✅ Mark no more pending game for this type
         pending_games[self.game_type] = None
-        await save_pending_game(self.game_type, self.players, self.channel.id, self.max_players)
+        await save_pending_game(self.game_type, self.players, self.message.channel.id, self.max_players)
 
-        await start_new_game_button(self.channel, self.game_type, self.max_players)
+        await start_new_game_button(self.message.channel, self.game_type, self.max_players)
 
         # ✅ Select random course from DB
         res = await run_db(lambda: supabase.table("courses").select("id", "name", "image_url").execute())
@@ -1438,7 +1387,7 @@ class GameView(discord.ui.View):
         thread = await interaction.channel.create_thread(
             name=room_name,
             type=discord.ChannelType.private_thread,
-            invitable=False
+            invitable=False  # prevents people from inviting others
         )
 
         # ✅ Add all players to the private thread
@@ -1456,7 +1405,7 @@ class GameView(discord.ui.View):
             players=self.players,
             game_type=self.game_type,
             room_name=room_name,
-            lobby_message=self.message,  # may be None in test mode
+            lobby_message=self.message,
             lobby_embed=thread_embed,
             game_view=self,
             course_name=self.course_name,
@@ -1474,15 +1423,11 @@ class GameView(discord.ui.View):
         lobby_embed.description = f"A match has been created in thread: {thread.mention}"
         lobby_embed.color = discord.Color.orange()
 
-        # ✅ Replace Join/Leave with Bet button:
-        self.clear_items()
+        # ✅ Replace Join button with Bet button:
+        self.clear_items()  # remove Join & Leave
         self.add_item(BettingButtonDropdown(self))
 
-        # ✅ Fix: if no message (test mode), send a new one
-        if self.message:
-            await self.message.edit(embed=lobby_embed, view=self)
-        else:
-            self.message = await self.channel.send(embed=lobby_embed, view=self)
+        await self.message.edit(embed=lobby_embed, view=self)
 
         # ✅ Auto close betting after 2 mins
         await asyncio.sleep(120)
@@ -1490,8 +1435,6 @@ class GameView(discord.ui.View):
 
         self.clear_items()
         await self.message.edit(embed=lobby_embed, view=self)
-
-
 
 class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
     def __init__(self, choice, game_view):
@@ -2195,7 +2138,7 @@ class TournamentLobbyView(discord.ui.View):
             await self.message.edit(embed=embed, view=self)
 
     async def add_bet(self, uid, uname, amount, choice):
-        self.bets.append((uid, uname, amount, choice))
+    self.bets.append((uid, uname, amount, choice))
 
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
     def __init__(self, parent_channel, creator):
