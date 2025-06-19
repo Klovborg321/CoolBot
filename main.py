@@ -1,3 +1,4 @@
+
 import requests
 import discord
 from discord.ext import commands, tasks
@@ -325,29 +326,47 @@ def player_display(user_id, data):
 async def start_new_game_button(channel, game_type, max_players=None):
     key = (channel.id, game_type)
 
-    # Clean up old tracked button if any
+    # ✅ 1) Always clean up the old tracked button if it exists
     old = start_buttons.get(key)
     if old:
         try:
             await old.delete()
+            print(f"🗑️ Deleted old start button for {game_type} in #{channel.name}")
         except discord.NotFound:
-            pass
+            print(f"⚠️ Old button already deleted for {game_type} in #{channel.name}")
         except Exception as e:
             print(f"⚠️ Could not delete old start button: {e}")
 
-    # Create the new GameJoinView
-    view = GameJoinView(game_type, max_players)
-    msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
+    # ✅ 2) Create and send the new button
+    if game_type == "tournament":
+        view = TournamentStartButtonView()
+        msg = await channel.send("🏆 Click to start a **Tournament**:", view=view)
+    else:
+        view = GameJoinView(game_type, max_players)
+        msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
 
-    # ✅ If already full (TEST_MODE prefill), auto-start match
-    if len(view.game_view.players) >= view.game_view.max_players:
-        # Dummy object with required fields
-        class Dummy:
-            channel = channel
-            guild = getattr(channel, "guild", None)
-        await view.game_view.game_full(Dummy())
+        # ✅ 3) TEST MODE auto-fill logic for singles/doubles/triples
+        if IS_TEST_MODE:
+            for pid in TEST_PLAYER_IDS:
+                if pid != view.creator and pid not in view.players:
+                    view.players.append(pid)
+                    player_manager.activate(pid)
+                    if len(view.players) >= view.max_players:
+                        break
 
+            # ✅ If full from test players, trigger `game_full` immediately
+            if len(view.players) >= view.max_players:
+                # Fake interaction with minimal fields
+                class Dummy:
+                    channel = channel
+                    guild = getattr(channel, "guild", None)
+                await view.game_full(Dummy())
+
+    # ✅ 3) Store the new one
     start_buttons[key] = msg
+
+    print(f"✅ New start button posted for {game_type} in #{channel.name}")
+
     return msg
 
 
@@ -450,47 +469,36 @@ class GameJoinView(discord.ui.View):
         self.game_type = game_type
         self.max_players = max_players
 
-        # ✅ Always create the actual GameView immediately, with dummy creator for now
-        self.game_view = GameView(game_type, creator=None, max_players=max_players)
-
     @discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
     async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # ✅ Block duplicate games of same type
-        if pending_games.get(self.game_type):
+        # ✅ Block duplicate games of the same type
+        if self.game_type in pending_games and pending_games[self.game_type]:
             await interaction.response.send_message(
                 "A game of this type is already pending.", ephemeral=True)
             return
 
+        # ✅ Block ANY other active game (cross-lobby)
         if player_manager.is_active(interaction.user.id):
             await interaction.response.send_message(
-                "🚫 You are already in another game or must finish voting first.",
-                ephemeral=True)
+                "🚫 You are already in another game or have not voted yet.", ephemeral=True)
             return
 
-        # ✅ Mark creator + players
+        # ✅ OK! Activate and start the game
         player_manager.activate(interaction.user.id)
-        self.game_view.creator = interaction.user.id
 
-        if interaction.user.id not in self.game_view.players:
-            self.game_view.players.insert(0, interaction.user.id)
+        # Pass max_players to the GameView initialization
+        view = GameView(self.game_type, interaction.user.id, self.max_players)
+        embed = await view.build_embed(interaction.guild, no_image=True)
+        view.message = await interaction.channel.send(embed=embed, view=view)
+        pending_games[self.game_type] = view  # Update pending game with the current view
 
-        pending_games[self.game_type] = self.game_view
-
-        embed = await self.game_view.build_embed(interaction.guild, no_image=True)
-        self.game_view.message = await interaction.channel.send(embed=embed, view=self.game_view)
-
-        # Remove the start button
+        # Remove the "Start new game" button after the game has started
         try:
             await interaction.message.delete()
         except discord.NotFound:
             pass
 
         await interaction.response.send_message("✅ Game started!", ephemeral=True)
-
-        # ✅ If already full, auto-start the match
-        if len(self.game_view.players) >= self.game_view.max_players:
-            await self.game_view.game_full(None)
-
 
 
 class LeaveGameButton(discord.ui.Button):
@@ -1101,12 +1109,15 @@ class GameView(discord.ui.View):
         self.game_type = game_type
         self.creator = creator
         self.players = [creator]
-        self.max_players = max_players
         # ✅ Auto-fill with test players if in TEST_MODE
         if IS_TEST_MODE:
             for pid in TEST_PLAYER_IDS:
-                if pid != creator and pid not in self.players and len(self.players) < self.max_players:
+                if pid != creator and pid not in self.players:
                     self.players.append(pid)
+                    player_manager.activate(pid)
+                    if len(self.players) >= self.max_players:
+                        break
+        self.max_players = max_players
         self.message = None
         self.betting_closed = False
         self.bets = []
@@ -1114,9 +1125,8 @@ class GameView(discord.ui.View):
         self.course_image = None
         self.on_tournament_complete = None
 
-        # ✅ Add Leave button if not yet full
-        if len(self.players) < self.max_players:
-            self.add_item(LeaveGameButton(self))
+        # ✅ static Leave button:
+        self.add_item(LeaveGameButton(self))
 
     @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
