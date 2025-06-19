@@ -1426,7 +1426,7 @@ class GameView(discord.ui.View):
         thread = await interaction.channel.create_thread(
             name=room_name,
             type=discord.ChannelType.private_thread,
-            invitable=False  # prevents people from inviting others
+            invitable=False
         )
 
         # ✅ Add all players to the private thread
@@ -1444,7 +1444,7 @@ class GameView(discord.ui.View):
             players=self.players,
             game_type=self.game_type,
             room_name=room_name,
-            lobby_message=self.message,
+            lobby_message=self.message,  # may be None in test mode
             lobby_embed=thread_embed,
             game_view=self,
             course_name=self.course_name,
@@ -1462,11 +1462,15 @@ class GameView(discord.ui.View):
         lobby_embed.description = f"A match has been created in thread: {thread.mention}"
         lobby_embed.color = discord.Color.orange()
 
-        # ✅ Replace Join button with Bet button:
-        self.clear_items()  # remove Join & Leave
+        # ✅ Replace Join/Leave with Bet button:
+        self.clear_items()
         self.add_item(BettingButtonDropdown(self))
 
-        await self.message.edit(embed=lobby_embed, view=self)
+        # ✅ Fix: if no message (test mode), send a new one
+        if self.message:
+            await self.message.edit(embed=lobby_embed, view=self)
+        else:
+            self.message = await self.channel.send(embed=lobby_embed, view=self)
 
         # ✅ Auto close betting after 2 mins
         await asyncio.sleep(120)
@@ -1474,6 +1478,7 @@ class GameView(discord.ui.View):
 
         self.clear_items()
         await self.message.edit(embed=lobby_embed, view=self)
+
 
 
 class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
