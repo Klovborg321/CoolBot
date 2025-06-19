@@ -1018,16 +1018,16 @@ class GameEndedButton(discord.ui.Button):
 
 class VoteButton(discord.ui.Button):
     def __init__(self, value, view, raw_label):
+        label = f"Vote {raw_label}"  # ✅ build the label FIRST
         super().__init__(label=label, style=discord.ButtonStyle.primary)
-        self.value = value               # the vote choice (player ID or Team A/B)
-        self.view_obj = view             # the RoomView instance
+        self.value = value
+        self.view_obj = view
 
     async def callback(self, interaction: discord.Interaction):
         if self.view_obj.voting_closed:
             await interaction.response.send_message("❌ Voting has ended.", ephemeral=True)
             return
 
-        label = f"Vote {raw_label}"
         # ✅ Save the vote in the RoomView memory
         self.view_obj.votes[interaction.user.id] = self.value
 
