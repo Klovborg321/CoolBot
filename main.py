@@ -506,6 +506,50 @@ class LeaveGameButton(discord.ui.Button):
             await self.game_view.abandon_game("❌ Game abandoned because all players left.")
 
 
+class BettingDropdown(discord.ui.Select):
+    def __init__(self, parent_view):
+        super().__init__(placeholder="Select who to bet on")
+        self.parent_view = parent_view
+
+    async def build_options(self):
+        options = []
+        guild = self.parent_view.game_view.message.guild
+
+        if self.parent_view.game_view.game_type == "tournament":
+            # ✅ For tournament: list ALL joined players
+            for pid in self.parent_view.game_view.players:
+                member = guild.get_member(pid)
+                label = member.display_name if member else f"Player {pid}"
+                options.append(discord.SelectOption(label=label, value=str(pid)))
+        else:
+            # ✅ For singles/doubles/triples: keep your normal logic
+            # Example for singles:
+            if self.parent_view.game_view.game_type == "singles":
+                options.append(discord.SelectOption(label="Player 1", value="1"))
+                options.append(discord.SelectOption(label="Player 2", value="2"))
+            elif self.parent_view.game_view.game_type == "doubles":
+                options.append(discord.SelectOption(label="Team A", value="A"))
+                options.append(discord.SelectOption(label="Team B", value="B"))
+            elif self.parent_view.game_view.game_type == "triples":
+                for idx in range(len(self.parent_view.game_view.players)):
+                    options.append(discord.SelectOption(label=f"Player {idx+1}", value=str(idx+1)))
+
+        self.options = options
+
+    async def callback(self, interaction: discord.Interaction):
+        choice = self.values[0]
+        amount = 100  # You may show a modal to get custom amount — or set a default here
+        user = interaction.user
+
+        # ✅ Calculate odds if needed, or just record:
+        self.parent_view.game_view.bets.append((user.id, user.display_name, amount, choice))
+        await self.parent_view.game_view.update_message()
+
+        await interaction.response.send_message(
+            f"✅ You bet {amount} credits on **{choice}**.",
+            ephemeral=True
+        )
+
 
 class BettingButtonDropdown(discord.ui.Button):
     def __init__(self, game_view):
@@ -1468,8 +1512,9 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
 
 class BettingDropdownView(discord.ui.View):
     def __init__(self, game_view):
-        super().__init__(timeout=120)
-        self.dropdown = BetDropdown(game_view)
+        super().__init__(timeout=None)
+        self.game_view = game_view
+        self.dropdown = BettingDropdown(self)
         self.add_item(self.dropdown)
 
     async def prepare(self):
