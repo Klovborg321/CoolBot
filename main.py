@@ -470,6 +470,14 @@ class GameJoinView(discord.ui.View):
 
         # Pass max_players to the GameView initialization
         view = GameView(self.game_type, interaction.user.id, self.max_players)
+
+        # ✅ TEST MODE: auto-fill dummy players
+        if IS_TEST_MODE:
+            for pid in TEST_PLAYER_IDS:
+                if pid != interaction.user.id and pid not in view.players and len(view.players) < view.max_players:
+                    view.players.append(pid)
+                    player_manager.activate(pid)
+
         embed = await view.build_embed(interaction.guild, no_image=True)
         view.message = await interaction.channel.send(embed=embed, view=view)
         pending_games[self.game_type] = view  # Update pending game with the current view
@@ -1352,27 +1360,26 @@ class GameView(discord.ui.View):
         lines = []
 
         for _, uname, amt, ch in self.bets:
+            # Default
             label = str(ch)
 
-            if self.game_type == "doubles":
+            if self.game_type == "tournament":
+                try:
+                    pid = int(ch)
+                    member = guild.get_member(pid) if guild else None
+                    label = member.display_name if member else f"User {pid}"
+                except:
+                    label = str(ch)
+            elif self.game_type == "doubles":
                 label = f"Team {normalize_team(ch)}"
-
             else:
                 try:
                     val = int(ch)
-                    # Exact player ID?
-                    if val in self.players:
-                        member = guild.get_member(val) if guild else None
+                    if (val - 1) < len(self.players):
+                        pid = self.players[val - 1]
+                        member = guild.get_member(pid) if guild else None
                         label = member.display_name if member else f"Player {val}"
-
-                    # Index style? (1, 2, 3...)
-                    elif (val - 1) < len(self.players):
-                        player_id = self.players[val - 1]
-                        member = guild.get_member(player_id) if guild else None
-                        label = member.display_name if member else f"Player {val}"
-
-                except ValueError:
-                    # Not a number, fallback
+                except:
                     pass
 
             lines.append(f"**{uname}** bet {amt} on **{label}**")
