@@ -917,8 +917,8 @@ class RoomView(discord.ui.View):
                 lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True)
                 await self.lobby_message.edit(embed=lobby_embed, view=None)
 
-            await self.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
-            await self.channel.edit(archived=True)
+            await self.message.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
+            await self.message.channel.edit(archived=True)
             return
 
         # ✅ 2️⃣ Win case: stats update
@@ -1000,9 +1000,9 @@ class RoomView(discord.ui.View):
             lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True)
             await self.lobby_message.edit(embed=lobby_embed, view=None)
 
-        await self.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
+        await self.message.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
         await asyncio.sleep(3)
-        await self.channel.edit(archived=True)
+        await self.message.channel.edit(archived=True)
 
         if self.on_tournament_complete:
             if isinstance(winner, int):
