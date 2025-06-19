@@ -1112,8 +1112,17 @@ class GameView(discord.ui.View):
         self.course_image = None
         self.on_tournament_complete = None
 
-        # ✅ static Leave button:
-        self.add_item(LeaveGameButton(self))
+        # ✅ Add Leave button if not yet full
+        if len(self.players) < self.max_players:
+            self.add_item(LeaveGameButton(self))
+
+        # ✅ If FULL immediately → skip lobby, create match room automatically
+        asyncio.create_task(self.check_full_on_create())
+
+    async def check_full_on_create(self):
+        await asyncio.sleep(0)  # allow message attach
+        if len(self.players) >= self.max_players and self.message:
+            await self.game_full(None)
 
     @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
