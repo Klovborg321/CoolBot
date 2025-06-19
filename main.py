@@ -1116,7 +1116,7 @@ class TournamentStartButtonView(discord.ui.View):
 
 
 class GameView(discord.ui.View):
-    def __init__(self, game_type, creator, max_players):
+    def __init__(self, game_type, creator, max_players, channel):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
