@@ -2036,6 +2036,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         embed = await dummy.build_embed(interaction.guild, no_image=True)
         view = TournamentLobbyView(manager)
         manager.message = await interaction.channel.send(embed=embed, view=view)
+        manager.game_view.message = manager.message
 
         if len(manager.players) == manager.max_players:
             view.clear_items()
