@@ -1314,9 +1314,14 @@ class GameView(discord.ui.View):
                 return expected[2]
             return 0.5
 
-    async def add_bet(self, user_id, user_name, amount, choice):
-        self.bets.append((user_id, user_name, amount, choice))
-        await self.update_message()
+    async def add_bet(self, uid, uname, amount, choice):
+        self.bets.append((uid, uname, amount, choice))
+        self.manager.bets.append((uid, uname, amount, choice))  # ✅ also store for final payout!
+        embed = await self.build_embed(
+            self.manager.message.guild,
+            status="✅ Tournament full! Matches running — place your bets!" if not self.betting_closed else "🕐 Betting closed. Good luck!"
+        )
+        await self.manager.message.edit(embed=embed, view=self if not self.betting_closed else None)
 
     def get_bet_summary(self):
         if not self.bets:
@@ -2037,13 +2042,15 @@ class TournamentLobbyView(discord.ui.View):
         self.manager = manager
         self.manager.started = False
         self.betting_closed = False
+        self.bets = []
 
+        # 🔑 Keep a reference to Join button so you can remove it later:
         self.join_button = discord.ui.Button(label="Join Tournament", style=discord.ButtonStyle.success)
         self.join_button.callback = self.join
         self.add_item(self.join_button)
 
     async def join(self, interaction: discord.Interaction):
-        # 🚫 Block if user is in any game
+        # ✅ Block re-joining globally:
         if player_manager.is_active(interaction.user.id):
             await interaction.response.send_message(
                 "🚫 You are already in a game or tournament.", ephemeral=True
@@ -2071,27 +2078,24 @@ class TournamentLobbyView(discord.ui.View):
 
             pending_games["tournament"] = None
 
-            # ✅ Remove Join button and add Bet button
+            # ✅ Remove only the Join button — not the whole view!
             self.remove_item(self.join_button)
+            # ✅ Add Bet button:
             self.add_item(BettingButtonDropdown(self))
 
-            embed = await self.build_embed(
-                interaction.guild,
-                status="✅ Tournament full! Matches running — place your bets!"
-            )
+            embed = await self.build_embed(interaction.guild, 
+                status="✅ Tournament full! Matches running — place your bets!")
             await self.manager.message.edit(embed=embed, view=self)
 
-            # ✅ Start bracket immediately
+            # ✅ Start bracket immediately:
             await self.manager.start_bracket(interaction)
 
-            # ✅ Allow bets for 2 mins
+            # ✅ Keep bet button for 2 mins:
             await asyncio.sleep(120)
             self.betting_closed = True
             self.clear_items()
-            embed = await self.build_embed(
-                interaction.guild,
-                status="🕐 Betting closed. Good luck!"
-            )
+            embed = await self.build_embed(interaction.guild, 
+                status="🕐 Betting closed. Good luck!")
             await self.manager.message.edit(embed=embed, view=None)
 
     async def build_embed(self, guild, status="Waiting for more players..."):
@@ -2109,21 +2113,17 @@ class TournamentLobbyView(discord.ui.View):
         embed.add_field(name="Max Players", value=str(self.manager.max_players), inline=False)
         embed.add_field(name="Status", value=status, inline=False)
 
-        if self.manager.bets:
-            bet_lines = [f"💰 {uname} bet {amt} on {choice}" for _, uname, amt, choice in self.manager.bets]
+        if self.bets:
+            bet_lines = [f"💰 {uname} bet {amt} on {choice}" for _, uname, amt, choice in self.bets]
             embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
 
         return embed
 
     async def add_bet(self, uid, uname, amount, choice):
-        self.manager.bets.append((uid, uname, amount, choice))
-        embed = await self.build_embed(
-            self.manager.message.guild,
-            status="✅ Tournament full! Matches running — place your bets!"
-            if not self.betting_closed else "🕐 Betting closed. Good luck!"
-        )
+        self.bets.append((uid, uname, amount, choice))
+        embed = await self.build_embed(self.manager.message.guild, 
+            status="✅ Tournament full! Matches running — place your bets!" if not self.betting_closed else "🕐 Betting closed. Good luck!")
         await self.manager.message.edit(embed=embed, view=self if not self.betting_closed else None)
-
 
 
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
