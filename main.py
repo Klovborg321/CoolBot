@@ -972,9 +972,6 @@ class RoomView(discord.ui.View):
             if self.game_type == "singles" and isinstance(winner, int):
                 await self.game_view.on_tournament_complete(winner)
 
-        if hasattr(self, "on_tournament_complete") and self.on_tournament_complete:
-            await self.on_tournament_complete(winner)
-
 
 class GameEndedButton(discord.ui.Button):
     def __init__(self, view):
@@ -1975,7 +1972,6 @@ class TournamentManager:
                 room_view.parent_thread = self.main_thread
                 room_view.course_image = course_image
                 room_view.guild = guild  # ✅ store it once!
-                room_view.on_tournament_complete = self.match_complete  # ✅ this hook is key!
 
                 # ✅ Also set lobby_embed to avoid .copy() error:
                 embed = await room_view.build_room_embed()
