@@ -1949,47 +1949,34 @@ class TournamentManager:
 
         expected = len(self.current_matches)
 
-        if len(self.next_round_players) == 1:
-            champ = self.next_round_players[0]
+        if len(self.winners) >= expected:
+            if len(self.next_round_players) == 1:
+                champ = self.next_round_players[0]  # ✅ define champ here
+                await self.main_thread.send(
+                    f"🏆 Champion: <@{champ}> 🎉"
+                )
 
-            # 1️⃣ Announce in bracket thread
-            await self.main_thread.send(
-                f"🏆 Champion: <@{champ}> 🎉"
-            )
+                # ✅ NOW create embed:
+                embed = discord.Embed(
+                    title="🏆 Tournament Complete",
+                    description=f"**Champion:** <@{champ}>",
+                    color=discord.Color.gold()
+                )
+                embed.add_field(name="Status", value="Tournament has ended.", inline=False)
 
-            # 2️⃣ Update the original lobby embed with SAME structure
-            embed = discord.Embed(
-                title="🏆 Tournament Complete",
-                color=discord.Color.gold()
-            )
-            embed.add_field(
-                name="Players",
-                value="\n".join(f"• <@{p}>" for p in self.players),
-                inline=False
-            )
-            embed.add_field(
-                name="Max Players",
-                value=f"{self.max_players}",
-                inline=False
-            )
-            embed.add_field(
-                name="Status",
-                value=f"🏆 Champion: <@{champ}>",
-                inline=False
-            )
+                # ✅ Edit the main lobby message too:
+                if self.message:
+                    await self.message.edit(embed=embed, view=None)
 
-            if self.message:
-                await self.message.edit(embed=embed, view=None)
+                # ✅ Allow new tournaments
+                await start_new_game_button(self.parent_channel, "tournament")
 
-            # ✅ Allow new tournaments
-            await start_new_game_button(self.parent_channel, "tournament")
-
-        else:
-            self.round_players = self.next_round_players.copy()
-            await self.main_thread.send(
-                f"➡️ Next round with {len(self.round_players)} players..."
-            )
-            await self.run_round(self.main_thread.guild)
+            else:
+                self.round_players = self.next_round_players.copy()
+                await self.main_thread.send(
+                    f"➡️ Next round with {len(self.round_players)} players..."
+                )
+                await self.run_round(self.main_thread.guild)
 
 
 
