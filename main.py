@@ -833,9 +833,9 @@ class RoomView(discord.ui.View):
             else:
                 label = option
                 if label.lower().startswith("vote "):
-                    final_label = label
+                    label = label
                 else:
-                    final_label = f"Vote {label}"
+                    label = f"Vote {label}"
             self.add_item(VoteButton(option, self, label))
 
         await self.message.edit(view=self)
@@ -1022,9 +1022,9 @@ class GameEndedButton(discord.ui.Button):
 class VoteButton(discord.ui.Button):
     def __init__(self, value, view, raw_label):
         if raw_label.lower().startswith("vote "):
-            final_label = raw_label
+            label = raw_label
         else:
-            final_label = f"Vote {raw_label}"
+            label = f"Vote {raw_label}"
         super().__init__(label=label, style=discord.ButtonStyle.primary)
         self.value = value
         self.view_obj = view
