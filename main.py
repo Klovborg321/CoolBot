@@ -2109,7 +2109,7 @@ class TournamentLobbyView(discord.ui.View):
             await self.manager.abandon("⏰ Tournament timed out.")
             pending_games["tournament"] = None
 
-    async def build_embed(self, guild):
+    async def build_embed(self, guild, status="Waiting for more players..."):
         embed = discord.Embed(
             title="🏆 Tournament Lobby",
             description=f"Players: {len(self.players)}/{self.max_players}",
