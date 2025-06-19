@@ -1123,19 +1123,27 @@ class GameView(discord.ui.View):
         player_manager.activate(interaction.user.id)
         self.players.append(interaction.user.id)
 
+        # ✅ TEST MODE: auto-fill dummy players
         if IS_TEST_MODE:
+            view = GameView(self.game_type, interaction.user.id, self.max_players, interaction.channel)
+
             for pid in TEST_PLAYER_IDS:
-                if pid != interaction.user.id and pid not in self.players and len(self.players) < self.max_players:
-                    self.players.append(pid)
+                if pid != interaction.user.id and pid not in view.players and len(view.players) < view.max_players:
+                    view.players.append(pid)
                     player_manager.activate(pid)
 
-        await interaction.response.defer()
+            if len(view.players) == view.max_players:
+                await view.game_full(interaction)
 
-        # ✅ Update lobby with new player
-        await self.update_message()        
+            embed = await view.build_embed(interaction.guild, no_image=True)
+            view.message = await interaction.channel.send(embed=embed, view=view)
+            pending_games[self.game_type] = view  # Update pending game with the current view
+        else:
+            # ✅ Update lobby with new player
+            await self.update_message()        
 
-        if len(self.players) == self.max_players:
-            await self.game_full(interaction)
+            if len(self.players) == self.max_players:
+                await self.game_full(interaction)
 
 
     async def abandon_game(self, reason):
