@@ -1953,27 +1953,23 @@ class TournamentManager:
 
         expected = len(self.current_matches)
 
-        if len(self.winners) >= expected:
-            if len(self.next_round_players) == 1:
-                champ = self.next_round_players[0]  # ✅ define champ here
-                await self.main_thread.send(
-                    f"🏆 Champion: <@{champ}> 🎉"
-                )
+        if len(self.next_round_players) == 1:
+            champ = self.next_round_players[0]
 
-                # ✅ NOW create embed:
-                embed = discord.Embed(
-                    title="🏆 Tournament Complete",
-                    description=f"**Champion:** <@{champ}>",
-                    color=discord.Color.gold()
-                )
-                embed.add_field(name="Status", value="Tournament has ended.", inline=False)
+            await self.main_thread.send(f"🏆 Champion: <@{champ}> 🎉")
 
-                # ✅ Edit the main lobby message too:
-                if self.message:
-                    await self.message.edit(embed=embed, view=None)
+            # ✅ Use the SAME embed structure, but pass winner:
+            if self.message:
+                embed = await self.view_obj.build_embed(
+                    guild=self.main_thread.guild,
+                    winner=champ,    # 👈 triggers footer only!
+                    no_image=True
+                )
+                # Do NOT overwrite title or description!
+                await self.message.edit(embed=embed, view=None)
 
                 # ✅ Allow new tournaments
-                await start_new_game_button(self.parent_channel, "tournament")
+            await start_new_game_button(self.parent_channel, "tournament")
 
             else:
                 self.round_players = self.next_round_players.copy()
