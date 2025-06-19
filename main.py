@@ -2057,16 +2057,26 @@ class TournamentLobbyView(discord.ui.View):
         if len(self.manager.players) == self.manager.max_players and not self.manager.started:
             self.manager.started = True  # 🚫 prevent multiple brackets
 
-            self.clear_items()
-            await self.manager.message.edit(view=None)
-
             if self.manager.abandon_task:
                 self.manager.abandon_task.cancel()
 
             pending_games["tournament"] = None
 
-            # ✅ AND start this bracket immediately
+            # ✅ Start bracket immediately:
             await self.manager.start_bracket(interaction)
+
+            # ✅ Replace Join button with Bet button:
+            self.clear_items()
+            self.add_item(BettingButtonDropdown(self.manager))
+            embed.set_field_at(1, name="Status", value="✅ Tournament full! Matches running — place your bets!")
+            await self.manager.message.edit(embed=embed, view=self)
+
+            # ✅ Keep Bet button for 2 minutes:
+            await asyncio.sleep(120)
+            self.clear_items()
+            embed.set_field_at(1, name="Status", value="🕐 Betting closed. Good luck!")
+            await self.manager.message.edit(embed=embed, view=None)
+
 
 
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
