@@ -1863,6 +1863,7 @@ class TournamentManager:
         if user.id in self.players or len(self.players) >= self.max_players:
             return False
         self.players.append(user.id)
+        player_manager.activate(user.id)
         return True
 
     async def abandon_if_not_filled(self):
@@ -1875,6 +1876,12 @@ class TournamentManager:
             )
             if self.message:
                 await self.message.edit(embed=embed, view=None)
+
+            # ✅ Deactivate all players cleanly
+            for p in self.players:
+                player_manager.deactivate(p)
+
+            # ✅ Post new tournament start button
             await start_new_game_button(self.parent_channel, "tournament")
 
     async def start_bracket(self, interaction):
@@ -1958,12 +1965,41 @@ class TournamentManager:
         self.winners.append(winner_id)
         self.next_round_players.append(winner_id)
 
+        # ✅ Figure out the loser in this match
+        loser_id = None
+        for match in self.current_matches:
+            if winner_id in match.players:
+                loser_id = next(p for p in match.players if p != winner_id)
+                break
+
+        if loser_id:
+            # You can mark them as inactive and update stats
+            player_manager.deactivate(loser_id)
+            # ✅ Fetch loser from Supabase
+            loser_data = await get_player(loser_id)
+            loser_data["losses"] += 1
+            loser_data["games_played"] += 1
+            loser_data["rank"] -= 10
+            loser_data["current_streak"] = 0
+            await save_player(loser_id, loser_data)
+
+        # ✅ Fetch winner from Supabase
+        winner_data = await get_player(winner_id)
+        winner_data["wins"] += 1
+        winner_data["games_played"] += 1
+        winner_data["rank"] += 10  # or use your elo formula!
+        winner_data["trophies"] += 1
+        winner_data["current_streak"] += 1
+        winner_data["best_streak"] = max(winner_data.get("best_streak", 0), winner_data["current_streak"])
+        await save_player(winner_id, winner_data)
+
+
         expected = len(self.current_matches)
 
         if len(self.winners) >= expected:
             if len(self.next_round_players) == 1:
                 champ = self.next_round_players[0]
-
+                player_manager.deactivate(champ)
                 # ✅ Build final embed showing the champion
                 dummy = GameView("tournament", self.creator, 2)
                 dummy.players = self.players
@@ -1979,9 +2015,6 @@ class TournamentManager:
                 # ✅ Edit the original lobby message only — no new post
                 if self.message:
                     await self.message.edit(embed=embed, view=None)
-
-                # ✅ Reset: allow new tournament start button
-                await start_new_game_button(self.parent_channel, "tournament")
 
             else:
                 self.round_players = self.next_round_players.copy()
@@ -2001,15 +2034,7 @@ class TournamentLobbyView(discord.ui.View):
                 "You already joined or the tournament is full.", ephemeral=True)
             return
 
-        # ✅ Again: use dummy GameView to update embed with same layout
-        #dummy = GameView("tournament", interaction.user.id, 2)
-        #dummy.players = self.manager.players.copy()
-        #dummy.max_players = self.manager.max_players
-
-        #embed = await dummy.build_embed(interaction.guild, no_image=True)
-
-        # With this:
-        # ✅ Use real lobby embed, not fake GameView
+        # ✅ Rebuild embed with joined players:
         players_lines = []
         for pid in self.manager.players:
             member = interaction.guild.get_member(pid)
@@ -2027,20 +2052,19 @@ class TournamentLobbyView(discord.ui.View):
         await self.manager.message.edit(embed=embed, view=self)
         await interaction.response.send_message("✅ Joined the tournament!", ephemeral=True)
 
-        # ✅ When lobby is full, lock & start
-        if len(self.parent_view.manager.players) == self.parent_view.manager.max_players:
-            self.parent_view.clear_items()
-            await self.parent_view.manager.message.edit(view=None)
+        # ✅ WHEN FULL → do it right:
+        if len(self.manager.players) == self.manager.max_players:
+            self.clear_items()
+            await self.manager.message.edit(view=None)
 
-            if self.parent_view.manager.abandon_task:
-                self.parent_view.manager.abandon_task.cancel()
+            if self.manager.abandon_task:
+                self.manager.abandon_task.cancel()
 
-            # ✅ Instead of auto-start bracket immediately,
-            # post a NEW "Start Tournament" button (same as /init_tournament does)
+            # ✅ POST NEW start tournament button (simulate /init_tournament)
             await start_new_game_button(interaction.channel, "tournament")
 
-            # (optional: you can auto-start old one too)
-            await self.parent_view.manager.start_bracket(interaction)
+            # ✅ AND start this bracket immediately
+            await self.manager.start_bracket(interaction)
 
 
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
