@@ -832,6 +832,7 @@ class RoomView(discord.ui.View):
                 label = member.display_name if member else f"User {option}"
             else:
                 label = option
+            label = f"Vote {label}"
             self.add_item(VoteButton(option, self, label))
 
         await self.message.edit(view=self)
