@@ -1955,36 +1955,37 @@ class TournamentManager:
                 self.next_round_players.append(players[i])
 
     async def match_complete(self, winner_id):
-        self.winners.append(winner_id)
-        self.next_round_players.append(winner_id)
+    self.winners.append(winner_id)
+    self.next_round_players.append(winner_id)
 
-        expected = len(self.current_matches)
+    expected = len(self.current_matches)
 
-        if len(self.winners) >= expected:
-            if len(self.next_round_players) == 1:
-                champ = self.next_round_players[0]
+    if len(self.winners) >= expected:
+        if len(self.next_round_players) == 1:
+            champ = self.next_round_players[0]
 
-                # ✅ Champion announcement ONLY now
-                await self.parent_channel.send(
-                    f"🏆 Champion: <@{champ}> 🎉"
-                )
+            # ✅ Build final embed showing the champion
+            dummy = GameView("tournament", self.creator, 2)
+            dummy.players = self.players
+            dummy.max_players = self.max_players
 
-                dummy = GameView("tournament", self.creator, 2)
-                dummy.players = self.players
-                dummy.max_players = self.max_players
+            embed = await dummy.build_embed(self.parent_channel.guild, winner=champ)
 
-                embed = await dummy.build_embed(self.parent_channel.guild, winner=champ)
+            # ✅ Add footer with clear champion label
+            member = self.parent_channel.guild.get_member(champ)
+            champ_name = member.display_name if member else f"User {champ}"
+            embed.set_footer(text=f"🏆 Champion: {champ_name}")
 
-                if self.message:
-                    await self.message.edit(embed=embed, view=None)
+            # ✅ Edit the original lobby message only — no new post
+            if self.message:
+                await self.message.edit(embed=embed, view=None)
 
-                await start_new_game_button(self.parent_channel, "tournament")
+            # ✅ Reset: allow new tournament start button
+            await start_new_game_button(self.parent_channel, "tournament")
 
-            else:
-                self.round_players = self.next_round_players.copy()
-                # ❌ Do NOT announce next round
-                await self.run_round(self.parent_channel.guild)
-
+        else:
+            self.round_players = self.next_round_players.copy()
+            await self.run_round(self.parent_channel.guild)
 
 
 class TournamentLobbyView(discord.ui.View):
@@ -2027,12 +2028,19 @@ class TournamentLobbyView(discord.ui.View):
         await interaction.response.send_message("✅ Joined the tournament!", ephemeral=True)
 
         # ✅ When lobby is full, lock & start
-        if len(self.manager.players) == self.manager.max_players:
-            self.clear_items()
-            await self.manager.message.edit(view=None)
-            if self.manager.abandon_task:
-                self.manager.abandon_task.cancel()
-            await self.manager.start_bracket(interaction)
+        if len(self.parent_view.manager.players) == self.parent_view.manager.max_players:
+            self.parent_view.clear_items()
+            await self.parent_view.manager.message.edit(view=None)
+
+            if self.parent_view.manager.abandon_task:
+                self.parent_view.manager.abandon_task.cancel()
+
+            # ✅ Instead of auto-start bracket immediately,
+            # post a NEW "Start Tournament" button (same as /init_tournament does)
+            await start_new_game_button(interaction.channel, "tournament")
+
+            # (optional: you can auto-start old one too)
+            await self.parent_view.manager.start_bracket(interaction)
 
 
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
