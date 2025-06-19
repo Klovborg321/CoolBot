@@ -1965,20 +1965,19 @@ class TournamentManager:
 
         if len(self.winners) >= expected:
             if len(self.next_round_players) == 1:
-                champ = self.next_round_players[0]  # ✅ define champ here
+                champ = self.next_round_players[0]
+
                 await self.main_thread.send(
                     f"🏆 Champion: <@{champ}> 🎉"
                 )
 
-                # ✅ NOW create embed:
-                embed = discord.Embed(
-                    title="🏆 Tournament Complete",
-                    description=f"**Champion:** <@{champ}>",
-                    color=discord.Color.gold()
-                )
-                embed.add_field(name="Status", value="Tournament has ended.", inline=False)
+                # ✅ Use consistent layout: dummy GameView for embed
+                dummy = GameView("tournament", self.creator, 2)
+                dummy.players = self.players  # show all players
+                dummy.max_players = self.max_players
 
-                # ✅ Edit the main lobby message too:
+                embed = await dummy.build_embed(self.main_thread.guild, winner=champ)
+
                 if self.message:
                     await self.message.edit(embed=embed, view=None)
 
@@ -1991,8 +1990,6 @@ class TournamentManager:
                     f"➡️ Next round with {len(self.round_players)} players..."
                 )
                 await self.run_round(self.main_thread.guild)
-
-
 
 
 class TournamentLobbyView(discord.ui.View):
