@@ -1956,8 +1956,6 @@ class TournamentManager:
                 room_view.parent_thread = self.main_thread
                 room_view.course_image = course_image
 
-                # ✅ Explicitly re-set to avoid accidental mismatch:
-                room_view.players = players_list
 
                 # ✅ Also set lobby_embed to avoid .copy() error:
                 embed = await room_view.build_room_embed()
