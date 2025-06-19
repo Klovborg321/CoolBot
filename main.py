@@ -1043,7 +1043,7 @@ class VoteButton(discord.ui.Button):
         # For example, you could store that this user has voted, or log timestamp.
 
         # ✅ If everyone voted, finalize immediately
-        if len(self.view_obj.votes) == len(self.view_obj.players):
+        if IS_TEST_MODE or len(self.view_obj.votes) == len(self.view_obj.players):
             await self.view_obj.finalize_game()
 
 
