@@ -742,6 +742,7 @@ class RoomView(discord.ui.View):
         self.room_name = room_name
         self.message = None  # thread message
         self.lobby_message = lobby_message
+        self.channel = self.message.channel if self.message else None
         self.lobby_embed = lobby_embed
         self.game_view = game_view
 
@@ -1395,8 +1396,6 @@ class GameView(discord.ui.View):
 
         return "\n".join(lines)
 
-
-
     async def show_betting_phase(self):
         self.clear_items()
         self.add_item(BettingButtonDropdown(self))
@@ -1460,6 +1459,7 @@ class GameView(discord.ui.View):
         mentions = " ".join(f"<@{p}>" for p in self.players)
         thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=thread_embed, view=room_view)
         room_view.message = thread_msg
+        room_view.channel = thread
 
         # ✅ MAIN LOBBY embed — NO image, mark thread info
         lobby_embed = await self.build_embed(interaction.guild, no_image=True)
@@ -2016,6 +2016,7 @@ class TournamentManager:
                     view=room_view
                 )
                 room_view.message = msg
+                room_view.channel = thread
 
                 self.current_matches.append(room_view)
 
