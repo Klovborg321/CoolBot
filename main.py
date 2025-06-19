@@ -1122,10 +1122,18 @@ class GameView(discord.ui.View):
 
         player_manager.activate(interaction.user.id)
         self.players.append(interaction.user.id)
+
         await interaction.response.defer()
 
         # ✅ Update lobby with new player
         await self.update_message()
+
+        if IS_TEST_MODE:
+            for pid in TEST_PLAYER_IDS:
+                if pid != interaction.user.id and pid not in self.players and len(self.players) < self.max_players:
+                    self.players.append(pid)
+                    player_manager.activate(pid)
+                    await self.update_message()
 
         if len(self.players) == self.max_players:
             await self.game_full(interaction)
