@@ -1955,37 +1955,37 @@ class TournamentManager:
                 self.next_round_players.append(players[i])
 
     async def match_complete(self, winner_id):
-    self.winners.append(winner_id)
-    self.next_round_players.append(winner_id)
+        self.winners.append(winner_id)
+        self.next_round_players.append(winner_id)
 
-    expected = len(self.current_matches)
+        expected = len(self.current_matches)
 
-    if len(self.winners) >= expected:
-        if len(self.next_round_players) == 1:
-            champ = self.next_round_players[0]
+        if len(self.winners) >= expected:
+            if len(self.next_round_players) == 1:
+                champ = self.next_round_players[0]
 
-            # ✅ Build final embed showing the champion
-            dummy = GameView("tournament", self.creator, 2)
-            dummy.players = self.players
-            dummy.max_players = self.max_players
+                # ✅ Build final embed showing the champion
+                dummy = GameView("tournament", self.creator, 2)
+                dummy.players = self.players
+                dummy.max_players = self.max_players
 
-            embed = await dummy.build_embed(self.parent_channel.guild, winner=champ)
+                embed = await dummy.build_embed(self.parent_channel.guild, winner=champ)
 
-            # ✅ Add footer with clear champion label
-            member = self.parent_channel.guild.get_member(champ)
-            champ_name = member.display_name if member else f"User {champ}"
-            embed.set_footer(text=f"🏆 Champion: {champ_name}")
+                # ✅ Add footer with clear champion label
+                member = self.parent_channel.guild.get_member(champ)
+                champ_name = member.display_name if member else f"User {champ}"
+                embed.set_footer(text=f"🏆 Champion: {champ_name}")
 
-            # ✅ Edit the original lobby message only — no new post
-            if self.message:
-                await self.message.edit(embed=embed, view=None)
+                # ✅ Edit the original lobby message only — no new post
+                if self.message:
+                    await self.message.edit(embed=embed, view=None)
 
-            # ✅ Reset: allow new tournament start button
-            await start_new_game_button(self.parent_channel, "tournament")
+                # ✅ Reset: allow new tournament start button
+                await start_new_game_button(self.parent_channel, "tournament")
 
-        else:
-            self.round_players = self.next_round_players.copy()
-            await self.run_round(self.parent_channel.guild)
+            else:
+                self.round_players = self.next_round_players.copy()
+                await self.run_round(self.parent_channel.guild)
 
 
 class TournamentLobbyView(discord.ui.View):
