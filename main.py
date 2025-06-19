@@ -2019,11 +2019,27 @@ class TournamentLobbyView(discord.ui.View):
             return
 
         # ✅ Again: use dummy GameView to update embed with same layout
-        dummy = GameView("tournament", interaction.user.id, 2)
-        dummy.players = self.manager.players.copy()
-        dummy.max_players = self.manager.max_players
+        #dummy = GameView("tournament", interaction.user.id, 2)
+        #dummy.players = self.manager.players.copy()
+        #dummy.max_players = self.manager.max_players
 
-        embed = await dummy.build_embed(interaction.guild, no_image=True)
+        #embed = await dummy.build_embed(interaction.guild, no_image=True)
+
+        # With this:
+        # ✅ Use real lobby embed, not fake GameView
+        players_lines = []
+        for pid in self.manager.players:
+            member = interaction.guild.get_member(pid)
+            display = member.display_name if member else f"ID {pid}"
+            players_lines.append(f"• {display}")
+
+        embed = discord.Embed(
+            title="🏆 Tournament Lobby",
+            description="\n".join(players_lines),
+            color=discord.Color.gold()
+        )
+        embed.add_field(name="Max Players", value=f"{self.manager.max_players}", inline=False)
+        embed.add_field(name="Status", value="Waiting for more players...", inline=False)
 
         await self.manager.message.edit(embed=embed, view=self)
         await interaction.response.send_message("✅ Joined the tournament!", ephemeral=True)
