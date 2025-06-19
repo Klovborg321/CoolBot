@@ -512,27 +512,20 @@ class BettingButtonDropdown(discord.ui.Button):
         self.game_view = game_view
 
     async def callback(self, interaction: discord.Interaction):
-        # ✅ Create view and pre-build dropdown options safely:
+        # ✅ Step 1: defer immediately
+        await interaction.response.defer(ephemeral=True)
+
+        # ✅ Step 2: build the dropdown view
         view = BetDropdownView(self.game_view)
         await view.prepare()
 
-        await interaction.response.send_message(
+        # ✅ Step 3: send using followup, not response
+        await interaction.followup.send(
             "Select who you want to bet on:",
             view=view,
             ephemeral=True
         )
 
-
-# ✅ The proper View wrapper
-class BetDropdownView(discord.ui.View):
-    def __init__(self, game_view):
-        super().__init__(timeout=None)
-        self.game_view = game_view
-        self.dropdown = BetDropdown(self.game_view)
-        self.add_item(self.dropdown)
-
-    async def prepare(self):
-        await self.dropdown.build_options()
 
 
 class BettingButton(discord.ui.Button):
