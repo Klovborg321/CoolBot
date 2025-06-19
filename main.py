@@ -917,8 +917,8 @@ class RoomView(discord.ui.View):
                 lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True)
                 await self.lobby_message.edit(embed=lobby_embed, view=None)
 
-            await self.message.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
-            await self.message.channel.edit(archived=True)
+            await self.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
+            await self.channel.edit(archived=True)
             return
 
         # ✅ 2️⃣ Win case: stats update
@@ -1000,9 +1000,9 @@ class RoomView(discord.ui.View):
             lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True)
             await self.lobby_message.edit(embed=lobby_embed, view=None)
 
-        await self.message.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
+        await self.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
         await asyncio.sleep(3)
-        await self.message.channel.edit(archived=True)
+        await self.channel.edit(archived=True)
 
         if self.on_tournament_complete:
             if isinstance(winner, int):
@@ -1175,7 +1175,7 @@ class GameView(discord.ui.View):
             color=discord.Color.red()
         )
         await self.message.edit(embed=embed, view=None)
-        await start_new_game_button(self.message.channel, self.game_type, self.max_players)
+        await start_new_game_button(self.channel, self.game_type, self.max_players)
 
     async def abandon_if_not_filled(self):
         timeout_duration = 1000  # seconds
@@ -1412,7 +1412,7 @@ class GameView(discord.ui.View):
         pending_games[self.game_type] = None
         await save_pending_game(self.game_type, self.players, self.channel.id, self.max_players)
 
-        await start_new_game_button(self.message.channel, self.game_type, self.max_players)
+        await start_new_game_button(self.channel, self.game_type, self.max_players)
 
         # ✅ Select random course from DB
         res = await run_db(lambda: supabase.table("courses").select("id", "name", "image_url").execute())
