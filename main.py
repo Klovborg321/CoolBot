@@ -325,34 +325,29 @@ def player_display(user_id, data):
 async def start_new_game_button(channel, game_type, max_players=None):
     key = (channel.id, game_type)
 
-    # ✅ 1) Always clean up the old tracked button if it exists
+    # Clean up old tracked button if any
     old = start_buttons.get(key)
     if old:
         try:
             await old.delete()
-            print(f"🗑️ Deleted old start button for {game_type} in #{channel.name}")
         except discord.NotFound:
-            print(f"⚠️ Old button already deleted for {game_type} in #{channel.name}")
+            pass
         except Exception as e:
             print(f"⚠️ Could not delete old start button: {e}")
 
-    # ✅ 2) Create and send the new button
-    if game_type == "tournament":
-        view = TournamentStartButtonView()
-        msg = await channel.send("🏆 Click to start a **Tournament**:", view=view)
-    else:
-        view = GameJoinView(game_type, max_players)
-        msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
+    # Create the new GameJoinView
+    view = GameJoinView(game_type, max_players)
+    msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
 
-        # ✅ Auto start if prefilled
-        if len(view.players) >= view.max_players:
-            await view.game_full(None)
+    # ✅ If already full (TEST_MODE prefill), auto-start match
+    if len(view.game_view.players) >= view.game_view.max_players:
+        # Dummy object with required fields
+        class Dummy:
+            channel = channel
+            guild = getattr(channel, "guild", None)
+        await view.game_view.game_full(Dummy())
 
-    # ✅ 3) Store the new one
     start_buttons[key] = msg
-
-    print(f"✅ New start button posted for {game_type} in #{channel.name}")
-
     return msg
 
 
@@ -455,30 +450,36 @@ class GameJoinView(discord.ui.View):
         self.game_type = game_type
         self.max_players = max_players
 
+        # ✅ Always create the actual GameView immediately, with dummy creator for now
+        self.game_view = GameView(game_type, creator=None, max_players=max_players)
+
     @discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
     async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # ✅ Block duplicate games of the same type
-        if self.game_type in pending_games and pending_games[self.game_type]:
+        # ✅ Block duplicate games of same type
+        if pending_games.get(self.game_type):
             await interaction.response.send_message(
                 "A game of this type is already pending.", ephemeral=True)
             return
 
-        # ✅ Block ANY other active game (cross-lobby)
         if player_manager.is_active(interaction.user.id):
             await interaction.response.send_message(
-                "🚫 You are already in another game or have not voted yet.", ephemeral=True)
+                "🚫 You are already in another game or must finish voting first.",
+                ephemeral=True)
             return
 
-        # ✅ OK! Activate and start the game
+        # ✅ Mark creator + players
         player_manager.activate(interaction.user.id)
+        self.game_view.creator = interaction.user.id
 
-        # Pass max_players to the GameView initialization
-        view = GameView(self.game_type, interaction.user.id, self.max_players)
-        embed = await view.build_embed(interaction.guild, no_image=True)
-        view.message = await interaction.channel.send(embed=embed, view=view)
-        pending_games[self.game_type] = view  # Update pending game with the current view
+        if interaction.user.id not in self.game_view.players:
+            self.game_view.players.insert(0, interaction.user.id)
 
-        # Remove the "Start new game" button after the game has started
+        pending_games[self.game_type] = self.game_view
+
+        embed = await self.game_view.build_embed(interaction.guild, no_image=True)
+        self.game_view.message = await interaction.channel.send(embed=embed, view=self.game_view)
+
+        # Remove the start button
         try:
             await interaction.message.delete()
         except discord.NotFound:
@@ -486,9 +487,10 @@ class GameJoinView(discord.ui.View):
 
         await interaction.response.send_message("✅ Game started!", ephemeral=True)
 
-        # ✅ If already full (e.g. test-mode prefill), run game_full now
+        # ✅ If already full, auto-start the match
         if len(self.game_view.players) >= self.game_view.max_players:
             await self.game_view.game_full(None)
+
 
 
 class LeaveGameButton(discord.ui.Button):
