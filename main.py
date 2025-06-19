@@ -1355,9 +1355,19 @@ class GameView(discord.ui.View):
         self.course_name = chosen.get("name", "Unknown")
         self.course_image = chosen.get("image_url", "")
 
-        # ✅ Create unique thread
+        # ✅ Create unique PRIVATE thread
         room_name = await room_name_generator.get_unique_word()
-        thread = await interaction.channel.create_thread(name=room_name)
+        thread = await interaction.channel.create_thread(
+            name=room_name,
+            type=discord.ChannelType.private_thread,
+            invitable=False  # prevents people from inviting others
+        )
+
+        # ✅ Add all players to the private thread
+        for pid in self.players:
+            member = interaction.guild.get_member(pid)
+            if member:
+                await thread.add_user(member)
 
         # ✅ Thread embed WITH image
         thread_embed = await self.build_embed(interaction.guild, no_image=False)
