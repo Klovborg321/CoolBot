@@ -344,6 +344,23 @@ async def start_new_game_button(channel, game_type, max_players=None):
         view = GameJoinView(game_type, max_players)
         msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
 
+        # ✅ 3) TEST MODE auto-fill logic for singles/doubles/triples
+        if IS_TEST_MODE:
+            for pid in TEST_PLAYER_IDS:
+                if pid != view.creator and pid not in view.players:
+                    view.players.append(pid)
+                    player_manager.activate(pid)
+                    if len(view.players) >= view.max_players:
+                        break
+
+            # ✅ If full from test players, trigger `game_full` immediately
+            if len(view.players) >= view.max_players:
+                # Fake interaction with minimal fields
+                class Dummy:
+                    channel = channel
+                    guild = getattr(channel, "guild", None)
+                await view.game_full(Dummy())
+
     # ✅ 3) Store the new one
     start_buttons[key] = msg
 
@@ -1091,6 +1108,14 @@ class GameView(discord.ui.View):
         self.game_type = game_type
         self.creator = creator
         self.players = [creator]
+        # ✅ Auto-fill with test players if in TEST_MODE
+        if IS_TEST_MODE:
+            for pid in TEST_PLAYER_IDS:
+                if pid != creator and pid not in self.players:
+                    self.players.append(pid)
+                    player_manager.activate(pid)
+                    if len(self.players) >= self.max_players:
+                        break
         self.max_players = max_players
         self.message = None
         self.betting_closed = False
