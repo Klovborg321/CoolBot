@@ -1030,21 +1030,25 @@ class GameEndedButton(discord.ui.Button):
         self.view_obj.game_has_ended = True
         self.view_obj.betting_closed = True
 
-        # ✅ Update the THREAD embed to mark ended
+        # ✅ 1️⃣ Update THREAD embed (Room)
         thread_embed = self.view_obj.lobby_embed.copy()
         thread_embed.set_footer(text="🎮 Game has ended.")
         await self.view_obj.message.edit(embed=thread_embed, view=None)
 
-        # ✅ Start the voting phase
+        # ✅ 2️⃣ Start voting phase
         await self.view_obj.start_voting()
         await interaction.response.defer()
 
-        # ✅ Robust: fallback to game_view.message if lobby_message is missing
+        # ✅ 3️⃣ Update MAIN LOBBY embed correctly using GameView
         target_message = self.view_obj.lobby_message or self.view_obj.game_view.message
         if target_message:
-            updated_embed = await self.view_obj.build_lobby_end_embed(winner="ended")
+            updated_embed = await self.view_obj.game_view.build_embed(
+                target_message.guild,
+                winner="ended",
+                no_image=True
+            )
 
-            # Remove bet buttons directly on the RoomView or GameView
+            # Remove bet buttons from BOTH RoomView & GameView safely
             for item in list(self.view_obj.children):
                 if isinstance(item, BettingButtonDropdown) or isinstance(item, BettingButton):
                     self.view_obj.remove_item(item)
@@ -1052,8 +1056,7 @@ class GameEndedButton(discord.ui.Button):
                 if isinstance(item, BettingButtonDropdown) or isinstance(item, BettingButton):
                     self.view_obj.game_view.remove_item(item)
 
-            await target_message.edit(embed=updated_embed, view=self.view_obj)
-
+            await target_message.edit(embed=updated_embed, view=self.view_obj.game_view)
 
 
 class VoteButton(discord.ui.Button):
