@@ -1348,13 +1348,23 @@ class GameView(discord.ui.View):
         return 0.5
 
     async def add_bet(self, uid, uname, amount, choice):
+        # Always store in the local bets
         self.bets.append((uid, uname, amount, choice))
-        self.manager.bets.append((uid, uname, amount, choice))  # ✅ also store for final payout!
+
+        # If this game has a manager (e.g., tournament), store it there too:
+        if hasattr(self, "manager") and self.manager:
+            self.manager.bets.append((uid, uname, amount, choice))
+
+        # Rebuild embed for the LOBBY message:
+        target_message = self.manager.message if hasattr(self, "manager") and self.manager else self.message
+
         embed = await self.build_embed(
-            self.manager.message.guild,
-            status="✅ Tournament full! Matches running — place your bets!" if not self.betting_closed else "🕐 Betting closed. Good luck!"
+            target_message.guild,
+            status="✅ Tournament full! Matches running — place your bets!"
+            if not self.betting_closed else "🕐 Betting closed. Good luck!"
         )
-        await self.manager.message.edit(embed=embed, view=self if not self.betting_closed else None)
+        await target_message.edit(embed=embed, view=self if not self.betting_closed else None)
+
 
     def get_bet_summary(self):
         if not self.bets:
@@ -2184,7 +2194,6 @@ class TournamentLobbyView(discord.ui.View):
 
     async def add_bet(self, uid, uname, amount, choice):
         self.bets.append((uid, uname, amount, choice))
-        await self.update_message()
 
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
     def __init__(self, parent_channel, creator):
