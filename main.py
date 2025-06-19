@@ -822,9 +822,9 @@ class RoomView(discord.ui.View):
         if not self.game_has_ended:
             return
 
-        self.clear_items()
-        options = self.get_vote_options()
+        self.clear_items()  # ✅ Remove any old buttons
 
+        options = self.get_vote_options()
         for option in options:
             if isinstance(option, int):
                 member = self.message.guild.get_member(option)
@@ -832,10 +832,15 @@ class RoomView(discord.ui.View):
             else:
                 name = option
 
-        label = f"Vote {name}"   # ✅ Add prefix for clarity
-        self.add_item(VoteButton(option, self, label))
+            label = f"Vote {name}"
 
+            # ✅ Each time: create a *new* button!
+            button = VoteButton(option, self, label)
+            self.add_item(button)
+
+        # ✅ Also update the message with new buttons
         await self.message.edit(view=self)
+
         self.vote_timeout = asyncio.create_task(self.end_voting_after_timeout())
 
     async def end_voting_after_timeout(self):
