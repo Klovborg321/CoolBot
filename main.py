@@ -1480,6 +1480,22 @@ class GameView(discord.ui.View):
             if member:
                 await thread.add_user(member)
 
+        # ✅ MAIN LOBBY embed — NO image, mark thread info
+        lobby_embed = await self.build_embed(interaction.guild, no_image=True)
+        lobby_embed.title = f"{self.game_type.title()} Game lobby!"
+        lobby_embed.description = "A match has been created, betting is open for 2 min."
+        lobby_embed.color = discord.Color.orange()
+
+        # ✅ Replace Join/Leave with Bet button:
+        self.clear_items()
+        self.add_item(BettingButtonDropdown(self))
+
+        # ✅ Fix: if no message (test mode), send a new one
+        if self.message:
+            await self.message.edit(embed=lobby_embed, view=self)
+        else:
+            self.message = await self.channel.send(embed=lobby_embed, view=self)
+
         # ✅ Thread embed WITH image
         thread_embed = await self.build_embed(interaction.guild, no_image=False)
         thread_embed.title = f"Game Room: {room_name}"
@@ -1500,23 +1516,7 @@ class GameView(discord.ui.View):
         mentions = " ".join(f"<@{p}>" for p in self.players)
         thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=thread_embed, view=room_view)
         room_view.message = thread_msg
-        room_view.channel = thread
-
-        # ✅ MAIN LOBBY embed — NO image, mark thread info
-        lobby_embed = await self.build_embed(interaction.guild, no_image=True)
-        lobby_embed.title = f"{self.game_type.title()} Game lobby!"
-        lobby_embed.description = "A match has been created, betting is open for 2 min."
-        lobby_embed.color = discord.Color.orange()
-
-        # ✅ Replace Join/Leave with Bet button:
-        self.clear_items()
-        self.add_item(BettingButtonDropdown(self))
-
-        # ✅ Fix: if no message (test mode), send a new one
-        if self.message:
-            await self.message.edit(embed=lobby_embed, view=self)
-        else:
-            self.message = await self.channel.send(embed=lobby_embed, view=self)
+        room_view.channel = thread        
 
         await start_new_game_button(self.channel, self.game_type, self.max_players)
 
