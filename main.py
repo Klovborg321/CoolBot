@@ -452,41 +452,65 @@ class GameJoinView(discord.ui.View):
         self.game_type = game_type
         self.max_players = max_players
 
+        # ✅ Use dynamic label
         button = discord.ui.Button(
             label=f"Start {self.game_type} game",
             style=discord.ButtonStyle.primary
         )
-        button.callback = self.start_game  # hook it!
+        button.callback = self.start_game
         self.add_item(button)
 
     async def start_game(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
+        # ✅ Block duplicate games of same type
         if pending_games.get(self.game_type):
-            await interaction.followup.send("⚠️ A game is already pending!", ephemeral=True)
+            await interaction.followup.send(
+                "⚠️ A game of this type is already pending.",
+                ephemeral=True
+            )
             return
 
+        # ✅ Block ANY other active game (cross-lobby)
         if player_manager.is_active(interaction.user.id):
-            await interaction.followup.send("🚫 You are already in another game!", ephemeral=True)
+            await interaction.followup.send(
+                "🚫 You are already in another game or must finish voting first.",
+                ephemeral=True
+            )
             return
 
-        # Remove this start button message
+        # ✅ Delete old start button
         try:
             await interaction.message.delete()
         except:
             pass
 
-        # Start a fresh GameView with Join/Leave
-        view = GameView(self.game_type, interaction.user.id, self.max_players, interaction.channel)
-        embed = await view.build_embed(interaction.guild)
+        # ✅ Make fresh GameView
+        view = GameView(
+            self.game_type,
+            interaction.user.id,
+            self.max_players,
+            interaction.channel
+        )
 
+        # ✅ TEST MODE: auto-fill dummy players
+        if IS_TEST_MODE:
+            for pid in TEST_PLAYER_IDS:
+                if pid != interaction.user.id and pid not in view.players and len(view.players) < view.max_players:
+                    view.players.append(pid)
+                    player_manager.activate(pid)
+
+        # ✅ Post the lobby
+        embed = await view.build_embed(interaction.guild, no_image=True)
         view.message = await interaction.channel.send(embed=embed, view=view)
         pending_games[self.game_type] = view
 
         player_manager.activate(interaction.user.id)
 
+        # ✅ If full immediately → auto start
         if len(view.players) == view.max_players:
             await view.game_full(interaction)
+
 
 
 class LeaveGameButton(discord.ui.Button):
