@@ -370,9 +370,17 @@ async def show_betting_phase(self):
 
 
 async def update_message(self, no_image=True, status=None):
-    if self.message:
-        embed = await self.build_embed(self.message.guild, no_image=no_image, status=status)
-        await self.message.edit(embed=embed, view=self)
+    if not self.message:
+        print("[update_message] SKIPPED: no message to update.")
+        return
+
+    # ✅ SAFETY: do not edit if ended!
+    if self.game_has_ended:
+        print("[update_message] SKIPPED: game already ended.")
+        return
+
+    embed = await self.build_embed(self.message.guild, no_image=no_image, status=status)
+    await self.message.edit(embed=embed, view=self)
 
 def fixed_width_name(name: str, width: int = 20) -> str:
     """Truncate or pad name to exactly `width` characters."""
