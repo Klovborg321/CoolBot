@@ -80,6 +80,11 @@ default_template = {
 }
 
 # Helpers
+def cancel_abandon_task(self):
+    if hasattr(self, "abandon_task") and self.abandon_task:
+        self.abandon_task.cancel()
+        self.abandon_task = None
+
 async def update_course_average_par(course_id: str):
     """
     Recalculate and update the avg_par for the given course_id.
@@ -956,6 +961,8 @@ class RoomView(discord.ui.View):
     async def finalize_game(self):
         from collections import Counter
 
+        self.cancel_abandon_task()
+        
         vote_counts = Counter(self.votes.values())
         most_common = vote_counts.most_common()
 
@@ -1264,8 +1271,7 @@ class GameView(discord.ui.View):
 
     async def abandon_game(self, reason):
         # ✅ Cancel abandon timer so it won’t run again
-        if hasattr(self, "abandon_task") and self.abandon_task:
-            self.abandon_task.cancel()
+        self.cancel_abandon_task()
 
         # ✅ Remove from global pending games
         pending_games[self.game_type] = None
@@ -1565,8 +1571,7 @@ class GameView(discord.ui.View):
         global pending_games
 
         # ✅ Stop abandon timer
-        if self.abandon_task:
-            self.abandon_task.cancel()
+        self.cancel_abandon_task()
 
         # ✅ Mark no more pending game for this type
         pending_games[self.game_type] = None
