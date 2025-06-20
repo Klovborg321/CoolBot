@@ -1225,7 +1225,7 @@ class GameView(discord.ui.View):
             await self.abandon_game("⏰ Game timed out due to inactivity.")
             await clear_pending_game(self.game_type)
 
-    async def build_embed(self, guild=None, winner=None, no_image=True, status=None):
+    async def build_embed(self, guild=None, winner=None, no_image=True, status=None, bets=None):
         # Title
         title = "🏆 Tournament Lobby" if self.game_type == "tournament" else f"🎮 {self.game_type.title()} Match Lobby"
         
