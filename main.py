@@ -452,7 +452,7 @@ class GameJoinView(discord.ui.View):
         self.game_type = game_type
         self.max_players = max_players
 
-    @discord.ui.button(label=f"Start {game_type} game", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label=f"Start {self.game_type} game", style=discord.ButtonStyle.primary)
     async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
