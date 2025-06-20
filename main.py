@@ -2180,7 +2180,7 @@ class TournamentLobbyView(discord.ui.View):
             creator=creator.id,
             max_players=max_players,
             channel=parent_channel,
-            status
+            status=status
         )
         self._embed_helper.players = self.players
         self._embed_helper.bets = self.bets
