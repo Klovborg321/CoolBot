@@ -1028,6 +1028,7 @@ class RoomView(discord.ui.View):
         await self.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
         await asyncio.sleep(3)
         await self.channel.edit(archived=True)
+        pending_games[self.game_type] = None
 
         if self.on_tournament_complete:
             if isinstance(winner, int):
