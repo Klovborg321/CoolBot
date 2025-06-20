@@ -2234,11 +2234,11 @@ class TournamentLobbyView(discord.ui.View):
             await self.manager.abandon("⏰ Tournament timed out.")
             pending_games["tournament"] = None
 
-    async def build_embed(self, guild, no_image=True):
+    async def build_embed(self, guild, no_image=True, status=None):
         self._embed_helper.players = self.players
         self._embed_helper.bets = self.bets
         self._embed_helper.betting_closed = self.betting_closed
-        return await self._embed_helper.build_embed(guild, no_image=no_image)
+        return await self._embed_helper.build_embed(guild, no_image=no_image, status=status)
 
     async def update_message(self):
         if self.message:
