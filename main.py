@@ -2147,7 +2147,7 @@ class TournamentManager:
 
 
 class TournamentLobbyView(discord.ui.View):
-    def __init__(self, manager, creator, max_players):
+    def __init__(self, manager, creator, max_players, parent_channel):
         super().__init__(timeout=None)
         self.manager = manager
         self.creator = creator
@@ -2172,7 +2172,7 @@ class TournamentLobbyView(discord.ui.View):
             game_type="tournament",
             creator=creator.id,
             max_players=max_players,
-            channel=self.manager.parent_channel  # << FIXED!
+            channel=parent_channel  # << FIXED!
         )
         self._embed_helper.players = self.players
         self._embed_helper.bets = self.bets
