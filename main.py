@@ -1244,7 +1244,7 @@ class GameView(discord.ui.View):
         self.betting_closed = False
         self.bets = []
         self.betting_task = None
-        self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
+        #self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
         self.course_image = None
         self.on_tournament_complete = None
         self.game_has_ended = False
@@ -1320,24 +1320,24 @@ class GameView(discord.ui.View):
             await start_new_game_button(self.channel, self.game_type, self.max_players)
 
 
-    async def abandon_if_not_filled(self):
-        timeout_duration = 30 if IS_TEST_MODE else 300
-        elapsed = 0
+    #async def abandon_if_not_filled(self):
+    #    timeout_duration = 30 if IS_TEST_MODE else 300
+    #    elapsed = 0
 
-        while (
-            len(self.players) < self.max_players 
-            and not self.betting_closed 
-            and elapsed < timeout_duration
-        ):
+    #    while (
+    #        len(self.players) < self.max_players 
+    #        and not self.betting_closed 
+    #        and elapsed < timeout_duration
+    #    ):
             # ✅ If the game is no longer pending: bail out immediately!
-            if pending_games.get(self.game_type) != self:
-                print(f"[abandon_if_not_filled] Exiting loop: no longer pending.")
-                return
-            await asyncio.sleep(30)
-            elapsed += 30
+    #        if pending_games.get(self.game_type) != self:
+    #            print(f"[abandon_if_not_filled] Exiting loop: no longer pending.")
+    #            return
+    #        await asyncio.sleep(30)
+    #        elapsed += 30
 
-        if len(self.players) < self.max_players and not self.betting_closed:
-            await self.abandon_game("⏰ Game timed out due to inactivity.")
+    #    if len(self.players) < self.max_players and not self.betting_closed:
+    #        await self.abandon_game("⏰ Game timed out due to inactivity.")
 
 
 
@@ -2255,6 +2255,8 @@ class TournamentManager:
         self.winners.append(winner_id)
         self.next_round_players.append(winner_id)
 
+        pending_games["tournament"] = None
+
         # ✅ Deactivate loser and update stats
         loser_id = None
         for match in self.current_matches:
@@ -2349,7 +2351,7 @@ class TournamentLobbyView(discord.ui.View):
         self.status = None
 
         # Abandon if idle
-        self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
+        #self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
 
         # Join button
         self.join_button = discord.ui.Button(label="Join Tournament", style=discord.ButtonStyle.success)
@@ -2410,15 +2412,15 @@ class TournamentLobbyView(discord.ui.View):
             self.clear_items()
             await self.update_message(status="🕐 Betting closed. Good luck!")
 
-    async def abandon_if_not_filled(self):
-        timeout = 1000
-        elapsed = 0
-        while len(self.players) < self.max_players and not self.betting_closed and elapsed < timeout:
-            await asyncio.sleep(30)
-            elapsed += 30
-        if len(self.players) < self.max_players and not self.betting_closed:
-            await self.manager.abandon("⏰ Tournament timed out.")
-            pending_games["tournament"] = None
+    #async def abandon_if_not_filled(self):
+    #    timeout = 1000
+    #    elapsed = 0
+    #    while len(self.players) < self.max_players and not self.betting_closed and elapsed < timeout:
+    #        await asyncio.sleep(30)
+    #        elapsed += 30
+    #    if len(self.players) < self.max_players and not self.betting_closed:
+    #        await self.manager.abandon("⏰ Tournament timed out.")
+    #        pending_games["tournament"] = None
 
     async def build_embed(self, guild, no_image=True, status=None, bets=None):
         self._embed_helper.players = self.players
