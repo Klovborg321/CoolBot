@@ -1457,7 +1457,7 @@ class GameView(discord.ui.View):
         self.message = None
 
         # ✅ Call the same flow as /init_...
-        await start_new_game_button(self.channel, self.game_type, max_players)
+        await start_new_game_button(self.channel, self.game_type, self.max_players)
 
         print(f"[abandon_game] New start posted for {self.game_type} in #{self.channel.name}")
 
