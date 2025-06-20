@@ -1436,7 +1436,7 @@ class GameView(discord.ui.View):
     async def abandon_game(self, reason):
         self.cancel_abandon_task()
         self.cancel_betting_task()
-        self.cancel_vote_timeout()
+        #self.cancel_vote_timeout()
 
         pending_games[self.game_type] = None
 
