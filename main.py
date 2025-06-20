@@ -41,7 +41,7 @@ tree = bot.tree
 IS_TEST_MODE = os.getenv("TEST_MODE", "1") == "1"
 
 TEST_PLAYER_IDS = [
-    970268488239317023,
+    #970268488239317023,
     807840646764429342,
    # 701689044635091124,
    # 1117780404011815003,
@@ -906,7 +906,7 @@ class RoomView(discord.ui.View):
             lines.append(f"<@{p}> | Rank: {rank} | Trophies: {trophies} | 🎯 HCP: {hcp}")
 
         embed.description = "\n".join(lines)
-        embed.add_field(name="🎮 Status", value="Game has ended.", inline=False)
+        embed.add_field(name="🎮 Status", value="Game has ended.", inline=True)
 
         if winner == "draw":
             embed.add_field(name="🏁 Result", value="🤝 It's a draw!", inline=False)
