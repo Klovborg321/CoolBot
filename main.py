@@ -1147,7 +1147,8 @@ class TournamentStartButtonView(discord.ui.View):
         # ✅ ALWAYS pass parent_channel and creator — no more missing args!
         modal = PlayerCountModal(
             parent_channel=interaction.channel,
-            creator=interaction.user
+            creator=interaction.user,
+            view=self
         )
         await interaction.response.send_modal(modal)
 
@@ -2248,10 +2249,11 @@ class TournamentLobbyView(discord.ui.View):
         self.bets.append((uid, uname, amount, choice))
 
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
-    def __init__(self, parent_channel, creator):
+    def __init__(self, parent_channel, creator, view):
         super().__init__()
         self.parent_channel = parent_channel
         self.creator = creator
+        self.view = view
 
         self.player_count = discord.ui.TextInput(
             label="Number of players (even number)",
