@@ -1457,8 +1457,8 @@ class GameView(discord.ui.View):
 
         self.message = None
 
+        # ✅ Always create new start button if missing
         key = (self.channel.id, self.game_type)
-        # ✅ Post new start button only if truly missing:
         if key not in start_buttons or start_buttons[key] is None:
             await start_new_game_button(self.channel, self.game_type, self.max_players)
 
@@ -2325,7 +2325,7 @@ class TournamentManager:
         return True
 
     async def abandon_if_not_filled(self):
-        await asyncio.sleep(300)
+        await asyncio.sleep(1000)
         if len(self.players) < self.max_players:
             embed = discord.Embed(
                 title="❌ Tournament Abandoned",
