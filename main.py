@@ -1521,7 +1521,6 @@ class GameView(discord.ui.View):
         mentions = " ".join(f"<@{p}>" for p in self.players)
         thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=thread_embed, view=room_view)
         room_view.message = thread_msg
-        room_view.channel = thread        
 
         await start_new_game_button(self.channel, self.game_type, self.max_players)
 
@@ -2063,7 +2062,7 @@ class TournamentManager:
                     view=room_view
                 )
                 room_view.message = msg
-                room_view.channel = thread
+                room_view.channel = match_thread
 
                 self.current_matches.append(room_view)
 
