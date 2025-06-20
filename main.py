@@ -967,9 +967,6 @@ class RoomView(discord.ui.View):
 
         self.voting_closed = True
 
-        if self.abandon_task:
-            self.abandon_task.cancel()
-
         # ✅ 1️⃣ Update player stats & handle draw
         if winner == "draw":
             for p in self.players:
@@ -1298,8 +1295,9 @@ class GameView(discord.ui.View):
 
 
     async def abandon_if_not_filled(self):
-        timeout_duration = 1000  # seconds
+        timeout_duration = 30 if IS_TEST_MODE else 300  # ✅ 5 minutes
         elapsed = 0
+
         while len(self.players) < self.max_players and not self.betting_closed and elapsed < timeout_duration:
             await asyncio.sleep(30)
             elapsed += 30
@@ -1307,6 +1305,7 @@ class GameView(discord.ui.View):
         if len(self.players) < self.max_players and not self.betting_closed:
             await self.abandon_game("⏰ Game timed out due to inactivity.")
             await clear_pending_game(self.game_type)
+
 
     async def build_embed(self, guild=None, winner=None, no_image=True, status=None, bets=None):
         # Title
