@@ -2299,7 +2299,8 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
             manager,
             creator=self.creator,
             max_players=count,
-            parent_channel=self.parent_channel  # << VERY IMPORTANT
+            parent_channel=self.parent_channel ,
+            status="✅ Tournament full! Matches running — place your bets!" if IS_TEST_MODE else ""
         )
         manager.view = view
         view.players = manager.players.copy()  # sync test players if any
