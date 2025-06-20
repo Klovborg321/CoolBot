@@ -1465,7 +1465,7 @@ class GameView(discord.ui.View):
 
     async def add_bet(self, uid, uname, amount, choice):
         # Always store in the local bets
-        bets.append((uid, uname, amount, choice))
+        self.bets.append((uid, uname, amount, choice))
 
         # If this game has a manager (e.g., tournament), store it there too:
         if hasattr(self, "manager") and self.manager:
@@ -2429,12 +2429,11 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
 
 @tree.command(name="init_tournament")
 async def init_tournament(interaction: discord.Interaction):
-    """Creates a tournament game lobby with the start button"""
-
+    """Creates a tournament game lobby and asks for player count"""
     print("[init_tournament] Defer interaction...")
     await interaction.response.defer(ephemeral=True)
 
-    print("[init_tournament] Checking for existing game or button...")
+    print("[init_tournament] Checking for existing game/button...")
     if pending_games.get("tournament") or any(k[0] == interaction.channel.id for k in start_buttons):
         print("[init_tournament] Found existing game/button, sending followup...")
         await interaction.followup.send(
@@ -2443,17 +2442,10 @@ async def init_tournament(interaction: discord.Interaction):
         )
         return
 
-    max_players = 16
+    print("[init_tournament] Showing player count modal...")
+    modal = PlayerCountModal(interaction.channel, interaction.user, None)
+    await interaction.followup.send_modal(modal)
 
-    print("[init_tournament] Calling start_new_game_button...")
-    # ✅ Ensure this never takes 3+ seconds; if it might, break it up:
-    await start_new_game_button(interaction.channel, "tournamenttournament", max_players=max_players)
-
-    print("[init_tournament] Sending success followup...")
-    await interaction.followup.send(
-        "✅ Tournament game button posted and ready for players to join!",
-        ephemeral=True
-    )
 
 
 @tree.command(name="set_user_handicap")
