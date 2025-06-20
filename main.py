@@ -968,6 +968,7 @@ class RoomView(discord.ui.View):
 
         self.cancel_abandon_task()
         self.cancel_vote_timeout()
+        self.cancel_betting_task()
         
         vote_counts = Counter(self.votes.values())
         most_common = vote_counts.most_common()
@@ -1274,6 +1275,11 @@ class GameView(discord.ui.View):
         if len(self.players) == self.max_players:
             await self.game_full(interaction)
 
+    def cancel_betting_task(self):
+        if hasattr(self, "betting_task") and self.betting_task:
+            self.betting_task.cancel()
+            self.betting_task = None
+
     def cancel_abandon_task(self):
         if hasattr(self, "abandon_task") and self.abandon_task:
             self.abandon_task.cancel()
@@ -1281,6 +1287,9 @@ class GameView(discord.ui.View):
 
     async def abandon_game(self, reason):
         self.cancel_abandon_task()
+        self.cancel_betting_task()
+        self.cancel_vote_timeout()
+
         pending_games[self.game_type] = None
 
         for p in self.players:
@@ -1575,6 +1584,7 @@ class GameView(discord.ui.View):
         return "\n".join(lines)
 
     async def show_betting_phase(self):
+        self.betting_task = asyncio.create_task(self.show_betting_phase())
         self.clear_items()
         self.add_item(BettingButtonDropdown(self))
         await self.update_message()
@@ -1588,6 +1598,7 @@ class GameView(discord.ui.View):
 
         # ✅ Stop abandon timer
         self.cancel_abandon_task()
+        self.cancel_betting_task()
 
         # ✅ Mark no more pending game for this type
         pending_games[self.game_type] = None
