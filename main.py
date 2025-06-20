@@ -1063,7 +1063,8 @@ class GameEndedButton(discord.ui.Button):
             updated_embed = await self.view_obj.game_view.build_embed(
                 target_message.guild,
                 winner="ended",
-                no_image=True
+                no_image=True,
+                status=None
             )
 
             # ✅ make sure no course/room name leaks: GameView.build_embed does NOT use room_name
@@ -2412,66 +2413,58 @@ async def init_singles(interaction: discord.Interaction):
 async def init_doubles(interaction: discord.Interaction):
     """Creates a doubles game lobby with the start button"""
 
-    try:
-        # ✅ 1️⃣ IMMEDIATELY defer to get 15 min
-        await interaction.response.defer(ephemeral=True)
-    except discord.errors.NotFound:
-        # ⚠️ If it's already expired, just exit — don't crash
-        return
+    print("[init_doubles] Defer interaction...")
+    await interaction.response.defer(ephemeral=True)
 
-    # ✅ 2️⃣ Do checks
-    if pending_games.get("doubles") or any(
-        k[0] == interaction.channel.id for k in start_buttons
-    ):
+    print("[init_doubles] Checking for existing game or button...")
+    if pending_games.get("doubles") or any(k[0] == interaction.channel.id for k in start_buttons):
+        print("[init_singles] Found existing game/button, sending followup...")
         await interaction.followup.send(
             "⚠️ A doubles game is already pending or a button is active here.",
             ephemeral=True
         )
         return
 
-    # ✅ 3️⃣ Create the start button safely
-    try:
-        await start_new_game_button(interaction.channel, "doubles", max_players=4)
-    except Exception as e:
-        await interaction.followup.send(
-            f"❌ Failed to create start button: {e}",
-            ephemeral=True
-        )
-        return
+    max_players = 4
 
-    # ✅ 4️⃣ Confirm
+    print("[init_singles] Calling start_new_game_button...")
+    # ✅ Ensure this never takes 3+ seconds; if it might, break it up:
+    await start_new_game_button(interaction.channel, "doubles", max_players=max_players)
+
+    print("[init_singles] Sending success followup...")
     await interaction.followup.send(
         "✅ Doubles game button posted and ready for players to join!",
         ephemeral=True
     )
 
-
 @tree.command(name="init_triples")
 async def init_triples(interaction: discord.Interaction):
     """Creates a triples game lobby with the start button"""
 
-    # Defer the interaction immediately to avoid timeout
+    print("[init_doubles] Defer interaction...")
     await interaction.response.defer(ephemeral=True)
 
-    # Fast check if a game is already pending
+    print("[init_doubles] Checking for existing game or button...")
     if pending_games.get("triples") or any(k[0] == interaction.channel.id for k in start_buttons):
+        print("[init_singles] Found existing game/button, sending followup...")
         await interaction.followup.send(
             "⚠️ A triples game is already pending or a button is active here.",
             ephemeral=True
         )
         return
 
-    # Set max_players for triples game
     max_players = 3
 
-    # Create the button
+    print("[init_singles] Calling start_new_game_button...")
+    # ✅ Ensure this never takes 3+ seconds; if it might, break it up:
     await start_new_game_button(interaction.channel, "triples", max_players=max_players)
 
-    # Send confirmation to the user
+    print("[init_singles] Sending success followup...")
     await interaction.followup.send(
         "✅ Triples game button posted and ready for players to join!",
         ephemeral=True
     )
+	
 
 @tree.command(
     name="leaderboard",
