@@ -1602,7 +1602,7 @@ class GameView(discord.ui.View):
     async def _betting_countdown(self):
         print(f"[BET] Betting countdown started for GameView id {id(self)}")
         try:
-            await asyncio.sleep(120)
+            #await asyncio.sleep(120)
             # ✅ Check: skip if game already ended
             if self.game_has_ended:
                 print(f"[BET] Betting countdown: game already ended for GameView id {id(self)}")
