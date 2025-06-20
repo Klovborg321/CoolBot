@@ -447,6 +447,11 @@ room_name_generator = RoomNameGenerator()
 
 
 class GameJoinView(discord.ui.View):
+    def __init__(self, game_type, max_players):
+        super().__init__(timeout=None)
+        self.game_type = game_type
+        self.max_players = max_players
+
         button = discord.ui.Button(
             label=f"Start {self.game_type} game",
             style=discord.ButtonStyle.primary
