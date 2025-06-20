@@ -2504,6 +2504,7 @@ class TournamentLobbyView(discord.ui.View):
         self.players = [creator.id]
         self.max_players = max_players
         self.game_type = "tournament"
+        self.betting_task = None
         self.message = None
         self.betting_closed = False
         self.bets = []
@@ -2527,6 +2528,16 @@ class TournamentLobbyView(discord.ui.View):
         )
         self._embed_helper.players = self.players
         self._embed_helper.bets = self.bets
+
+    def cancel_betting_task(self):
+        if self.betting_task:
+            self.betting_task.cancel()
+            self.betting_task = None
+
+    def cancel_abandon_task(self):
+        if hasattr(self, "abandon_task") and self.abandon_task:
+            self.abandon_task.cancel()
+            self.abandon_task = None
 
     async def abandon_game(self, reason):
         self.cancel_abandon_task()
