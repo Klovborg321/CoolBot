@@ -3403,6 +3403,30 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
         ephemeral=True  # Only the caller can see it
     )
 
+@tree.command(name="clear_pending_games")
+@app_commands.checks.has_permissions(administrator=True)
+async def clear_pending_games_command(interaction: discord.Interaction):
+    """Clears all pending games in Supabase and local cache."""
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        # ✅ 1️⃣ Clear from Supabase
+        await run_db(lambda: supabase.table("pending_games").delete().execute())
+
+        # ✅ 2️⃣ Clear in-memory
+        pending_games.clear()
+
+        await interaction.followup.send(
+            "✅ All pending games have been cleared from Supabase and memory.",
+            ephemeral=True
+        )
+    except Exception as e:
+        print(f"❌ Error clearing pending games: {e}")
+        await interaction.followup.send(
+            f"⚠️ Failed to clear pending games: {e}",
+            ephemeral=True
+        )
+
 
 @bot.event
 async def on_ready():
