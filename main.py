@@ -1457,11 +1457,7 @@ class GameView(discord.ui.View):
         self.message = None
 
         # ✅ Call the same flow as /init_...
-        if self.game_type in ["singles", "doubles", "triples"]:
-            max_players = {"singles": 2, "doubles": 4, "triples": 3}[self.game_type]
-            await start_new_game_button(self.channel, self.game_type, max_players)
-        elif self.game_type == "tournament":
-            await self.channel.send("🏆 Tournament abandoned. Use `/init_tournament` to start a new one.")
+        await start_new_game_button(self.channel, self.game_type, max_players)
 
         print(f"[abandon_game] New start posted for {self.game_type} in #{self.channel.name}")
 
@@ -2556,11 +2552,7 @@ class TournamentLobbyView(discord.ui.View):
         self.message = None
 
         # ✅ Call the same flow as /init_...
-        if self.game_type in ["singles", "doubles", "triples"]:
-            max_players = {"singles": 2, "doubles": 4, "triples": 3}[self.game_type]
-            await start_new_game_button(self.channel, self.game_type, max_players)
-        elif self.game_type == "tournament":
-            await self.channel.send("🏆 Tournament abandoned. Use `/init_tournament` to start a new one.")
+        await start_new_game_button(self.channel, self.game_type, max_players)
 
         print(f"[abandon_game] New start posted for {self.game_type} in #{self.channel.name}")
 
@@ -2730,7 +2722,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
             ephemeral=True
         )
 
-        await start_new_game_button(interaction.channel, "tournament")
+        #await start_new_game_button(interaction.channel, "tournament")
 
 
 @tree.command(name="init_tournament")
