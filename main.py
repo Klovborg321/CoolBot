@@ -447,18 +447,14 @@ room_name_generator = RoomNameGenerator()
 
 
 class GameJoinView(discord.ui.View):
-    def __init__(self, game_type, max_players):
-        super().__init__(timeout=None)
-        self.game_type = game_type
-        self.max_players = max_players
-
         button = discord.ui.Button(
             label=f"Start {self.game_type} game",
             style=discord.ButtonStyle.primary
         )
         button.callback = self.start_game
         self.add_item(button)
-    async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+
+    async def start_game(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
         # ✅ Block duplicate games of the same type
