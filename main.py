@@ -951,11 +951,13 @@ class RoomView(discord.ui.View):
                     label = f"Vote {label}"
             self.add_item(VoteButton(option, self, label))
 
-        # ✅ Also rebuild the embed with voting-specific description
+        # ✅ 1️⃣ REBUILD embed for voting
         embed = await self.build_lobby_end_embed(winner=None)
+
+        # ✅ 2️⃣ Edit with fresh embed + fresh voting view
         await self.message.edit(embed=embed, view=self)
 
-        #await self.message.edit(view=self)
+        # ✅ 3️⃣ Start timeout
         self.vote_timeout = asyncio.create_task(self.end_voting_after_timeout())
 
     def cancel_vote_timeout(self):
