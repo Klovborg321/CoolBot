@@ -1433,10 +1433,10 @@ class GameView(discord.ui.View):
             self.abandon_task.cancel()
             self.abandon_task = None
 
-    async def abandon_game(self, reason):
+   async def abandon_game(self, reason):
         self.cancel_abandon_task()
         self.cancel_betting_task()
-        #self.cancel_vote_timeout()
+        self.cancel_vote_timeout()
 
         pending_games[self.game_type] = None
 
@@ -1457,10 +1457,19 @@ class GameView(discord.ui.View):
 
         self.message = None
 
-        # ✅ Always create new start button if missing
+        # ✅ Always fresh start button
         key = (self.channel.id, self.game_type)
-        if key not in start_buttons or start_buttons[key] is None:
-            await start_new_game_button(self.channel, self.game_type, self.max_players)
+        old = start_buttons.get(key)
+        if old:
+            try:
+                await old.delete()
+            except:
+                pass
+        start_buttons[key] = None
+
+        new_button = await start_new_game_button(self.channel, self.game_type, self.max_players)
+        start_buttons[key] = new_button
+        print(f"[abandon_game] Fresh start button posted for {self.game_type} in #{self.channel.name}")
 
 
     #async def abandon_if_not_filled(self):
