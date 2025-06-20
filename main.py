@@ -1337,9 +1337,17 @@ class GameView(discord.ui.View):
                     label = f"Team {norm}" if norm in ("A", "B") else ch
                 elif self.game_type == "triples":
                     label = f"Player {ch}"
+                elif self.game_type == "tournament":
+                    try:
+                        pid = int(ch)
+                        member = guild.get_member(pid) if guild else None
+                        label = member.display_name if member else f"User {pid}"
+                    except:
+                        label = str(ch)
                 else:
                     label = ch
                 bet_lines.append(f"💰 {uname} bet {amt} on {label}")
+            
             embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
 
         # Footer — clean, covers all winners
