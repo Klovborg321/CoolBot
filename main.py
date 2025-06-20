@@ -915,24 +915,25 @@ class RoomView(discord.ui.View):
                 pdata["current_streak"] = 0
                 await save_player(p, pdata)
 
-            for uid, uname, amount, choice in self.game_view.bets:
-                await add_credits_internal(uid, amount)
-                await run_db(lambda: supabase
-                    .table("bets")
-                    .update({"won": None})
-                    .eq("player_id", uid)
-                    .eq("game_id", self.game_view.message.id)
-                    .eq("choice", choice)
-                    .execute()
-                )
-                print(f"↩️ Refunded {amount} to {uname} (DRAW)")
+            if self.game_view:
+                for uid, uname, amount, choice in self.game_view.bets:
+                    await add_credits_internal(uid, amount)
+                    await run_db(lambda: supabase
+                        .table("bets")
+                        .update({"won": None})
+                        .eq("player_id", uid)
+                        .eq("game_id", self.game_view.message.id)
+                        .eq("choice", choice)
+                        .execute()
+                    )
+                    print(f"↩️ Refunded {amount} to {uname} (DRAW)")
 
-            # ✅ Thread embed uses RoomView version:
+            # ✅ Thread embed (always valid)
             embed = await self.build_lobby_end_embed(winner)
             await self.message.edit(embed=embed, view=None)
 
-            # ✅ Lobby embed uses GameView version, no image:
-            if self.lobby_message:
+            # ✅ Lobby embed (only if exists)
+            if self.lobby_message and self.game_view:
                 lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True)
                 await self.lobby_message.edit(embed=lobby_embed, view=None)
 
@@ -970,10 +971,7 @@ class RoomView(discord.ui.View):
             await save_player(p, pdata)
 
         # ✅ 3️⃣ Resolve bets
-        if self.game_view is None:
-            # Tournament match: skip bet resolution
-            pass  # or log something
-        else:
+        if self.game_view:
             for uid, uname, amount, choice in self.game_view.bets:
                 won = False
                 if self.game_type == "singles":
@@ -1015,10 +1013,10 @@ class RoomView(discord.ui.View):
         embed = await self.build_lobby_end_embed(winner)
         await self.message.edit(embed=embed, view=None)
 
-        # ✅ Determine what to update: main lobby message OR fallback to GameView message
-        target_message = self.lobby_message or self.game_view.message
+        # ✅ Safe target for lobby update
+        target_message = self.lobby_message or (self.game_view.message if self.game_view else None)
 
-        if target_message:
+        if target_message and self.game_view:
             lobby_embed = await self.game_view.build_embed(target_message.guild, winner=winner, no_image=True)
             # ✅ Remove betting buttons
             to_remove = [
@@ -1027,10 +1025,9 @@ class RoomView(discord.ui.View):
             ]
             for item in to_remove:
                 self.game_view.remove_item(item)
+            await target_message.edit(embed=lobby_embed, view=self.game_view)
 
-        self.players=[]
-        await target_message.edit(embed=lobby_embed, view=self.game_view)
-
+        self.players = []
         await self.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
         await asyncio.sleep(3)
         await self.channel.edit(archived=True)
@@ -1039,6 +1036,7 @@ class RoomView(discord.ui.View):
         if self.on_tournament_complete:
             if isinstance(winner, int):
                 await self.on_tournament_complete(winner)
+
 
 
 class GameEndedButton(discord.ui.Button):
