@@ -799,13 +799,13 @@ class RoomView(discord.ui.View):
 
             member = guild.get_member(p)
             name = member.display_name if member else f"ID {p}"
-            lines.append(f"• **{name}** — Rank: {rank}, 🏆 {trophies}")
+            lines.append(f"•Player{p}***{name}*** 🏆 {trophies} 📈 {rank} ")
 
         # ✅ 3️⃣ Add Players field BELOW description
         embed.add_field(name="👥 Players", value="\n".join(lines), inline=False)
 
         # ✅ 4️⃣ Add status field
-        embed.add_field(name="🎮 Status", value="Match in progress.", inline=False)
+        embed.add_field(name="🎮 Status", value="Match in progress.", inline=True)
 
         # ✅ 5️⃣ Add course image if available
         if self.lobby_embed and self.lobby_embed.image:
