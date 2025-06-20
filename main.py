@@ -791,18 +791,72 @@ class RoomView(discord.ui.View):
         embed.description = f"🏌️ Course: **{self.course_name}**"
 
         # ✅ 2️⃣ Build detailed player lines
-        lines = []
+        player_lines = []
+
+        # Optional: prepare ranks, odds, handicaps as needed:
+        ranks = []
         for p in self.players:
             pdata = await get_player(p)
-            rank = pdata.get("rank", 1000)
-            trophies = pdata.get("trophies", 0)
+            ranks.append(pdata.get("rank", 1000))
 
-            member = guild.get_member(p)
-            name = member.display_name if member else f"ID {p}"
-            lines.append(f"•Player{p}***{name}*** 🏆 {trophies} 📈 {rank} ")
+        # Compute odds if needed:
+        odds = []
+        if self.game_type == "doubles" and len(self.players) >= 4:
+            e1 = sum(ranks[:2]) / 2
+            e2 = sum(ranks[2:]) / 2
+            odds_a = 1 / (1 + 10 ** ((e2 - e1) / 400))
+            odds_b = 1 - odds_a
+        elif self.game_type == "triples" and len(self.players) >= 3:
+            exp = [10 ** (r / 400) for r in ranks]
+            total = sum(exp)
+            odds = [v / total for v in exp]
+
+        game_full = len(self.players) == self.max_players
+
+        # Team A label for doubles:
+        if self.game_type == "doubles":
+            player_lines.append("\u200b")
+            label = "__**🅰️ Team A**__"
+            if game_full:
+                label += f" • {odds_a * 100:.1f}%"
+            player_lines.append(label)
+
+        for idx in range(self.max_players):
+            if idx < len(self.players):
+                user_id = self.players[idx]
+                member = guild.get_member(user_id) if guild else None
+                raw_name = member.display_name if member else f"Player {idx + 1}"
+                name = f"**{fixed_width_name(raw_name, 20)}**"
+
+                rank = ranks[idx]
+
+                # For RoomView you may skip HCP unless you have course_id handy:
+                hcp_txt = ""
+
+                if self.game_type == "singles" and game_full:
+                    e1, e2 = ranks
+                    o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
+                    player_odds = o1 if idx == 0 else 1 - o1
+                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%{hcp_txt}"
+                elif self.game_type == "triples" and game_full:
+                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%{hcp_txt}"
+                else:
+                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}){hcp_txt}"
+            else:
+                line = f"○ Player {idx + 1}: [Waiting...]"
+
+            player_lines.append(line)
+
+            if self.game_type == "doubles" and idx == 1:
+                player_lines.append("\u200b")
+                label = "__**🅱️ Team B**__"
+                if game_full:
+                    label += f" • {odds_b * 100:.1f}%"
+                player_lines.append(label)
+
 
         # ✅ 3️⃣ Add Players field BELOW description
-        embed.add_field(name="👥 Players", value="\n".join(lines), inline=False)
+        embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
 
         # ✅ 4️⃣ Add status field
         embed.add_field(name="🎮 Status", value="Match in progress.", inline=True)
