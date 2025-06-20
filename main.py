@@ -2253,7 +2253,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         )
         self.add_item(self.player_count)
 
-     async def on_submit(self, interaction: discord.Interaction):
+    async def on_submit(self, interaction: discord.Interaction):
         try:
             count = int(self.player_count.value.strip())
             if count % 2 != 0 or count < 2:
