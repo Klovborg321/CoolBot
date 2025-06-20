@@ -1465,14 +1465,18 @@ class GameView(discord.ui.View):
 
     async def add_bet(self, uid, uname, amount, choice):
         # Always store in the local bets
-        self.bets.append((uid, uname, amount, choice))
+        if hasattr(self, "bets"):
+            self.bets.append((uid, uname, amount, choice))
 
-        # If this game has a manager (e.g., tournament), store it there too:
+        # ✅ Also store in manager if present
         if hasattr(self, "manager") and self.manager:
             self.manager.bets.append((uid, uname, amount, choice))
 
-        # Rebuild embed for the LOBBY message:
+        # ✅ Safe fallback for which message to update
         target_message = self.manager.message if hasattr(self, "manager") and self.manager else self.message
+
+        # ✅ Use correct bets source
+        bets = self.manager.bets if hasattr(self, "manager") and self.manager else self.bets
 
         embed = await self.build_embed(
             target_message.guild,
