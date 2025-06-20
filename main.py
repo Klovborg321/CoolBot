@@ -2324,12 +2324,33 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         await start_new_game_button(interaction.channel, "tournament")
 
 
-
-@bot.tree.command(name="init_tournament")
+@tree.command(name="init_tournament")
 async def init_tournament(interaction: discord.Interaction):
-    # Always pass parent_channel & creator to modal
-    modal = PlayerCountModal(parent_channel=interaction.channel, creator=interaction.user)
-    await interaction.response.send_modal(modal)
+    """Creates a tournament game lobby with the start button"""
+
+    print("[init_tournament] Defer interaction...")
+    await interaction.response.defer(ephemeral=True)
+
+    print("[init_tournament] Checking for existing game or button...")
+    if pending_games.get("tournament") or any(k[0] == interaction.channel.id for k in start_buttons):
+        print("[init_tournament] Found existing game/button, sending followup...")
+        await interaction.followup.send(
+            "⚠️ A tournament game is already pending or a button is active here.",
+            ephemeral=True
+        )
+        return
+
+    max_players = 16
+
+    print("[init_tournament] Calling start_new_game_button...")
+    # ✅ Ensure this never takes 3+ seconds; if it might, break it up:
+    await start_new_game_button(interaction.channel, "tournamenttournament", max_players=max_players)
+
+    print("[init_tournament] Sending success followup...")
+    await interaction.followup.send(
+        "✅ Tournament game button posted and ready for players to join!",
+        ephemeral=True
+    )
 
 
 @tree.command(name="set_user_handicap")
