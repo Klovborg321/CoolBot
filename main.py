@@ -1466,6 +1466,9 @@ class GameView(discord.ui.View):
 
 
     async def update_message(self):
+        if not self.message:
+            print("[update_message] SKIPPED: no message to update.")
+            return
         if self.message:
             embed = await self.build_embed(
                 self.message.guild,
