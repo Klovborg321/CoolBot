@@ -2526,7 +2526,7 @@ async def init_doubles(interaction: discord.Interaction):
 
     print("[init_doubles] Checking for existing game or button...")
     if pending_games.get("doubles") or any(k[0] == interaction.channel.id for k in start_buttons):
-        print("[init_singles] Found existing game/button, sending followup...")
+        print("[init_doubles] Found existing game/button, sending followup...")
         await interaction.followup.send(
             "⚠️ A doubles game is already pending or a button is active here.",
             ephemeral=True
@@ -2535,11 +2535,11 @@ async def init_doubles(interaction: discord.Interaction):
 
     max_players = 4
 
-    print("[init_singles] Calling start_new_game_button...")
+    print("[init_doubles] Calling start_new_game_button...")
     # ✅ Ensure this never takes 3+ seconds; if it might, break it up:
     await start_new_game_button(interaction.channel, "doubles", max_players=max_players)
 
-    print("[init_singles] Sending success followup...")
+    print("[init_doubles] Sending success followup...")
     await interaction.followup.send(
         "✅ Doubles game button posted and ready for players to join!",
         ephemeral=True
@@ -2549,10 +2549,10 @@ async def init_doubles(interaction: discord.Interaction):
 async def init_triples(interaction: discord.Interaction):
     """Creates a triples game lobby with the start button"""
 
-    print("[init_doubles] Defer interaction...")
+    print("[init_triples] Defer interaction...")
     await interaction.response.defer(ephemeral=True)
 
-    print("[init_doubles] Checking for existing game or button...")
+    print("[init_triples] Checking for existing game or button...")
     if pending_games.get("triples") or any(k[0] == interaction.channel.id for k in start_buttons):
         print("[init_singles] Found existing game/button, sending followup...")
         await interaction.followup.send(
@@ -2563,16 +2563,17 @@ async def init_triples(interaction: discord.Interaction):
 
     max_players = 3
 
-    print("[init_singles] Calling start_new_game_button...")
+    print("[init_triples] Calling start_new_game_button...")
     # ✅ Ensure this never takes 3+ seconds; if it might, break it up:
     await start_new_game_button(interaction.channel, "triples", max_players=max_players)
 
-    print("[init_singles] Sending success followup...")
+    print("[init_triples] Sending success followup...")
     await interaction.followup.send(
         "✅ Triples game button posted and ready for players to join!",
         ephemeral=True
     )
-	
+
+
 
 @tree.command(
     name="leaderboard",
