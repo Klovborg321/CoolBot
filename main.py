@@ -496,7 +496,10 @@ class GameJoinView(discord.ui.View):
                     player_manager.activate(pid)
 
         embed = await view.build_embed(interaction.guild, no_image=True, status="✅ Tournament full! Matches running — place your bets!" if IS_TEST_MODE else "")
-        view.message = await interaction.channel.send(embed=embed, view=view)
+        if view.message:
+            await view.message.edit(embed=embed, view=view)
+        else:
+            view.message = await interaction.channel.send(embed=embed, view=view)
 
         if len(view.players) == view.max_players:
             await view.game_full(interaction)
