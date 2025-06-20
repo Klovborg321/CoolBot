@@ -1589,6 +1589,8 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
         # ✅ Add to UI
         await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice)
 
+        await self.game_view.update_message()
+
         await interaction.response.send_message(
             f"✅ Bet of **{amount}** on **{self.choice}** placed!\n📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
             ephemeral=True
