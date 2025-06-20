@@ -2334,10 +2334,6 @@ class TournamentManager:
 
                 print(f"🏆 Tournament completed. Champion: {champ}")
 
-                # ✅ Lock the main lobby — embed only, NO view attached
-                if self.message:
-                    await self.message.edit(embed=embed, view=None)
-
             else:
                 # ✅ More rounds needed → prepare next round
                 self.round_players = self.next_round_players.copy()
