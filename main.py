@@ -2320,15 +2320,19 @@ class TournamentManager:
                     else:
                         print(f"❌ {uname} lost {amount}")
 
-                # ✅ Build final embed safely
-                dummy = GameView("tournament", self.creator, 2, self.parent_channel)
-                dummy.players = self.players
-                dummy.max_players = self.max_players
-                embed = await dummy.build_embed(self.parent_channel.guild, winner=champ)
+                # ✅ 2️⃣ Build FINAL embed — use a simple dummy or direct
+                final_embed = discord.Embed(
+                    title="🏆 Tournament Results",
+                    description=f"**Champion:** <@{champ}>",
+                    color=discord.Color.gold()
+                )
+                final_embed.set_footer(text="Thanks for playing!")
 
-                member = self.parent_channel.guild.get_member(champ)
-                champ_name = member.display_name if member else f"User {champ}"
-                embed.set_footer(text=f"🏆 Champion: {champ_name}")
+                # ✅ 3️⃣ Update main lobby: embed only, NO view!
+                if self.message:
+                    await self.message.edit(embed=final_embed, view=None)
+
+                print(f"🏆 Tournament completed. Champion: {champ}")
 
                 # ✅ Lock the main lobby — embed only, NO view attached
                 if self.message:
