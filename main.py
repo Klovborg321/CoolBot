@@ -80,11 +80,6 @@ default_template = {
 }
 
 # Helpers
-def cancel_abandon_task(self):
-    if hasattr(self, "abandon_task") and self.abandon_task:
-        self.abandon_task.cancel()
-        self.abandon_task = None
-
 async def update_course_average_par(course_id: str):
     """
     Recalculate and update the avg_par for the given course_id.
@@ -787,6 +782,11 @@ class RoomView(discord.ui.View):
         self.add_item(GameEndedButton(self))
         self.on_tournament_complete = None
 
+    def cancel_abandon_task(self):
+        if hasattr(self, "abandon_task") and self.abandon_task:
+            self.abandon_task.cancel()
+            self.abandon_task = None
+
     async def build_room_embed(self, guild=None):
         guild = guild or self.guild or (self.message.guild if self.message else None)
         assert guild, "Guild is missing for RoomView!"
@@ -1268,6 +1268,10 @@ class GameView(discord.ui.View):
         if len(self.players) == self.max_players:
             await self.game_full(interaction)
 
+    def cancel_abandon_task(self):
+        if hasattr(self, "abandon_task") and self.abandon_task:
+            self.abandon_task.cancel()
+            self.abandon_task = None
 
     async def abandon_game(self, reason):
         # ✅ Cancel abandon timer so it won’t run again
@@ -2316,6 +2320,11 @@ class TournamentLobbyView(discord.ui.View):
         )
         self._embed_helper.players = self.players
         self._embed_helper.bets = self.bets
+
+    def cancel_abandon_task(self):
+        if hasattr(self, "abandon_task") and self.abandon_task:
+            self.abandon_task.cancel()
+            self.abandon_task = None
 
     async def join(self, interaction: discord.Interaction):
         if interaction.user.id in self.players:
