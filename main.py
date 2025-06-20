@@ -325,7 +325,7 @@ def player_display(user_id, data):
 async def start_new_game_button(channel, game_type, max_players=None):
     key = (channel.id, game_type)
 
-    # ✅ 1) Clean up old start button message
+    # ✅ 1) Clean up old button message
     old = start_buttons.get(key)
     if old:
         try:
@@ -336,10 +336,11 @@ async def start_new_game_button(channel, game_type, max_players=None):
         except Exception as e:
             print(f"⚠️ Could not delete old start button: {e}")
 
-    # ✅ 2) Clear old pending view for this game type (THIS FIXES THE REUSE BUG)
+    # ✅ 2) ⚠️ Do NOT assign a GameView here. Only a JoinButton, no pending!
+    # This ensures the real GameView is created fresh when the button is pressed.
     pending_games[game_type] = None
 
-    # ✅ 3) Create and send the new button with a FRESH view
+    # ✅ 3) Create a FRESH Join View
     if game_type == "tournament":
         view = TournamentStartButtonView()
         msg = await channel.send("🏆 Click to start a **Tournament**:", view=view)
@@ -347,12 +348,13 @@ async def start_new_game_button(channel, game_type, max_players=None):
         view = GameJoinView(game_type, max_players)
         msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
 
-    # ✅ 4) Store the new button message only
+    # ✅ 4) Store only the message — not the view itself
     start_buttons[key] = msg
 
     print(f"✅ New start button posted for {game_type} in #{channel.name}")
 
     return msg
+
 
 
 
@@ -3393,21 +3395,16 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
 
 @bot.event
 async def on_ready():
-    # Sync the slash commands with Discord
     await tree.sync()
     print(f"✅ Logged in as {bot.user}")
 
-    # Fetch and load any pending games
-    pending = await load_pending_games()
-    
-    # Iterate over each pending game and start a new button if the channel exists
-    for pg in pending:
-        channel = bot.get_channel(pg["channel_id"])  # Fetch the channel where the game was pending
-        if channel:
-            # Call start_new_game_button with game_type and max_players from pending game
-            # Ensure max_players is fetched correctly for each pending game
-            max_players = pg.get("max_players", 2)  # Default to 2 players if max_players is not found
-            await start_new_game_button(channel, pg["game_type"], max_players=max_players)
+    rows = await load_pending_games()
+    for row in rows:
+        game_type = row["game_type"]
+        players = row["players"]
+        pending_games[game_type] = {"players": players}
+
+    print(f"✅ Loaded pending games into RAM for checks: {pending_games}")
 
 
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
