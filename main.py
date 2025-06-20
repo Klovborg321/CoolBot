@@ -968,7 +968,8 @@ class RoomView(discord.ui.View):
 
         self.cancel_abandon_task()
         self.cancel_vote_timeout()
-        self.cancel_betting_task()
+        if self.game_view:
+            self.game_view.cancel_betting_task())
         
         vote_counts = Counter(self.votes.values())
         most_common = vote_counts.most_common()
