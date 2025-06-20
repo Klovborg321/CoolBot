@@ -1592,12 +1592,18 @@ class GameView(discord.ui.View):
         print(f"[BET] Betting countdown started for GameView id {id(self)}")
         try:
             await asyncio.sleep(120)
+            # ✅ Check: skip if game already ended
+            if self.game_has_ended:
+                print(f"[BET] Betting countdown: game already ended for GameView id {id(self)}")
+                return
+
             self.betting_closed = True
             self.clear_items()
             await self.update_message(status="🕐 Betting closed. Good luck!")
             print(f"[BET] Betting closed for GameView id {id(self)}")
         except asyncio.CancelledError:
             print(f"[BET] Betting countdown cancelled for GameView id {id(self)}")
+
 
     async def show_betting_phase(self):
         # 🔑 Always clear old betting buttons
