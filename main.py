@@ -1291,8 +1291,9 @@ class GameView(discord.ui.View):
         # ✅ Prevent future edits by clearing reference
         self.message = None
 
-        # ✅ Post a new fresh start button
-        await start_new_game_button(self.channel, self.game_type, self.max_players)
+        key = (self.channel.id, self.game_type)
+            if key not in start_buttons:
+                await start_new_game_button(self.channel, self.game_type, self.max_players)
 
 
     async def abandon_if_not_filled(self):
