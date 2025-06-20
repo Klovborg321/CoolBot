@@ -2985,31 +2985,21 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
             amount = b.get("amount", 0)
             payout = b.get("payout", 0)
 
-            # ✅ Consistent display
-            choice_display = choice  # fallback
-            if game_type == "singles" and choice in ("1", "2"):
-                choice_display = f"Player {choice}"
-            elif game_type == "doubles" and choice.upper() in ("A", "B"):
-                choice_display = f"Team {choice.upper()}"
-            elif game_type == "triples" and choice in ("1", "2", "3"):
-                choice_display = f"Player {choice}"
-            elif game_type == "tournament":
-                try:
-                    pid = int(choice)
-                    member = guild.get_member(pid)
-                    if member:
-                        choice_display = member.display_name
-                    else:
-                        choice_display = f"User {pid}"
-                except:
-                    choice_display = str(choice)
+            # 🗝️ Robust label:
+            choice_label = str(choice)
+            try:
+                idx = int(choice)
+                choice_label = f"Player {idx}"
+            except (ValueError, TypeError):
+                if str(choice).upper() in ("A", "B"):
+                    choice_label = f"Team {choice.upper()}"
 
             if won is True:
-                line = f"✅ Won  {amount:<5} on {choice_display:<8} → Payout {payout}"
+                line = f"✅ Won  {amount:<5} on {choice_label:<8} → Payout {payout}"
             elif won is False:
-                line = f"❌ Lost {amount:<5} on {choice_display:<8} → Payout 0"
+                line = f"❌ Lost {amount:<5} on {choice_label:<8} → Payout 0"
             else:
-                line = f"⚪️ Draw {amount:<5} on {choice_display:<8} → Refunded"
+                line = f"⚪️ Draw {amount:<5} on {choice_label:<8} → Refunded"
 
             recent_lines.append(line)
 
