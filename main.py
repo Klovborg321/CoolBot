@@ -1121,16 +1121,14 @@ class RoomView(discord.ui.View):
 
 
 
-class GameEndedButton(discord.ui.Button):
-    def __init__(self, view):
-        super().__init__(label="Game Ended", style=discord.ButtonStyle.danger)
-        self.view_obj = view  # RoomView
-
     async def callback(self, interaction: discord.Interaction):
         self.view_obj.game_has_ended = True
+        if self.view_obj.game_view:
+            self.view_obj.game_view.game_has_ended = True
+
         self.view_obj.betting_closed = True
 
-        # ✅ 1️⃣ THREAD embed → copy the RoomView's embed and mark ended
+        # ✅ 1️⃣ THREAD embed
         thread_embed = self.view_obj.lobby_embed.copy()
         thread_embed.set_footer(text="🎮 Game has ended.")
         await self.view_obj.message.edit(embed=thread_embed, view=None)
@@ -1139,20 +1137,17 @@ class GameEndedButton(discord.ui.Button):
         await self.view_obj.start_voting()
         await interaction.response.defer()
 
-        # ✅ 3️⃣ MAIN LOBBY embed → always built fresh from GameView so no room name leaks
+        # ✅ 3️⃣ MAIN LOBBY embed
         target_message = self.view_obj.lobby_message or self.view_obj.game_view.message
         if target_message:
             updated_embed = await self.view_obj.game_view.build_embed(
                 target_message.guild,
-                winner="ended",
+                winner=None,   # ✅ Proper: not "ended"
                 no_image=True,
-                status=None
+                status="🎮 Game ended."  # ✅ Force correct text
             )
 
-            # ✅ make sure no course/room name leaks: GameView.build_embed does NOT use room_name
-            # So nothing extra to strip!
-
-            # ✅ Remove bet buttons from both RoomView and GameView
+            # ✅ Remove betting buttons
             for item in list(self.view_obj.children):
                 if isinstance(item, BettingButtonDropdown) or isinstance(item, BettingButton):
                     self.view_obj.remove_item(item)
@@ -1160,9 +1155,7 @@ class GameEndedButton(discord.ui.Button):
                 if isinstance(item, BettingButtonDropdown) or isinstance(item, BettingButton):
                     self.view_obj.game_view.remove_item(item)
 
-            # ✅ edit MAIN LOBBY with clean embed & GameView's view
             await target_message.edit(embed=updated_embed, view=self.view_obj.game_view)
-
 
 
 class VoteButton(discord.ui.Button):
