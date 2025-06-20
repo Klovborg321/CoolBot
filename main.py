@@ -780,6 +780,7 @@ class RoomView(discord.ui.View):
         self.game_has_ended = False
         self.voting_closed = False
         self.add_item(GameEndedButton(self))
+        self.on_tournament_complete = None
 
     async def build_room_embed(self, guild=None):
         guild = guild or self.guild or (self.message.guild if self.message else None)
