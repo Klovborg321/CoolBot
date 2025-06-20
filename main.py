@@ -954,6 +954,11 @@ class RoomView(discord.ui.View):
         await self.message.edit(view=self)
         self.vote_timeout = asyncio.create_task(self.end_voting_after_timeout())
 
+    def cancel_vote_timeout(self):
+        if hasattr(self, "vote_timeout") and self.vote_timeout:
+            self.vote_timeout.cancel()
+            self.vote_timeout = None
+
     async def end_voting_after_timeout(self):
         await asyncio.sleep(600)
         await self.finalize_game()
@@ -962,6 +967,7 @@ class RoomView(discord.ui.View):
         from collections import Counter
 
         self.cancel_abandon_task()
+        self.cancel_vote_timeout()
         
         vote_counts = Counter(self.votes.values())
         most_common = vote_counts.most_common()
