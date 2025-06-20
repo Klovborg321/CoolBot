@@ -1292,8 +1292,8 @@ class GameView(discord.ui.View):
         self.message = None
 
         key = (self.channel.id, self.game_type)
-            if key not in start_buttons:
-                await start_new_game_button(self.channel, self.game_type, self.max_players)
+        if key not in start_buttons:
+            await start_new_game_button(self.channel, self.game_type, self.max_players)
 
 
     async def abandon_if_not_filled(self):
