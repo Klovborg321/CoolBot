@@ -336,9 +336,6 @@ async def start_new_game_button(channel, game_type, max_players=None):
         except Exception as e:
             print(f"⚠️ Could not delete old start button: {e}")
 
-    # ✅ 2) ⚠️ Do NOT assign a GameView here. Only a JoinButton, no pending!
-    # This ensures the real GameView is created fresh when the button is pressed.
-    pending_games[game_type] = None
 
     # ✅ 3) Create a FRESH Join View
     if game_type == "tournament":
@@ -504,8 +501,6 @@ class GameJoinView(discord.ui.View):
         embed = await view.build_embed(interaction.guild, no_image=True)
         view.message = await interaction.channel.send(embed=embed, view=view)
         pending_games[self.game_type] = view
-
-        player_manager.activate(interaction.user.id)
 
         # ✅ If full immediately → auto start
         if len(view.players) == view.max_players:
@@ -973,14 +968,11 @@ class RoomView(discord.ui.View):
         self.cancel_vote_timeout()
         if self.game_view:
             self.game_view.cancel_betting_task()
+            self.game_view.game_has_ended = True
+            self.game_view.cancel_betting_task() 
         
         vote_counts = Counter(self.votes.values())
         most_common = vote_counts.most_common()
-
-
-        self.game_has_ended = True  # ✅ RoomView's flag too!
-        if self.game_view:
-            self.game_view.game_has_ended = True  # ✅ GameView's flag too!
 
         if not most_common:
             winner = None
@@ -1342,7 +1334,6 @@ class GameView(discord.ui.View):
 
         if len(self.players) < self.max_players and not self.betting_closed:
             await self.abandon_game("⏰ Game timed out due to inactivity.")
-            await clear_pending_game(self.game_type)
 
 
 
@@ -2389,7 +2380,7 @@ class TournamentLobbyView(discord.ui.View):
             await interaction.response.send_message("🚫 You are already in another active match.", ephemeral=True)
             return
 
-        player_manager.activate(interaction.user.id)
+        on
         self.players.append(interaction.user.id)
 
         await self.update_message()
