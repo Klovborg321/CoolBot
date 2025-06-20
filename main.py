@@ -2169,6 +2169,7 @@ class TournamentLobbyView(discord.ui.View):
         self.betting_closed = False
         self.bets = []
         self.manager.started = False
+        self.status = None
 
         # Abandon if idle
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
@@ -2241,10 +2242,11 @@ class TournamentLobbyView(discord.ui.View):
         self._embed_helper.players = self.players
         self._embed_helper.bets = self.bets
         self._embed_helper.betting_closed = self.betting_closed
+        final_status = status if status is not None else self.status
         return await self._embed_helper.build_embed(
             guild,
             no_image=no_image,
-            status=status,
+            status=final_status,
             bets=bets
         )
 
@@ -2317,7 +2319,9 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         manager.view = view
         view.players = manager.players.copy()  # sync test players if any
 
-        embed = await view.build_embed(interaction.guild, no_image=True,status="✅ Tournament full! Matches running — place your bets!" if IS_TEST_MODE else "")
+        view.status = "✅ Tournament full! Matches running — place your bets!" if IS_TEST_MODE else None
+
+        embed = await view.build_embed(interaction.guild, no_image=True)
         manager.message = await interaction.channel.send(embed=embed, view=view)
         view.message = manager.message
 
