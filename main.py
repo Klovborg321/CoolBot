@@ -2172,7 +2172,7 @@ class TournamentLobbyView(discord.ui.View):
             game_type="tournament",
             creator=creator.id,
             max_players=max_players,
-            channel=manager.parent_channel  # << FIXED!
+            channel=self.manager.parent_channel  # << FIXED!
         )
         self._embed_helper.players = self.players
         self._embed_helper.bets = self.bets
@@ -2253,7 +2253,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         )
         self.add_item(self.player_count)
 
-    async def on_submit(self, interaction: discord.Interaction):
+     async def on_submit(self, interaction: discord.Interaction):
         try:
             count = int(self.player_count.value.strip())
             if count % 2 != 0 or count < 2:
@@ -2276,6 +2276,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
 
         await interaction.response.defer(ephemeral=True)
 
+        # ✅ Always provide parent_channel up-front:
         manager = TournamentManager(creator=self.creator.id, max_players=count)
         manager.parent_channel = self.parent_channel
 
@@ -2286,7 +2287,13 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
                 if pid not in manager.players and len(manager.players) < manager.max_players:
                     manager.players.append(pid)
 
-        view = TournamentLobbyView(manager, creator=self.creator, max_players=count)
+        # ✅ FIX: pass parent_channel explicitly!
+        view = TournamentLobbyView(
+            manager,
+            creator=self.creator,
+            max_players=count,
+            parent_channel=self.parent_channel  # << VERY IMPORTANT
+        )
         manager.view = view
         view.players = manager.players.copy()  # sync test players if any
 
@@ -2315,6 +2322,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         )
 
         await start_new_game_button(interaction.channel, "tournament")
+
 
 
 @bot.tree.command(name="init_tournament")
