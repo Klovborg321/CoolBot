@@ -2262,6 +2262,9 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         )
         self.add_item(self.player_count)
 
+    async def build_embed(self, *args, **kwargs):
+        return await self._embed_helper.build_embed(*args, **kwargs)
+
     async def on_submit(self, interaction: discord.Interaction):
         try:
             count = int(self.player_count.value.strip())
