@@ -966,13 +966,21 @@ class RoomView(discord.ui.View):
         self.game_view.game_has_ended = True
         self.cancel_abandon_task()
         self.cancel_vote_timeout()
-        if self.game_view:
-            self.game_view.cancel_betting_task()
-            self.game_view.game_has_ended = True
-            self.game_view.cancel_betting_task() 
         
+        # ✅ SAFELY guard game_view:
+        if self.game_view:
+            self.game_view.game_has_ended = True
+            self.game_view.cancel_betting_task()
+
+        self.cancel_abandon_task()
+        self.cancel_vote_timeout()
+
         vote_counts = Counter(self.votes.values())
         most_common = vote_counts.most_common()
+
+        self.game_has_ended = True  # RoomView’s own flag
+        if self.game_view:
+            self.game_view.game_has_ended = True
 
         if not most_common:
             winner = None
