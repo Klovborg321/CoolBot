@@ -2525,7 +2525,7 @@ class TournamentLobbyView(discord.ui.View):
             game_type="tournament",
             creator=creator.id,
             max_players=max_players,
-            channel=parent_channel
+            channel=self.parent_channel
         )
         self._embed_helper.players = self.players
         self._embed_helper.bets = self.bets
@@ -2566,7 +2566,7 @@ class TournamentLobbyView(discord.ui.View):
         # ✅ Call the same flow as /init_...
         await start_new_game_button(self.parent_channel, "tournament")
 
-        print(f"[abandon_game] New start posted for {self.game_type} in #{self.channel.name}")
+        print(f"[abandon_game] New start posted for {self.game_type} in #{self.parent_channel.name}")
 
     def cancel_abandon_task(self):
         if hasattr(self, "abandon_task") and self.abandon_task:
