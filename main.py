@@ -967,6 +967,9 @@ class RoomView(discord.ui.View):
 
         self.voting_closed = True
 
+        if self.abandon_task:
+            self.abandon_task.cancel()
+
         # ✅ 1️⃣ Update player stats & handle draw
         if winner == "draw":
             for p in self.players:
@@ -1262,19 +1265,37 @@ class GameView(discord.ui.View):
 
 
     async def abandon_game(self, reason):
-        global pending_game
+        # ✅ Cancel abandon timer so it won’t run again
+        if hasattr(self, "abandon_task") and self.abandon_task:
+            self.abandon_task.cancel()
+
+        # ✅ Remove from global pending games
         pending_games[self.game_type] = None
 
+        # ✅ Deactivate all players
         for p in self.players:
             player_manager.deactivate(p)
 
-        embed = discord.Embed(
-            title="❌ Game Abandoned",
-            description=reason,
-            color=discord.Color.red()
-        )
-        await self.message.edit(embed=embed, view=None)
+        # ✅ If the main message still exists, update it
+        if self.message:
+            embed = discord.Embed(
+                title="❌ Game Abandoned",
+                description=reason,
+                color=discord.Color.red()
+            )
+            try:
+                await self.message.edit(embed=embed, view=None)
+            except discord.NotFound:
+                pass  # Message already deleted
+            except Exception as e:
+                print(f"[abandon_game] Error editing message: {e}")
+
+        # ✅ Prevent future edits by clearing reference
+        self.message = None
+
+        # ✅ Post a new fresh start button
         await start_new_game_button(self.channel, self.game_type, self.max_players)
+
 
     async def abandon_if_not_filled(self):
         timeout_duration = 1000  # seconds
@@ -1294,10 +1315,17 @@ class GameView(discord.ui.View):
         if bets is None:
             bets = self.bets
 
-        if not status:
-            description="Awaiting players for a new match..." if not winner else "Game ended."
+        if status is not None:
+            description = status
+        elif winner:
+            description = "Game ended."
+        elif self.betting_closed:
+            description = "🕐 Betting closed. Good luck!"
+        elif len(self.players) == self.max_players:
+            description = "✅ Match is full. Place your bets!"
         else:
-            description=status
+            description = "Awaiting players for a new match..."
+
         embed = discord.Embed(
             title=title,
             description=description,
