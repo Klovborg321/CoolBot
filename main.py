@@ -1552,8 +1552,15 @@ class GameView(discord.ui.View):
         self.add_item(BettingButtonDropdown(self))
 
         # ✅ Fix: if no message (test mode), send a new one
+        if not self.channel:
+            self.channel = interaction.channel
+
         if self.message:
-            await self.message.edit(embed=lobby_embed, view=self)
+            try:
+                await self.message.edit(embed=lobby_embed, view=self)
+            except discord.NotFound:
+                # If it was deleted externally, re-send
+                self.message = await self.channel.send(embed=lobby_embed, view=self)
         else:
             self.message = await self.channel.send(embed=lobby_embed, view=self)
 
