@@ -1424,7 +1424,7 @@ class GameView(discord.ui.View):
         if self.message:
             embed = await self.build_embed(
                 self.message.guild,
-                bets=self.manager.bets if self.manager else self.bets
+                bets=self.bets
             )
             to_remove = [item for item in self.children if isinstance(item, LeaveGameButton)]
             for item in to_remove:
