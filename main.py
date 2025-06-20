@@ -965,7 +965,7 @@ class RoomView(discord.ui.View):
 
     async def finalize_game(self):
         from collections import Counter
-
+        self.game_view.game_has_ended = True
         self.cancel_abandon_task()
         self.cancel_vote_timeout()
         if self.game_view:
@@ -1245,6 +1245,7 @@ class GameView(discord.ui.View):
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
         self.course_image = None
         self.on_tournament_complete = None
+        self.game_has_ended = False
 
         # ✅ static Leave button:
         self.add_item(LeaveGameButton(self))
@@ -1348,8 +1349,8 @@ class GameView(discord.ui.View):
 
         if status is not None:
             description = status
-        elif winner:
-            description = "Game ended."
+        elif self.game_has_ended or winner:
+            description = "🎮 Game ended."
         elif self.betting_closed:
             description = "🕐 Betting closed. Good luck!"
         elif len(self.players) == self.max_players:
