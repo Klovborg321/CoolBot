@@ -2153,8 +2153,8 @@ class TournamentLobbyView(discord.ui.View):
     def __init__(self, manager, creator, max_players):
         super().__init__(timeout=None)
         self.manager = manager
-        self.creator = creator  # keep for clarity
-        self.players = [creator.id]  # store IDs
+        self.creator = creator
+        self.players = [creator.id]
         self.max_players = max_players
         self.game_type = "tournament"
         self.message = None
@@ -2162,16 +2162,21 @@ class TournamentLobbyView(discord.ui.View):
         self.bets = []
         self.manager.started = False
 
-        # ⏱️ Abandon if idle
+        # Abandon if idle
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
 
-        # ✅ Join button
+        # Join button
         self.join_button = discord.ui.Button(label="Join Tournament", style=discord.ButtonStyle.success)
         self.join_button.callback = self.join
         self.add_item(self.join_button)
 
-        # ✅ KEY: hidden helper for consistent embeds
-        self._embed_helper = GameView(game_type="tournament", creator=creator.id, max_players=max_players)
+        # ✅ FIXED: pass channel!
+        self._embed_helper = GameView(
+            game_type="tournament",
+            creator=creator.id,
+            max_players=max_players,
+            channel=manager.parent_channel  # << FIXED!
+        )
         self._embed_helper.players = self.players
         self._embed_helper.bets = self.bets
 
