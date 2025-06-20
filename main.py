@@ -1237,12 +1237,12 @@ class GameView(discord.ui.View):
             bets = self.bets
 
         if not status:
-            description="Awaiting players for a new match..."
+            description="Awaiting players for a new match..." if not winner else "Game ended."
         else:
             description=status
         embed = discord.Embed(
             title=title,
-            description=description if not winner else "",
+            description=description,
             color=discord.Color.orange() if not winner else discord.Color.dark_gray(),
             timestamp=discord.utils.utcnow()
         )
