@@ -1481,7 +1481,7 @@ class GameView(discord.ui.View):
         embed = await self.build_embed(
             target_message.guild,
             status="✅ Tournament full! Matches running — place your bets!" if not self.betting_closed else "🕐 Betting closed. Good luck!",
-            bets=self.manager.bets if self.manager else self.bets
+            bets=self.bets
         )
         await target_message.edit(embed=embed, view=self if not self.betting_closed else None)
 
