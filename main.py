@@ -1350,6 +1350,7 @@ class GameView(discord.ui.View):
         if bets is None:
             bets = self.bets
 
+        print(">>> BUILD EMBED DEBUG:", winner, self.game_has_ended, self.betting_closed)
         if status is not None and not self.game_has_ended:
             description = status
         elif self.game_has_ended or winner:
