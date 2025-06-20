@@ -80,6 +80,139 @@ default_template = {
 }
 
 # Helpers
+async def expected_score(rating_a, rating_b):
+    """Expected score for player/team A vs B"""
+    return 1 / (1 + 10 ** ((rating_b - rating_a) / 400))
+
+async def update_elo_pair_and_save(player1_id, player2_id, winner, k=32):
+    """
+    Async version:
+    - Loads player ELOs
+    - Computes new ELOs
+    - Saves them back to Supabase
+    - Returns new ELOs
+
+    winner: 1 (player1), 2 (player2), or 0.5 (draw)
+    """
+    p1 = await get_player(player1_id)
+    p2 = await get_player(player2_id)
+
+    r1 = p1.get("rank", 1000)
+    r2 = p2.get("rank", 1000)
+
+    e1 = await expected_score(r1, r2)
+    e2 = 1 - e1
+
+    if winner == 1:
+        s1, s2 = 1, 0
+    elif winner == 2:
+        s1, s2 = 0, 1
+    else:
+        s1, s2 = 0.5, 0.5
+
+    new_r1 = round(r1 + k * (s1 - e1))
+    new_r2 = round(r2 + k * (s2 - e2))
+
+    p1["rank"] = new_r1
+    p2["rank"] = new_r2
+
+    await save_player(player1_id, p1)
+    await save_player(player2_id, p2)
+
+    print(f"[ELO] Updated {player1_id}: {r1} → {new_r1} | {player2_id}: {r2} → {new_r2}")
+
+    return new_r1, new_r2
+
+
+async def update_elo_doubles_and_save(teamA_ids, teamB_ids, winner, k=32):
+    """
+    Async version for doubles:
+    - teamA_ids: [p1_id, p2_id]
+    - teamB_ids: [p3_id, p4_id]
+    - winner: "A", "B", or "draw"
+
+    Returns: new ELO lists for both teams
+    """
+    teamA = [await get_player(pid) for pid in teamA_ids]
+    teamB = [await get_player(pid) for pid in teamB_ids]
+
+    teamA_avg = sum(p.get("rank", 1000) for p in teamA) / 2
+    teamB_avg = sum(p.get("rank", 1000) for p in teamB) / 2
+
+    eA = await expected_score(teamA_avg, teamB_avg)
+    eB = 1 - eA
+
+    if winner.upper() == "A":
+        sA, sB = 1, 0
+    elif winner.upper() == "B":
+        sA, sB = 0, 1
+    else:
+        sA, sB = 0.5, 0.5
+
+    deltaA = k * (sA - eA)
+    deltaB = k * (sB - eB)
+
+    new_teamA = []
+    new_teamB = []
+
+    for idx, p in enumerate(teamA):
+        old = p.get("rank", 1000)
+        new = round(old + deltaA)
+        p["rank"] = new
+        await save_player(teamA_ids[idx], p)
+        new_teamA.append(new)
+        print(f"[ELO] Team A Player {teamA_ids[idx]}: {old} → {new}")
+
+    for idx, p in enumerate(teamB):
+        old = p.get("rank", 1000)
+        new = round(old + deltaB)
+        p["rank"] = new
+        await save_player(teamB_ids[idx], p)
+        new_teamB.append(new)
+        print(f"[ELO] Team B Player {teamB_ids[idx]}: {old} → {new}")
+
+    return new_teamA, new_teamB
+
+
+async def update_elo_series_and_save(player1_id, player2_id, results, k=32):
+    """
+    Async version for multiple rounds:
+    - results: list of round outcomes (1, 2, or 0.5)
+    Updates ELO after each round.
+
+    Returns: final ELOs
+    """
+    p1 = await get_player(player1_id)
+    p2 = await get_player(player2_id)
+
+    r1 = p1.get("rank", 1000)
+    r2 = p2.get("rank", 1000)
+
+    for outcome in results:
+        e1 = await expected_score(r1, r2)
+        e2 = 1 - e1
+
+        if outcome == 1:
+            s1, s2 = 1, 0
+        elif outcome == 2:
+            s1, s2 = 0, 1
+        else:
+            s1, s2 = 0.5, 0.5
+
+        r1 = round(r1 + k * (s1 - e1))
+        r2 = round(r2 + k * (s2 - e2))
+
+    p1["rank"] = r1
+    p2["rank"] = r2
+
+    await save_player(player1_id, p1)
+    await save_player(player2_id, p2)
+
+    print(f"[ELO] Series updated {player1_id}: {r1} | {player2_id}: {r2}")
+
+    return r1, r2
+
+
 async def update_course_average_par(course_id: str):
     """
     Recalculate and update the avg_par for the given course_id.
@@ -972,16 +1105,14 @@ class RoomView(discord.ui.View):
     async def finalize_game(self):
         from collections import Counter
 
-        # ✅ Always cancel timers
+        # ✅ Cancel timers
         self.cancel_abandon_task()
         self.cancel_vote_timeout()
 
-        # ✅ Safely mark game view ended if present
         if self.game_view:
             self.game_view.game_has_ended = True
             self.game_view.cancel_betting_task()
 
-        # ✅ Mark RoomView ended
         self.game_has_ended = True
 
         # ✅ Count votes
@@ -997,7 +1128,7 @@ class RoomView(discord.ui.View):
 
         self.voting_closed = True
 
-        # ✅ 1️⃣ DRAW CASE
+        # ✅ DRAW CASE — refund bets, update stats
         if winner == "draw":
             for p in self.players:
                 pdata = await get_player(p)
@@ -1031,38 +1162,42 @@ class RoomView(discord.ui.View):
             pending_games[self.game_type] = None
             return
 
-        # ✅ 2️⃣ WIN CASE
+        # ✅ WIN CASE — normalize
         normalized_winner = normalize_team(winner) if self.game_type == "doubles" else winner
 
-        for p in self.players:
-            pdata = await get_player(p)
-            pdata["games_played"] += 1
+        # ✅ Use NEW DB-SAFE ELO helpers
+        if self.game_type == "singles":
+            await update_elo_pair_and_save(
+                self.players[0],
+                self.players[1],
+                winner = 1 if self.players[0] == winner else 2
+            )
 
-            # ✅ Determine if THIS player is the winner
-            if self.game_type == "singles":
-                is_winner = (p == winner)
-            elif self.game_type == "doubles":
-                is_winner = p in self.players[:2] if normalized_winner == "A" else p in self.players[2:]
-            elif self.game_type == "triples":
-                is_winner = (p == winner)
-            else:
-                is_winner = False
+        elif self.game_type == "doubles":
+            await update_elo_doubles_and_save(
+                self.players[:2],
+                self.players[2:],
+                winner = normalized_winner
+            )
 
-            if is_winner:
-                pdata["rank"] += 10
-                pdata["trophies"] += 1
-                pdata["wins"] += 1
-                pdata["current_streak"] += 1
-                pdata["best_streak"] = max(pdata.get("best_streak", 0), pdata["current_streak"])
-            else:
-                pdata["rank"] -= 10
-                pdata["losses"] += 1
-                pdata["current_streak"] = 0
+        elif self.game_type == "triples":
+            # Triples: update per player manually
+            for p in self.players:
+                pdata = await get_player(p)
+                pdata["games_played"] += 1
+                if p == winner:
+                    pdata["rank"] += 10
+                    pdata["trophies"] += 1
+                    pdata["wins"] += 1
+                    pdata["current_streak"] += 1
+                    pdata["best_streak"] = max(pdata.get("best_streak", 0), pdata["current_streak"])
+                else:
+                    pdata["rank"] -= 10
+                    pdata["losses"] += 1
+                    pdata["current_streak"] = 0
+                await save_player(p, pdata)
 
-            await save_player(p, pdata)
-
-
-        # ✅ 3️⃣ Bets
+        # ✅ 3️⃣ Process bets
         if self.game_view:
             for uid, uname, amount, choice in self.game_view.bets:
                 won = False
@@ -1089,14 +1224,13 @@ class RoomView(discord.ui.View):
 
                 if won:
                     odds = await self.game_view.get_odds(choice)
-                    profit = int(amount / odds) if odds > 0 else amount
-                    payout = profit + amount
+                    payout = int(amount * (1 / odds)) if odds > 0 else amount
                     await add_credits_internal(uid, payout)
                     print(f"💰 {uname} won! Payout: {payout}")
                 else:
                     print(f"❌ {uname} lost {amount}")
 
-        # ✅ 4️⃣ Final embed updates
+        # ✅ 4️⃣ Final embeds
         winner_name = winner
         if isinstance(winner, int):
             member = self.message.guild.get_member(winner)
@@ -1106,15 +1240,11 @@ class RoomView(discord.ui.View):
         await self.message.edit(embed=embed, view=None)
 
         target_message = self.lobby_message or (self.game_view.message if self.game_view else None)
-
         if target_message and self.game_view:
             lobby_embed = await self.game_view.build_embed(target_message.guild, winner=winner, no_image=True)
-            to_remove = [
-                item for item in self.game_view.children
-                if isinstance(item, BettingButton) or getattr(item, 'label', '') == 'Place Bet'
-            ]
-            for item in to_remove:
-                self.game_view.remove_item(item)
+            for item in list(self.game_view.children):
+                if isinstance(item, BettingButton) or getattr(item, "label", "") == "Place Bet":
+                    self.game_view.remove_item(item)
             await target_message.edit(embed=lobby_embed, view=self.game_view)
 
         self.players = []
@@ -1746,10 +1876,10 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
             await interaction.response.send_message("❌ Invalid amount.", ephemeral=True)
             return
 
-        # ✅ Compute odds & payout
+        # ✅ Compute odds & payout (use standard payout!)
         odds_provider = getattr(self.game_view, "_embed_helper", self.game_view)
         odds = await odds_provider.get_odds(self.choice)
-        payout = int(amount / odds) if odds > 0 else amount
+        payout = int(amount * (1 / odds)) if odds > 0 else amount  # FIX: standard payout
 
         # ✅ Atomic deduction
         success = await deduct_credits_atomic(user_id, amount)
@@ -1757,7 +1887,7 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
             await interaction.response.send_message("❌ Not enough credits.", ephemeral=True)
             return
 
-        # ✅ Log bet
+        # ✅ Log bet in DB
         await run_db(lambda: supabase.table("bets").insert({
             "player_id": str(user_id),
             "game_id": self.game_view.message.id,
@@ -1767,22 +1897,33 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
             "won": None
         }).execute())
 
-        # ✅ Add to UI
+        # ✅ Add to UI live
         await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice)
-
         await self.game_view.update_message()
 
-        choice_id = int(self.choice)
-
-        # 2️⃣ Get member display name (fallback if not found)
+        # ✅ SAFELY resolve choice name:
         guild = self.game_view.message.guild if self.game_view.message else None
-        member = guild.get_member(choice_id) if guild else None
-        choice_name = member.display_name if member else f"User {choice_id}"
+        choice_name = str(self.choice)
 
+        if self.choice.upper() in ["A", "B"]:
+            choice_name = f"Team {self.choice.upper()}"
+        else:
+            try:
+                idx = int(self.choice) - 1
+                if 0 <= idx < len(self.game_view.players):
+                    pid = self.game_view.players[idx]
+                    member = guild.get_member(pid) if guild else None
+                    choice_name = member.display_name if member else f"Player {self.choice}"
+            except ValueError:
+                pass  # fallback remains
+
+        # ✅ Respond
         await interaction.response.send_message(
-            f"✅ Bet of **{amount}** on **{choice_name}** placed!\n📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
+            f"✅ Bet of **{amount}** on **{choice_name}** placed!\n"
+            f"📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
             ephemeral=True
         )
+
 
 
 
