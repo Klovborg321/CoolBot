@@ -1307,16 +1307,35 @@ class GameView(discord.ui.View):
 
 
     async def abandon_if_not_filled(self):
-        timeout_duration = 30 if IS_TEST_MODE else 300  # ✅ 5 minutes
+        timeout_duration = 30 if IS_TEST_MODE else 300  # 5 minutes
         elapsed = 0
 
-        while len(self.players) < self.max_players and not self.betting_closed and elapsed < timeout_duration:
+        while True:
+            # ✅ Always check the truthy condition FIRST:
+            if len(self.players) >= self.max_players:
+                print(f"[abandon_if_not_filled] Game is full — exit abandon loop.")
+            return
+
+            if pending_games.get(self.game_type) is None:
+                print(f"[abandon_if_not_filled] No longer pending — exit abandon loop.")
+                return
+
+            if self.betting_closed:
+                print(f"[abandon_if_not_filled] Betting closed — exit abandon loop.")
+                return
+
+            if elapsed >= timeout_duration:
+                break
+
             await asyncio.sleep(30)
             elapsed += 30
 
+        # ✅ If we break due to timeout, abandon:
         if len(self.players) < self.max_players and not self.betting_closed:
+            print(f"[abandon_if_not_filled] Timeout hit, abandoning game...")
             await self.abandon_game("⏰ Game timed out due to inactivity.")
             await clear_pending_game(self.game_type)
+
 
 
     async def build_embed(self, guild=None, winner=None, no_image=True, status=None, bets=None):
