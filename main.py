@@ -376,9 +376,9 @@ async def show_betting_phase(self):
     await self.update_message()
 
 
-async def update_message(self, no_image=True):
+async def update_message(self, no_image=True, status=None):
     if self.message:
-        embed = await self.build_embed(self.message.guild, no_image=no_image)
+        embed = await self.build_embed(self.message.guild, no_image=no_image, status=status)
         await self.message.edit(embed=embed, view=self)
 
 def fixed_width_name(name: str, width: int = 20) -> str:
@@ -1607,7 +1607,7 @@ class GameView(discord.ui.View):
     async def show_betting_phase(self):
         self.clear_items()
         self.add_item(BettingButtonDropdown(self))
-        await self.update_message()
+        await self.update_message(status="✅ Match is full. Place your bets!")
 
         # ✅ Store this sleeping task so it can be cancelled
         self.betting_task = asyncio.create_task(self._betting_countdown())
@@ -2398,14 +2398,14 @@ class TournamentLobbyView(discord.ui.View):
             self.clear_items()
             self.add_item(BettingButtonDropdown(self))
 
-            await self.update_message()
+            await self.update_message(status="✅ Match is full. Place your bets!")
 
             await self.manager.start_bracket(interaction)
 
             await asyncio.sleep(120)
             self.betting_closed = True
             self.clear_items()
-            await self.update_message()
+            await self.update_message(status="🕐 Betting closed. Good luck!")
 
     async def abandon_if_not_filled(self):
         timeout = 1000
