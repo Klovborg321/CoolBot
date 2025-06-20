@@ -466,6 +466,17 @@ class GameJoinView(discord.ui.View):
                 "🚫 You are already in another game or have not voted yet.", ephemeral=True)
             return
 
+         key = (interaction.channel.id, self.game_type)
+
+        # ✅ Remove old tracked button safely
+        old_button_msg = start_buttons.get(key)
+        if old_button_msg:
+            try:
+                await old_button_msg.delete()
+            except Exception:
+                pass
+            start_buttons[key] = None
+
         # ✅ OK! Activate and start the game
         player_manager.activate(interaction.user.id)
 
@@ -1444,6 +1455,7 @@ class GameView(discord.ui.View):
 
         # ✅ Mark no more pending game for this type
         pending_games[self.game_type] = None
+        await start_new_game_button(self.channel, self.game_type, self.max_players)
         await save_pending_game(self.game_type, self.players, self.channel.id, self.max_players)
 
         # ✅ Select random course from DB
@@ -1511,8 +1523,6 @@ class GameView(discord.ui.View):
 
         self.clear_items()
         await self.message.edit(embed=lobby_embed, view=self)
-
-        await start_new_game_button(self.channel, self.game_type, self.max_players)
 
 
 class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
