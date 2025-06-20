@@ -963,24 +963,22 @@ class RoomView(discord.ui.View):
 
     async def finalize_game(self):
         from collections import Counter
-        self.game_view.game_has_ended = True
+
+        # ✅ Always cancel timers
         self.cancel_abandon_task()
         self.cancel_vote_timeout()
-        
-        # ✅ SAFELY guard game_view:
+
+        # ✅ Safely mark game view ended if present
         if self.game_view:
             self.game_view.game_has_ended = True
             self.game_view.cancel_betting_task()
 
-        self.cancel_abandon_task()
-        self.cancel_vote_timeout()
+        # ✅ Mark RoomView ended
+        self.game_has_ended = True
 
+        # ✅ Count votes
         vote_counts = Counter(self.votes.values())
         most_common = vote_counts.most_common()
-
-        self.game_has_ended = True  # RoomView’s own flag
-        if self.game_view:
-            self.game_view.game_has_ended = True
 
         if not most_common:
             winner = None
@@ -991,7 +989,7 @@ class RoomView(discord.ui.View):
 
         self.voting_closed = True
 
-        # ✅ 1️⃣ Update player stats & handle draw
+        # ✅ 1️⃣ DRAW CASE
         if winner == "draw":
             for p in self.players:
                 pdata = await get_player(p)
@@ -1013,20 +1011,19 @@ class RoomView(discord.ui.View):
                     )
                     print(f"↩️ Refunded {amount} to {uname} (DRAW)")
 
-            # ✅ Thread embed (always valid)
             embed = await self.build_lobby_end_embed(winner)
             await self.message.edit(embed=embed, view=None)
 
-            # ✅ Lobby embed (only if exists)
             if self.lobby_message and self.game_view:
                 lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True)
                 await self.lobby_message.edit(embed=lobby_embed, view=None)
 
             await self.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
             await self.channel.edit(archived=True)
+            pending_games[self.game_type] = None
             return
 
-        # ✅ 2️⃣ Win case: stats update
+        # ✅ 2️⃣ WIN CASE
         normalized_winner = normalize_team(winner) if self.game_type == "doubles" else winner
 
         for p in self.players:
@@ -1055,7 +1052,7 @@ class RoomView(discord.ui.View):
 
             await save_player(p, pdata)
 
-        # ✅ 3️⃣ Resolve bets
+        # ✅ 3️⃣ Bets
         if self.game_view:
             for uid, uname, amount, choice in self.game_view.bets:
                 won = False
@@ -1063,7 +1060,7 @@ class RoomView(discord.ui.View):
                     won = (choice == "1" and self.players[0] == winner) or \
                           (choice == "2" and self.players[1] == winner)
                 elif self.game_type == "doubles":
-                    won = normalize_team(choice) == normalize_team(winner)
+                    won = normalize_team(choice) == normalized_winner
                 elif self.game_type == "triples":
                     try:
                         idx = int(choice) - 1
@@ -1085,11 +1082,11 @@ class RoomView(discord.ui.View):
                     profit = int(amount / odds) if odds > 0 else amount
                     payout = profit + amount
                     await add_credits_internal(uid, payout)
-                    print(f"💰 {uname} won! Payout: {payout} (bet {amount}, profit {profit})")
+                    print(f"💰 {uname} won! Payout: {payout}")
                 else:
-                    print(f"❌ {uname} lost {amount} (stake was upfront)")
+                    print(f"❌ {uname} lost {amount}")
 
-        # ✅ 4️⃣ Final result:
+        # ✅ 4️⃣ Final embed updates
         winner_name = winner
         if isinstance(winner, int):
             member = self.message.guild.get_member(winner)
@@ -1098,12 +1095,10 @@ class RoomView(discord.ui.View):
         embed = await self.build_lobby_end_embed(winner)
         await self.message.edit(embed=embed, view=None)
 
-        # ✅ Safe target for lobby update
         target_message = self.lobby_message or (self.game_view.message if self.game_view else None)
 
         if target_message and self.game_view:
             lobby_embed = await self.game_view.build_embed(target_message.guild, winner=winner, no_image=True)
-            # ✅ Remove betting buttons
             to_remove = [
                 item for item in self.game_view.children
                 if isinstance(item, BettingButton) or getattr(item, 'label', '') == 'Place Bet'
@@ -1118,9 +1113,8 @@ class RoomView(discord.ui.View):
         await self.channel.edit(archived=True)
         pending_games[self.game_type] = None
 
-        if self.on_tournament_complete:
-            if isinstance(winner, int):
-                await self.on_tournament_complete(winner)
+        if self.on_tournament_complete and isinstance(winner, int):
+            await self.on_tournament_complete(winner)
 
 
 
@@ -1146,7 +1140,9 @@ class GameEndedButton(discord.ui.Button):
         await interaction.response.defer()
 
         # ✅ 3️⃣ MAIN LOBBY embed
-        target_message = self.view_obj.lobby_message or self.view_obj.game_view.message
+        target_message = self.view_obj.lobby_message
+        if not target_message and self.view_obj.game_view:
+            target_message = self.view_obj.game_view.message
         if target_message:
             updated_embed = await self.view_obj.game_view.build_embed(
                 target_message.guild,
