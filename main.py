@@ -811,7 +811,7 @@ class RoomView(discord.ui.View):
             total = sum(exp)
             odds = [v / total for v in exp]
 
-        game_full = len(self.players) == max_players
+        game_full = len(self.players) == self.max_players
 
         # Team A label for doubles:
         if self.game_type == "doubles":
@@ -821,7 +821,7 @@ class RoomView(discord.ui.View):
                 label += f" • {odds_a * 100:.1f}%"
             player_lines.append(label)
 
-        for idx in range(max_players):
+        for idx in range(self.max_players):
             if idx < len(self.players):
                 user_id = self.players[idx]
                 member = guild.get_member(user_id) if guild else None
