@@ -2179,8 +2179,7 @@ class TournamentLobbyView(discord.ui.View):
             game_type="tournament",
             creator=creator.id,
             max_players=max_players,
-            channel=parent_channel,
-            status=status
+            channel=parent_channel
         )
         self._embed_helper.players = self.players
         self._embed_helper.bets = self.bets
@@ -2234,7 +2233,7 @@ class TournamentLobbyView(discord.ui.View):
             await self.manager.abandon("⏰ Tournament timed out.")
             pending_games["tournament"] = None
 
-    async def build_embed(self, guild, no_image=True, status=None):
+    async def build_embed(self, guild, no_image=True):
         self._embed_helper.players = self.players
         self._embed_helper.bets = self.bets
         self._embed_helper.betting_closed = self.betting_closed
@@ -2300,13 +2299,13 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
             manager,
             creator=self.creator,
             max_players=count,
-            parent_channel=self.parent_channel ,
-            status="✅ Tournament full! Matches running — place your bets!" if IS_TEST_MODE else ""
+            parent_channel=self.parent_channel 
         )
         manager.view = view
         view.players = manager.players.copy()  # sync test players if any
 
         embed = await view.build_embed(interaction.guild, no_image=True)
+        embed = await self._embed_helper.build_embed(status="✅ Tournament full! Matches running — place your bets!" if IS_TEST_MODE else "")
         manager.message = await interaction.channel.send(embed=embed, view=view)
         view.message = manager.message
 
