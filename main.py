@@ -1038,12 +1038,13 @@ class RoomView(discord.ui.View):
             pdata = await get_player(p)
             pdata["games_played"] += 1
 
+            # ✅ Determine if THIS player is the winner
             if self.game_type == "singles":
-                is_winner = (winner == p)
+                is_winner = (p == winner)
             elif self.game_type == "doubles":
                 is_winner = p in self.players[:2] if normalized_winner == "A" else p in self.players[2:]
             elif self.game_type == "triples":
-                is_winner = (winner == p)
+                is_winner = (p == winner)
             else:
                 is_winner = False
 
@@ -1059,6 +1060,7 @@ class RoomView(discord.ui.View):
                 pdata["current_streak"] = 0
 
             await save_player(p, pdata)
+
 
         # ✅ 3️⃣ Bets
         if self.game_view:
@@ -1713,11 +1715,11 @@ class GameView(discord.ui.View):
         await start_new_game_button(self.channel, self.game_type, self.max_players)
 
         # ✅ Auto close betting after 2 mins
-        await asyncio.sleep(120)
-        self.betting_closed = True
+        #await asyncio.sleep(120)
+        #self.betting_closed = True
 
-        self.clear_items()
-        await self.message.edit(embed=lobby_embed, view=self)
+        #self.clear_items()
+        #await self.message.edit(embed=lobby_embed, view=self)
 
 
 class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
@@ -2424,10 +2426,10 @@ class TournamentLobbyView(discord.ui.View):
 
             await self.manager.start_bracket(interaction)
 
-            await asyncio.sleep(120)
-            self.betting_closed = True
-            self.clear_items()
-            await self.update_message(status="🕐 Betting closed. Good luck!")
+          #  await asyncio.sleep(120)
+          #  self.betting_closed = True
+          #  self.clear_items()
+          #  await self.update_message(status="🕐 Betting closed. Good luck!")
 
     #async def abandon_if_not_filled(self):
     #    timeout = 1000
@@ -2541,10 +2543,10 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
 
             await manager.start_bracket(interaction)
 
-            await asyncio.sleep(120)
-            view.betting_closed = True
-            view.clear_items()
-            await view.update_message()
+            #await asyncio.sleep(120)
+            #view.betting_closed = True
+            #view.clear_items()
+            #await view.update_message()
 
         await interaction.followup.send(
             f"✅ Tournament created for **{count} players!**",
@@ -2841,12 +2843,33 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
             choice = b.get("choice", "?")
             amount = b.get("amount", 0)
             payout = b.get("payout", 0)
+
+            # ✅ Consistent display
+            choice_display = choice  # fallback
+            if game_type == "singles" and choice in ("1", "2"):
+                choice_display = f"Player {choice}"
+            elif game_type == "doubles" and choice.upper() in ("A", "B"):
+                choice_display = f"Team {choice.upper()}"
+            elif game_type == "triples" and choice in ("1", "2", "3"):
+                choice_display = f"Player {choice}"
+            elif game_type == "tournament":
+                try:
+                    pid = int(choice)
+                    member = guild.get_member(pid)
+                    if member:
+                        choice_display = member.display_name
+                    else:
+                        choice_display = f"User {pid}"
+                except:
+                    choice_display = str(choice)
+
             if won is True:
-                line = f"✅ Won  {amount:<5} on {choice:<4} → Payout {payout}"
+                line = f"✅ Won  {amount:<5} on {choice_display:<8} → Payout {payout}"
             elif won is False:
-                line = f"❌ Lost {amount:<5} on {choice:<4} → Payout 0"
+                line = f"❌ Lost {amount:<5} on {choice_display:<8} → Payout 0"
             else:
-                line = f"⚪️ Draw {amount:<5} on {choice:<4} → Refunded"
+                line = f"⚪️ Draw {amount:<5} on {choice_display:<8} → Refunded"
+
             recent_lines.append(line)
 
         embed.add_field(
@@ -2854,6 +2877,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
             value="```" + "\n".join(recent_lines) + "```",
             inline=False
         )
+
 
     if dm:
         try:
