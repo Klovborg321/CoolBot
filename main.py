@@ -1630,6 +1630,7 @@ class GameView(discord.ui.View):
             course_id=self.course_id,
             max_players=self.max_players
         )
+        room_view.channel = thread
         room_view.original_embed = thread_embed.copy()
 
         mentions = " ".join(f"<@{p}>" for p in self.players)
@@ -2172,6 +2173,7 @@ class TournamentManager:
                 room_view.course_image = course_image
                 room_view.guild = guild
                 room_view.on_tournament_complete = self.match_complete
+                room_view.channel = match_thread
 
                 embed = await room_view.build_room_embed()
                 embed.title = f"Room: {room_name}"
