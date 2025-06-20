@@ -1457,19 +1457,15 @@ class GameView(discord.ui.View):
 
         self.message = None
 
-        # ✅ Always fresh start button
-        key = (self.channel.id, self.game_type)
-        old = start_buttons.get(key)
-        if old:
-            try:
-                await old.delete()
-            except:
-                pass
-        start_buttons[key] = None
+        # ✅ Call the same flow as /init_...
+        if self.game_type in ["singles", "doubles", "triples"]:
+            max_players = {"singles": 2, "doubles": 4, "triples": 3}[self.game_type]
+            await start_new_game_button(self.channel, self.game_type, max_players)
+        elif self.game_type == "tournament":
+            await self.channel.send("🏆 Tournament abandoned. Use `/init_tournament` to start a new one.")
 
-        new_button = await start_new_game_button(self.channel, self.game_type, self.max_players)
-        start_buttons[key] = new_button
-        print(f"[abandon_game] Fresh start button posted for {self.game_type} in #{self.channel.name}")
+        print(f"[abandon_game] New start posted for {self.game_type} in #{self.channel.name}")
+
 
 
     #async def abandon_if_not_filled(self):
