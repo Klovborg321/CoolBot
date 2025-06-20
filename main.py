@@ -2127,7 +2127,7 @@ class TournamentManager:
                         print(f"❌ {uname} lost {amount}")
 
                 # ✅ Final champion embed
-                dummy = GameView("tournament", self.creator, 2)
+                dummy = GameView("tournament", self.creator, 2, self.parent_channel)
                 dummy.players = self.players
                 dummy.max_players = self.max_players
 
