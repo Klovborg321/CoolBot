@@ -1274,35 +1274,29 @@ class GameView(discord.ui.View):
             self.abandon_task = None
 
     async def abandon_game(self, reason):
-        # ✅ Cancel abandon timer so it won’t run again
         self.cancel_abandon_task()
-
-        # ✅ Remove from global pending games
         pending_games[self.game_type] = None
 
-        # ✅ Deactivate all players
         for p in self.players:
             player_manager.deactivate(p)
 
-        # ✅ If the main message still exists, update it
+        embed = discord.Embed(
+            title="❌ Game Abandoned",
+            description=reason,
+            color=discord.Color.red()
+        )
+
         if self.message:
-            embed = discord.Embed(
-                title="❌ Game Abandoned",
-                description=reason,
-                color=discord.Color.red()
-            )
             try:
                 await self.message.edit(embed=embed, view=None)
-            except discord.NotFound:
-                pass  # Message already deleted
-            except Exception as e:
-                print(f"[abandon_game] Error editing message: {e}")
+            except:
+                pass
 
-        # ✅ Prevent future edits by clearing reference
         self.message = None
 
         key = (self.channel.id, self.game_type)
-        if key not in start_buttons:
+        # ✅ Post new start button only if truly missing:
+        if key not in start_buttons or start_buttons[key] is None:
             await start_new_game_button(self.channel, self.game_type, self.max_players)
 
 
