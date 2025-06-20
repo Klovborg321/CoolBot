@@ -1476,7 +1476,7 @@ class GameView(discord.ui.View):
         target_message = self.manager.message if hasattr(self, "manager") and self.manager else self.message
 
         # ✅ Use correct bets source
-        bets = self.manager.bets if getattr(self, "manager", None) else self.bets
+        bets = self.bets
 
         embed = await self.build_embed(
             target_message.guild,
