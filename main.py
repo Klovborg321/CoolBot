@@ -1241,6 +1241,7 @@ class GameView(discord.ui.View):
         self.message = None
         self.betting_closed = False
         self.bets = []
+        self.betting_task = None
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
         self.course_image = None
         self.on_tournament_complete = None
@@ -1277,7 +1278,7 @@ class GameView(discord.ui.View):
             await self.game_full(interaction)
 
     def cancel_betting_task(self):
-        if hasattr(self, "betting_task") and self.betting_task:
+        if self.betting_task:
             self.betting_task.cancel()
             self.betting_task = None
 
@@ -1584,15 +1585,19 @@ class GameView(discord.ui.View):
 
         return "\n".join(lines)
 
-    async def show_betting_phase(self):
-        self.betting_task = asyncio.create_task(self.show_betting_phase())
-        self.clear_items()
-        self.add_item(BettingButtonDropdown(self))
-        await self.update_message()
+    async def _betting_countdown(self):
         await asyncio.sleep(120)
         self.betting_closed = True
         self.clear_items()
         await self.update_message()
+
+    async def show_betting_phase(self):
+        self.clear_items()
+        self.add_item(BettingButtonDropdown(self))
+        await self.update_message()
+
+        # ✅ Store this sleeping task so it can be cancelled
+        self.betting_task = asyncio.create_task(self._betting_countdown())
 
     async def game_full(self, interaction):
         global pending_games
