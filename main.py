@@ -452,7 +452,7 @@ class GameJoinView(discord.ui.View):
         self.game_type = game_type
         self.max_players = max_players
 
-    @discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label=f"Start {game_type} game", style=discord.ButtonStyle.primary)
     async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
@@ -1634,6 +1634,7 @@ class GameView(discord.ui.View):
         pending_games[self.game_type] = None
 
         await save_pending_game(self.game_type, self.players, self.channel.id, self.max_players)
+        self.message = None
 
         # ✅ MAIN LOBBY embed — NO image, mark thread info
         lobby_embed = await self.build_embed(interaction.guild, no_image=True)
