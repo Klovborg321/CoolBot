@@ -515,7 +515,7 @@ class GameJoinView(discord.ui.View):
             pass
 
         # ✅ Always use followup because we deferred!
-        await interaction.followup.send("✅ Game started!", ephemeral=True)
+        #await interaction.followup.send("✅ Game started!", ephemeral=True)
 
 
 class LeaveGameButton(discord.ui.Button):
