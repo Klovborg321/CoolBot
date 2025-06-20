@@ -503,7 +503,7 @@ class GameJoinView(discord.ui.View):
         except discord.NotFound:
             pass
 
-        await interaction.response.send_message("✅ Game started!", ephemeral=True)
+        await interaction.followup.send("✅ Game started!", ephemeral=True)
 
 
 class LeaveGameButton(discord.ui.Button):
