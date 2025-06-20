@@ -2243,6 +2243,10 @@ class TournamentLobbyView(discord.ui.View):
         self._embed_helper.bets = self.bets
         self._embed_helper.betting_closed = self.betting_closed
         final_status = status if status is not None else self.status
+
+        if bets is None:
+            bets = self.manager.bets
+
         return await self._embed_helper.build_embed(
             guild,
             no_image=no_image,
