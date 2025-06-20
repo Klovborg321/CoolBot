@@ -2510,6 +2510,7 @@ class TournamentLobbyView(discord.ui.View):
         self.bets = []
         self.manager.started = False
         self.status = None
+        self.parent_channel = parent_channel
 
         # Join button
         self.join_button = discord.ui.Button(label="Join Tournament", style=discord.ButtonStyle.success)
