@@ -1433,7 +1433,7 @@ class GameView(discord.ui.View):
             self.abandon_task.cancel()
             self.abandon_task = None
 
-   async def abandon_game(self, reason):
+    async def abandon_game(self, reason):
         self.cancel_abandon_task()
         self.cancel_betting_task()
         self.cancel_vote_timeout()
