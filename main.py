@@ -1121,6 +1121,11 @@ class RoomView(discord.ui.View):
 
 
 
+class GameEndedButton(discord.ui.Button):
+    def __init__(self, view):
+        super().__init__(label="Game Ended", style=discord.ButtonStyle.danger)
+        self.view_obj = view  # RoomView
+
     async def callback(self, interaction: discord.Interaction):
         self.view_obj.game_has_ended = True
         if self.view_obj.game_view:
