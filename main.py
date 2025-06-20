@@ -2429,14 +2429,12 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
 
 @tree.command(name="init_tournament")
 async def init_tournament(interaction: discord.Interaction):
-    """Creates a tournament game lobby and asks for player count"""
-    print("[init_tournament] Defer interaction...")
-    await interaction.response.defer(ephemeral=True)
+    """Creates a tournament game lobby and asks for player count."""
 
     print("[init_tournament] Checking for existing game/button...")
     if pending_games.get("tournament") or any(k[0] == interaction.channel.id for k in start_buttons):
-        print("[init_tournament] Found existing game/button, sending followup...")
-        await interaction.followup.send(
+        print("[init_tournament] Found existing game/button, sending ephemeral reply...")
+        await interaction.response.send_message(
             "⚠️ A tournament game is already pending or a button is active here.",
             ephemeral=True
         )
@@ -2444,7 +2442,8 @@ async def init_tournament(interaction: discord.Interaction):
 
     print("[init_tournament] Showing player count modal...")
     modal = PlayerCountModal(interaction.channel, interaction.user, None)
-    await interaction.followup.send_modal(modal)
+    await interaction.response.send_modal(modal)
+
 
 
 
