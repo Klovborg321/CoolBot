@@ -1591,8 +1591,15 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
 
         await self.game_view.update_message()
 
+        choice_id = int(self.choice)
+
+        # 2️⃣ Get member display name (fallback if not found)
+        guild = self.game_view.message.guild if self.game_view.message else None
+        member = guild.get_member(choice_id) if guild else None
+        choice_name = member.display_name if member else f"User {choice_id}"
+
         await interaction.response.send_message(
-            f"✅ Bet of **{amount}** on **{self.choice}** placed!\n📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
+            f"✅ Bet of **{amount}** on **{choice_name}** placed!\n📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
             ephemeral=True
         )
 
