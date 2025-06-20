@@ -1459,6 +1459,22 @@ class GameView(discord.ui.View):
 
         await save_pending_game(self.game_type, self.players, self.channel.id, self.max_players)
 
+        # ✅ MAIN LOBBY embed — NO image, mark thread info
+        lobby_embed = await self.build_embed(interaction.guild, no_image=True)
+        lobby_embed.title = f"{self.game_type.title()} Game lobby!"
+        lobby_embed.description = "A match has been created, betting is open for 2 min."
+        lobby_embed.color = discord.Color.orange()
+
+        # ✅ Replace Join/Leave with Bet button:
+        self.clear_items()
+        self.add_item(BettingButtonDropdown(self))
+
+        # ✅ Fix: if no message (test mode), send a new one
+        if self.message:
+            await self.message.edit(embed=lobby_embed, view=self)
+        else:
+            self.message = await self.channel.send(embed=lobby_embed, view=self)
+
         # ✅ Select random course from DB
         res = await run_db(lambda: supabase.table("courses").select("id", "name", "image_url").execute())
         chosen = random.choice(res.data or [{}])
@@ -1479,23 +1495,6 @@ class GameView(discord.ui.View):
             member = interaction.guild.get_member(pid)
             if member:
                 await thread.add_user(member)
-
-        # ✅ MAIN LOBBY embed — NO image, mark thread info
-        lobby_embed = await self.build_embed(interaction.guild, no_image=True)
-        lobby_embed.title = f"{self.game_type.title()} Game lobby!"
-        lobby_embed.description = "A match has been created, betting is open for 2 min."
-        lobby_embed.color = discord.Color.orange()
-
-        # ✅ Replace Join/Leave with Bet button:
-        self.clear_items()
-        self.add_item(BettingButtonDropdown(self))
-
-        # ✅ Fix: if no message (test mode), send a new one
-        if self.message:
-            await self.message.edit(embed=lobby_embed, view=self)
-        else:
-            self.message = await self.channel.send(embed=lobby_embed, view=self)
-
         # ✅ Thread embed WITH image
         thread_embed = await self.build_embed(interaction.guild, no_image=False)
         thread_embed.title = f"Game Room: {room_name}"
