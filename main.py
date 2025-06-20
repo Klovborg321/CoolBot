@@ -1228,11 +1228,14 @@ class GameView(discord.ui.View):
     async def build_embed(self, guild=None, winner=None, no_image=True, status=None):
         # Title
         title = "🏆 Tournament Lobby" if self.game_type == "tournament" else f"🎮 {self.game_type.title()} Match Lobby"
+        
+        if bets is None:
+            bets = self.bets
 
-        if len(self.players) == self.max_players:
-            description="A match has been created, betting is open for 2 min.!"
-        else:
+        if not status:
             description="Awaiting players for a new match..."
+        else:
+            description=status
         embed = discord.Embed(
             title=title,
             description=description if not winner else "",
@@ -1320,9 +1323,9 @@ class GameView(discord.ui.View):
         embed.add_field(name="\u200b", value="\u200b", inline=False)
 
         # Bets section — ✅ normalized & clear
-        if self.bets:
+        if bets:
             bet_lines = []
-            for _, uname, amt, ch in self.bets:
+            for _, uname, amt, ch in bets:
                 if self.game_type == "singles":
                     label = "Player 1" if ch == "1" else "Player 2"
                 elif self.game_type == "doubles":
@@ -1352,7 +1355,10 @@ class GameView(discord.ui.View):
 
     async def update_message(self):
         if self.message:
-            embed = await self.build_embed(self.message.guild)
+            embed = await self.build_embed(
+                self.message.guild,
+                bets=self.manager.bets if self.manager else self.bets
+            )
             to_remove = [item for item in self.children if isinstance(item, LeaveGameButton)]
             for item in to_remove:
                 self.remove_item(item)
@@ -1392,7 +1398,7 @@ class GameView(discord.ui.View):
 
     async def add_bet(self, uid, uname, amount, choice):
         # Always store in the local bets
-        self.bets.append((uid, uname, amount, choice))
+        bets.append((uid, uname, amount, choice))
 
         # If this game has a manager (e.g., tournament), store it there too:
         if hasattr(self, "manager") and self.manager:
@@ -1403,20 +1409,20 @@ class GameView(discord.ui.View):
 
         embed = await self.build_embed(
             target_message.guild,
-            status="✅ Tournament full! Matches running — place your bets!"
-            if not self.betting_closed else "🕐 Betting closed. Good luck!"
+            status="✅ Tournament full! Matches running — place your bets!" if not self.betting_closed else "🕐 Betting closed. Good luck!",
+            bets=self.manager.bets if self.manager else self.bets
         )
         await target_message.edit(embed=embed, view=self if not self.betting_closed else None)
 
 
     def get_bet_summary(self):
-        if not self.bets:
+        if not bets:
             return "No bets placed yet."
 
         guild = self.message.guild if self.message else None
         lines = []
 
-        for _, uname, amt, ch in self.bets:
+        for _, uname, amt, ch in bets:
             # Default
             label = str(ch)
 
