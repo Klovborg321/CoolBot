@@ -2167,6 +2167,7 @@ class TournamentManager:
         self.winners.append(winner_id)
         self.next_round_players.append(winner_id)
 
+        # ✅ Deactivate loser and update stats
         loser_id = None
         for match in self.current_matches:
             if winner_id in match.players:
@@ -2195,10 +2196,11 @@ class TournamentManager:
 
         if len(self.winners) >= expected:
             if len(self.next_round_players) == 1:
+                # ✅ Final champion found
                 champ = self.next_round_players[0]
                 player_manager.deactivate(champ)
 
-                # ✅ Process tournament bets:
+                # ✅ Process bets
                 for uid, uname, amount, choice in self.bets:
                     try:
                         won = int(choice) == champ
@@ -2215,30 +2217,32 @@ class TournamentManager:
                     )
 
                     if won:
-                        odds = 0.5  # For now: static, or store at bet time!
+                        odds = 0.5  # You might store real odds per bet in future
                         payout = int(amount / odds)
                         await add_credits_internal(uid, payout)
                         print(f"💰 {uname} won! Payout: {payout}")
                     else:
                         print(f"❌ {uname} lost {amount}")
 
-                # ✅ Final champion embed
+                # ✅ Build final embed safely
                 dummy = GameView("tournament", self.creator, 2, self.parent_channel)
                 dummy.players = self.players
                 dummy.max_players = self.max_players
-
                 embed = await dummy.build_embed(self.parent_channel.guild, winner=champ)
 
                 member = self.parent_channel.guild.get_member(champ)
                 champ_name = member.display_name if member else f"User {champ}"
                 embed.set_footer(text=f"🏆 Champion: {champ_name}")
 
+                # ✅ Lock the main lobby — embed only, NO view attached
                 if self.message:
                     await self.message.edit(embed=embed, view=None)
 
             else:
+                # ✅ More rounds needed → prepare next round
                 self.round_players = self.next_round_players.copy()
                 await self.run_round(self.parent_channel.guild)
+
 
 
 
@@ -2396,7 +2400,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
 
         if IS_TEST_MODE:
             for pid in TEST_PLAYER_IDS:
-                if pid not in manager.players and len(manager.players) < manager.max_players:
+                if pid not in manager.players and len(manager.players) < manager.max_players - 1:
                     manager.players.append(pid)
 
         # ✅ FIX: pass parent_channel explicitly!
