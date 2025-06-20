@@ -2400,7 +2400,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
 
         if IS_TEST_MODE:
             for pid in TEST_PLAYER_IDS:
-                if pid not in manager.players and len(manager.players) < manager.max_players - 1:
+                if pid not in manager.players and len(manager.players) < manager.max_players:
                     manager.players.append(pid)
 
         # ✅ FIX: pass parent_channel explicitly!
