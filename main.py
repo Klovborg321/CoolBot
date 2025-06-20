@@ -2240,7 +2240,6 @@ class TournamentLobbyView(discord.ui.View):
         self._embed_helper.betting_closed = self.betting_closed
         return await self._embed_helper.build_embed(
             guild,
-            winner=winner,
             no_image=no_image,
             status=status,
             bets=bets
