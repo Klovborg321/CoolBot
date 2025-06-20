@@ -452,59 +452,44 @@ class GameJoinView(discord.ui.View):
         self.game_type = game_type
         self.max_players = max_players
 
-        button = discord.ui.Button(
-            label=f"Start {self.game_type} game",
-            style=discord.ButtonStyle.primary
-        )
-        button.callback = self.start_game
-        self.add_item(button)
+        @discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
+        async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+            await interaction.response.defer(ephemeral=True)
 
-    async def start_game(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+            if pending_games.get(self.game_type):
+                await interaction.followup.send("⚠️ A game of this type is already pending.", ephemeral=True)
+                return
 
-        # ✅ Block duplicate games
-        if pending_games.get(self.game_type):
-            await interaction.followup.send(
-                "⚠️ A game of this type is already pending.",
-                ephemeral=True
-            )
-            return
+            if player_manager.is_active(interaction.user.id):
+                await interaction.followup.send("🚫 You are already in another game.", ephemeral=True)
+                return
 
-        if player_manager.is_active(interaction.user.id):
-            await interaction.followup.send(
-                "🚫 You are already in another game or must finish voting first.",
-                ephemeral=True
-            )
-            return
+            key = (interaction.channel.id, self.game_type)
+            old_msg = start_buttons.get(key)
+            if old_msg:
+                try: await old_msg.delete()
+                except: pass
+                start_buttons[key] = None
 
-        key = (interaction.channel.id, self.game_type)
+            player_manager.activate(interaction.user.id)
+            view = GameView(self.game_type, interaction.user.id, self.max_players, interaction.channel)
 
-        # ✅ Remove the button message itself and clear record
-        try:
-            await interaction.message.delete()
-        except Exception:
-            pass
-        start_buttons[key] = None
+            embed = await view.build_embed(interaction.guild, no_image=True)
+            view.message = await interaction.channel.send(embed=embed, view=view)
 
-        # ✅ Activate player & start game
-        player_manager.activate(interaction.user.id)
+            pending_games[self.game_type] = view
 
-        view = GameView(self.game_type, interaction.user.id, self.max_players, interaction.channel)
+            ### ✅ 👇 RIGHT HERE: immediately spawn a fresh start button
+            await start_new_game_button(interaction.channel, self.game_type, self.max_players)
 
-        # ✅ TEST MODE auto-fill
-        if IS_TEST_MODE:
-            for pid in TEST_PLAYER_IDS:
-                if pid != interaction.user.id and pid not in view.players and len(view.players) < view.max_players:
-                    view.players.append(pid)
-                    player_manager.activate(pid)
+            try:
+                await interaction.message.delete()
+            except:
+                pass
 
-        embed = await view.build_embed(interaction.guild)
-        view.message = await interaction.channel.send(embed=embed, view=view)
+            if len(view.players) == view.max_players:
+                await view.game_full(interaction)
 
-        if len(view.players) == view.max_players:
-            await view.game_full(interaction)
-
-        pending_games[self.game_type] = view  # ✅ register new pending
 
 
 
@@ -2983,7 +2968,7 @@ async def clear_chat(interaction: discord.Interaction):
 
 
 @tree.command(
-    name="clear_pending",
+    name="clear_pending_games",
     description="Admin: Clear all pending games and remove start buttons."
 )
 async def clear_pending(interaction: discord.Interaction):
@@ -3395,30 +3380,6 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
         f"🆔 **{user.display_name}**'s Discord ID: `{user.id}`",
         ephemeral=True  # Only the caller can see it
     )
-
-@tree.command(name="clear_pending_games")
-@app_commands.checks.has_permissions(administrator=True)
-async def clear_pending_games_command(interaction: discord.Interaction):
-    """Clears all pending games in Supabase and local cache."""
-    await interaction.response.defer(ephemeral=True)
-
-    try:
-        # ✅ 1️⃣ Clear from Supabase
-        await run_db(lambda: supabase.table("pending_games").delete().execute())
-
-        # ✅ 2️⃣ Clear in-memory
-        pending_games.clear()
-
-        await interaction.followup.send(
-            "✅ All pending games have been cleared from Supabase and memory.",
-            ephemeral=True
-        )
-    except Exception as e:
-        print(f"❌ Error clearing pending games: {e}")
-        await interaction.followup.send(
-            f"⚠️ Failed to clear pending games: {e}",
-            ephemeral=True
-        )
 
 
 @bot.event
