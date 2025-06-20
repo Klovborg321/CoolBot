@@ -974,6 +974,11 @@ class RoomView(discord.ui.View):
         vote_counts = Counter(self.votes.values())
         most_common = vote_counts.most_common()
 
+
+        self.game_has_ended = True  # ✅ RoomView's flag too!
+        if self.game_view:
+            self.game_view.game_has_ended = True  # ✅ GameView's flag too!
+
         if not most_common:
             winner = None
         elif len(most_common) > 1 and most_common[0][1] == most_common[1][1]:
@@ -1011,7 +1016,7 @@ class RoomView(discord.ui.View):
 
             # ✅ Lobby embed (only if exists)
             if self.lobby_message and self.game_view:
-                lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True, status="🎮 Game ended.")
+                lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True)
                 await self.lobby_message.edit(embed=lobby_embed, view=None)
 
             await self.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
