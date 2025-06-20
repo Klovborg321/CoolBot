@@ -454,16 +454,21 @@ class GameJoinView(discord.ui.View):
     @discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
     async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
+
         # ✅ Block duplicate games of the same type
         if self.game_type in pending_games and pending_games[self.game_type]:
-            await interaction.response.send_message(
-                "A game of this type is already pending.", ephemeral=True)
+            await interaction.followup.send(
+                "⚠️ A game of this type is already pending.",
+                ephemeral=True
+            )
             return
 
         # ✅ Block ANY other active game (cross-lobby)
         if player_manager.is_active(interaction.user.id):
-            await interaction.response.send_message(
-                "🚫 You are already in another game or have not voted yet.", ephemeral=True)
+            await interaction.followup.send(
+                "🚫 You are already in another game or must finish voting first.",
+                ephemeral=True
+            )
             return
 
         key = (interaction.channel.id, self.game_type)
@@ -497,12 +502,13 @@ class GameJoinView(discord.ui.View):
         view.message = await interaction.channel.send(embed=embed, view=view)
         pending_games[self.game_type] = view  # Update pending game with the current view
 
-        # Remove the "Start new game" button after the game has started
+        # ✅ Remove the "Start new game" button after the game has started
         try:
             await interaction.message.delete()
         except discord.NotFound:
             pass
 
+        # ✅ Always use followup because we deferred!
         await interaction.followup.send("✅ Game started!", ephemeral=True)
 
 
