@@ -2327,8 +2327,8 @@ class TournamentManager:
                 print(f"🏆 Tournament completed. Champion: {champ}")
 
             else:
-                # ✅ More rounds needed → prepare next round
                 self.round_players = self.next_round_players.copy()
+                self.next_round_players = []   # <-- THIS IS KEY!
                 await self.run_round(self.parent_channel.guild)
 
 
