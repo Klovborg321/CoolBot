@@ -452,14 +452,8 @@ class GameJoinView(discord.ui.View):
         self.game_type = game_type
         self.max_players = max_players
 
-        button = discord.ui.Button(
-            label=f"Start {self.game_type} game",
-            style=discord.ButtonStyle.primary
-        )
-        button.callback = self.start_game
-        self.add_item(button)
-
-    async def start_game(self, interaction: discord.Interaction):
+    @discord.ui.button(label="Start new game", style=discord.ButtonStyle.primary)
+    async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
 
         # ✅ Block duplicate games of the same type
