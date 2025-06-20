@@ -2514,13 +2514,13 @@ class TournamentLobbyView(discord.ui.View):
         self.manager.started = False
         self.status = None
 
-        # Abandon if idle
-        #self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
-
         # Join button
         self.join_button = discord.ui.Button(label="Join Tournament", style=discord.ButtonStyle.success)
         self.join_button.callback = self.join
         self.add_item(self.join_button)
+
+        # ✅ static Leave button:
+        self.add_item(LeaveGameButton(self))
 
         # ✅ FIXED: pass channel!
         self._embed_helper = GameView(
@@ -2531,6 +2531,38 @@ class TournamentLobbyView(discord.ui.View):
         )
         self._embed_helper.players = self.players
         self._embed_helper.bets = self.bets
+
+    async def abandon_game(self, reason):
+        self.cancel_abandon_task()
+        self.cancel_betting_task()
+
+        pending_games[self.game_type] = None
+
+        for p in self.players:
+            player_manager.deactivate(p)
+
+        embed = discord.Embed(
+            title="❌ Game Abandoned",
+            description=reason,
+            color=discord.Color.red()
+        )
+
+        if self.message:
+            try:
+                await self.message.edit(embed=embed, view=None)
+            except:
+                pass
+
+        self.message = None
+
+        # ✅ Call the same flow as /init_...
+        if self.game_type in ["singles", "doubles", "triples"]:
+            max_players = {"singles": 2, "doubles": 4, "triples": 3}[self.game_type]
+            await start_new_game_button(self.channel, self.game_type, max_players)
+        elif self.game_type == "tournament":
+            await self.channel.send("🏆 Tournament abandoned. Use `/init_tournament` to start a new one.")
+
+        print(f"[abandon_game] New start posted for {self.game_type} in #{self.channel.name}")
 
     def cancel_abandon_task(self):
         if hasattr(self, "abandon_task") and self.abandon_task:
