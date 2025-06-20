@@ -2238,7 +2238,7 @@ class TournamentLobbyView(discord.ui.View):
         self._embed_helper.players = self.players
         self._embed_helper.bets = self.bets
         self._embed_helper.betting_closed = self.betting_closed
-        return await self._embed_helper.build_embed(guild, no_image=no_image, status=status)
+        return await self._embed_helper.build_embed(guild, no_image=no_image)
 
     async def update_message(self):
         if self.message:
