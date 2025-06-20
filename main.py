@@ -361,16 +361,12 @@ async def start_new_game_button(channel, game_type, max_players=None):
 async def show_betting_phase(self):
     self.clear_items()
     self.add_item(BettingButtonDropdown(self))
+    if self.betting_task:
+        self.betting_task.cancel()
+    if self.message:
+        await self.message.edit(embed=await self.build_embed(self.message.guild), view=self)
 
-    # ✅ Delay once to avoid "Unknown Channel" if thread is too fresh
-    await asyncio.sleep(1)
-
-    try:
-        await self.update_message()
-    except discord.NotFound:
-        print("⚠️ Thread channel not ready yet, skipping initial update.")
-
-    await asyncio.sleep(120)
+    self.betting_task = asyncio.create_task(self._betting_countdown())
     self.betting_closed = True
     self.clear_items()
     await self.update_message()
@@ -772,6 +768,8 @@ class RoomView(discord.ui.View):
         self.lobby_embed = lobby_embed
         self.game_view = game_view
         self.max_players = max_players  # ✅ store it!
+        self.betting_task = None
+        self.betting_closed = False
 
         # ✅ Store course_name robustly:
         self.course_name = course_name or getattr(game_view, "course_name", None)
@@ -1599,17 +1597,30 @@ class GameView(discord.ui.View):
         return "\n".join(lines)
 
     async def _betting_countdown(self):
-        await asyncio.sleep(120)
-        self.betting_closed = True
-        self.clear_items()
-        await self.update_message()
+        print(f"[BET] Betting countdown started for GameView id {id(self)}")
+        try:
+            await asyncio.sleep(120)
+            self.betting_closed = True
+            self.clear_items()
+            await self.update_message(status="🕐 Betting closed. Good luck!")
+            print(f"[BET] Betting closed for GameView id {id(self)}")
+        except asyncio.CancelledError:
+            print(f"[BET] Betting countdown cancelled for GameView id {id(self)}")
 
     async def show_betting_phase(self):
+        # 🔑 Always clear old betting buttons
         self.clear_items()
         self.add_item(BettingButtonDropdown(self))
+
+        # 🔑 Cancel any old countdown to avoid overlap
+        if hasattr(self, "betting_task") and self.betting_task:
+            self.betting_task.cancel()
+            self.betting_task = None
+
+        # 🔑 Update embed with explicit status
         await self.update_message(status="✅ Match is full. Place your bets!")
 
-        # ✅ Store this sleeping task so it can be cancelled
+        # 🔑 Start new countdown — tied only to THIS view
         self.betting_task = asyncio.create_task(self._betting_countdown())
 
     async def game_full(self, interaction):
