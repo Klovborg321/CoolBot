@@ -2747,10 +2747,10 @@ async def set_user_handicap(interaction: discord.Interaction):
 async def init_singles(interaction: discord.Interaction):
     """Creates a singles game lobby with the start button"""
 
-    print("[init_singles] Defer interaction...")
+    print("[init_doubles] Defer interaction...")
     await interaction.response.defer(ephemeral=True)
 
-    print("[init_singles] Checking for existing game or button...")
+    print("[init_doubles] Checking for existing game or button...")
     if pending_games.get("singles") or any(k[0] == interaction.channel.id for k in start_buttons):
         print("[init_singles] Found existing game/button, sending followup...")
         await interaction.followup.send(
