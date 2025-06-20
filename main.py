@@ -1011,7 +1011,7 @@ class RoomView(discord.ui.View):
 
             # ✅ Lobby embed (only if exists)
             if self.lobby_message and self.game_view:
-                lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True)
+                lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True, status="🎮 Game ended.")
                 await self.lobby_message.edit(embed=lobby_embed, view=None)
 
             await self.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
