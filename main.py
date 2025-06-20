@@ -766,6 +766,7 @@ class RoomView(discord.ui.View):
         self.channel = self.message.channel if self.message else None
         self.lobby_embed = lobby_embed
         self.game_view = game_view
+        self.max_players = max_players  # ✅ store it!
 
         # ✅ Store course_name robustly:
         self.course_name = course_name or getattr(game_view, "course_name", None)
@@ -1585,7 +1586,8 @@ class GameView(discord.ui.View):
             lobby_embed=thread_embed,
             game_view=self,
             course_name=self.course_name,
-            course_id=self.course_id
+            course_id=self.course_id,
+            max_players=self.max_players
         )
         room_view.original_embed = thread_embed.copy()
 
@@ -2123,7 +2125,8 @@ class TournamentManager:
                     game_type="singles",
                     room_name=room_name,
                     course_name=course_name,
-                    course_id=course_id
+                    course_id=course_id,
+                    max_players=2
                 )
                 room_view.course_image = course_image
                 room_view.guild = guild
