@@ -1301,24 +1301,24 @@ class GameView(discord.ui.View):
 
 
     async def abandon_if_not_filled(self):
-    timeout_duration = 30 if IS_TEST_MODE else 300
-    elapsed = 0
+        timeout_duration = 30 if IS_TEST_MODE else 300
+        elapsed = 0
 
-    while (
-        len(self.players) < self.max_players 
-        and not self.betting_closed 
-        and elapsed < timeout_duration
-    ):
-        # ✅ If the game is no longer pending: bail out immediately!
-        if pending_games.get(self.game_type) != self:
-            print(f"[abandon_if_not_filled] Exiting loop: no longer pending.")
-            return
-        await asyncio.sleep(30)
-        elapsed += 30
+        while (
+            len(self.players) < self.max_players 
+            and not self.betting_closed 
+            and elapsed < timeout_duration
+        ):
+            # ✅ If the game is no longer pending: bail out immediately!
+            if pending_games.get(self.game_type) != self:
+                print(f"[abandon_if_not_filled] Exiting loop: no longer pending.")
+                return
+            await asyncio.sleep(30)
+            elapsed += 30
 
-    if len(self.players) < self.max_players and not self.betting_closed:
-        await self.abandon_game("⏰ Game timed out due to inactivity.")
-        await clear_pending_game(self.game_type)
+        if len(self.players) < self.max_players and not self.betting_closed:
+            await self.abandon_game("⏰ Game timed out due to inactivity.")
+            await clear_pending_game(self.game_type)
 
 
 
