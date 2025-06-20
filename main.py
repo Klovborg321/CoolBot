@@ -466,7 +466,7 @@ class GameJoinView(discord.ui.View):
                 "🚫 You are already in another game or have not voted yet.", ephemeral=True)
             return
 
-         key = (interaction.channel.id, self.game_type)
+        key = (interaction.channel.id, self.game_type)
 
         # ✅ Remove old tracked button safely
         old_button_msg = start_buttons.get(key)
