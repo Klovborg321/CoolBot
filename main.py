@@ -1177,11 +1177,16 @@ class VoteButton(discord.ui.Button):
             await interaction.response.send_message("❌ Voting has ended.", ephemeral=True)
             return
 
+        # ✅ NEW: Only allow actual match players to vote!
+        if not IS_TEST_MODE and interaction.user.id not in self.view_obj.players:
+            await interaction.response.send_message(
+                "🚫 You are not a player in this match — you cannot vote.",
+                ephemeral=True
+            )
+            return
+
         # ✅ Save the vote in the RoomView memory
         self.view_obj.votes[interaction.user.id] = self.value
-
-        # ✅ Optional: You can store this vote in Supabase too if you want an audit log
-        # Example: await run_db(lambda: supabase.table("votes").insert({...})
 
         # ✅ Prepare feedback text
         voter = interaction.guild.get_member(interaction.user.id)
@@ -1199,12 +1204,10 @@ class VoteButton(discord.ui.Button):
         # ✅ Mark this player as free to join other games again
         player_manager.deactivate(interaction.user.id)
 
-        # ✅ Optionally update player data in Supabase (for advanced audit)
-        # For example, you could store that this user has voted, or log timestamp.
-
         # ✅ If everyone voted, finalize immediately
         if IS_TEST_MODE or len(self.view_obj.votes) == len(self.view_obj.players):
             await self.view_obj.finalize_game()
+
 
 
 class TournamentStartButtonView(discord.ui.View):
