@@ -2086,7 +2086,7 @@ class SubmitScoreModal(discord.ui.Modal, title="Submit Best Score"):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            score = int(self.best_score.value.strip())
+            score = int(float(self.best_score.value.strip()))
         except ValueError:
             await interaction.response.send_message("❌ Invalid score.", ephemeral=True)
             return
@@ -2752,6 +2752,12 @@ async def init_tournament(interaction: discord.Interaction):
             ephemeral=True
         )
         return
+    if player_id in active_players:
+        await interaction.response.send_message(
+            "❌ You already have an active game. Finish it before starting another.",
+            ephemeral=True
+        )
+        return
 
     max_players = 16
 
@@ -2808,6 +2814,12 @@ async def init_singles(interaction: discord.Interaction):
             ephemeral=True
         )
         return
+    if player_id in active_players:
+        await interaction.response.send_message(
+            "❌ You already have an active game. Finish it before starting another.",
+            ephemeral=True
+        )
+        return
 
     max_players = 2
 
@@ -2837,6 +2849,12 @@ async def init_doubles(interaction: discord.Interaction):
             ephemeral=True
         )
         return
+    if player_id in active_players:
+        await interaction.response.send_message(
+            "❌ You already have an active game. Finish it before starting another.",
+            ephemeral=True
+        )
+        return
 
     max_players = 4
 
@@ -2862,6 +2880,12 @@ async def init_triples(interaction: discord.Interaction):
         print("[init_singles] Found existing game/button, sending followup...")
         await interaction.followup.send(
             "⚠️ A triples game is already pending or a button is active here.",
+            ephemeral=True
+        )
+        return
+    if player_id in active_players:
+        await interaction.response.send_message(
+            "❌ You already have an active game. Finish it before starting another.",
             ephemeral=True
         )
         return
@@ -3348,12 +3372,12 @@ async def handicap_index(interaction: discord.Interaction, user: discord.User = 
     description="See all your submitted scores and handicap differentials"
 )
 async def my_handicaps(interaction: discord.Interaction, user: discord.User = None):
-    # ⏱️ Defer immediately, before anything slow
+    # ⏱️ Defer immediately
     await interaction.response.defer(ephemeral=True)
 
-    # Now safe to do slow things
     target = user or interaction.user
 
+    # 1️⃣ Fetch from Supabase
     try:
         res = await run_db(lambda: supabase
             .table("handicaps")
@@ -3370,6 +3394,7 @@ async def my_handicaps(interaction: discord.Interaction, user: discord.User = No
         await interaction.followup.send(f"❌ No scores found for {target.display_name}.", ephemeral=True)
         return
 
+    # 2️⃣ Build embed safely using .get()
     embed = discord.Embed(
         title=f"🏌️ {target.display_name}'s Handicap Records",
         color=discord.Color.green()
@@ -3377,16 +3402,18 @@ async def my_handicaps(interaction: discord.Interaction, user: discord.User = No
 
     for h in res.data:
         embed.add_field(
-        name=f"{h['course_name']}",
-        value=(
-            f"Score: **{h['score']}**\n"
-            f"Differential: **{h.get('handicap_differential', 'N/A')}**"
-        ),
-        inline=False
-    )
-
+            name=h.get('course_name', 'Unknown Course'),
+            value=(
+                f"Score: **{h.get('score', 'N/A')}**\n"
+                f"Course Rating: **{h.get('course_rating', 'N/A')}**\n"
+                f"Slope: **{h.get('slope', 'N/A')}**\n"
+                f"Differential: **{h.get('handicap_differential', 'N/A')}**"
+            ),
+            inline=False
+        )
 
     await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 
 @tree.command(
@@ -3567,7 +3594,7 @@ class AdminSubmitScoreModal(discord.ui.Modal, title="Admin: Set Best Score"):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            score = int(self.best_score.value.strip())
+            score = int(float(self.best_score.value.strip()))
         except ValueError:
             await interaction.response.send_message("❌ Invalid score.", ephemeral=True)
             return
