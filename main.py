@@ -2752,11 +2752,10 @@ async def init_tournament(interaction: discord.Interaction):
             ephemeral=True
         )
         return
-    if player_id in active_players:
+    if player_manager.is_active(interaction.user.id):
         await interaction.response.send_message(
-            "❌ You already have an active game. Finish it before starting another.",
-            ephemeral=True
-        )
+            "🚫 You are already in another active game or must finish voting first.",
+            ephemeral=True)
         return
 
     max_players = 16
@@ -2814,11 +2813,10 @@ async def init_singles(interaction: discord.Interaction):
             ephemeral=True
         )
         return
-    if player_id in active_players:
+    if player_manager.is_active(interaction.user.id):
         await interaction.response.send_message(
-            "❌ You already have an active game. Finish it before starting another.",
-            ephemeral=True
-        )
+            "🚫 You are already in another active game or must finish voting first.",
+            ephemeral=True)
         return
 
     max_players = 2
@@ -2849,11 +2847,10 @@ async def init_doubles(interaction: discord.Interaction):
             ephemeral=True
         )
         return
-    if player_id in active_players:
+    if player_manager.is_active(interaction.user.id):
         await interaction.response.send_message(
-            "❌ You already have an active game. Finish it before starting another.",
-            ephemeral=True
-        )
+            "🚫 You are already in another active game or must finish voting first.",
+            ephemeral=True)
         return
 
     max_players = 4
@@ -2883,11 +2880,10 @@ async def init_triples(interaction: discord.Interaction):
             ephemeral=True
         )
         return
-    if player_id in active_players:
+    if player_manager.is_active(interaction.user.id):
         await interaction.response.send_message(
-            "❌ You already have an active game. Finish it before starting another.",
-            ephemeral=True
-        )
+            "🚫 You are already in another active game or must finish voting first.",
+            ephemeral=True)
         return
 
     max_players = 3
