@@ -617,6 +617,8 @@ class GameJoinView(discord.ui.View):
             )
             return
 
+        player_manager.activate(interaction.user.id)
+
         # ✅ Delete old start button
         try:
             await interaction.message.delete()
@@ -2751,12 +2753,7 @@ async def init_tournament(interaction: discord.Interaction):
             "⚠️ A tournament game is already pending or a button is active here.",
             ephemeral=True
         )
-        return
-    if player_manager.is_active(interaction.user.id):
-        await interaction.response.send_message(
-            "🚫 You are already in another active game or must finish voting first.",
-            ephemeral=True)
-        return
+        return    
 
     max_players = 16
 
@@ -2813,11 +2810,6 @@ async def init_singles(interaction: discord.Interaction):
             ephemeral=True
         )
         return
-    if player_manager.is_active(interaction.user.id):
-        await interaction.response.send_message(
-            "🚫 You are already in another active game or must finish voting first.",
-            ephemeral=True)
-        return
 
     max_players = 2
 
@@ -2847,11 +2839,6 @@ async def init_doubles(interaction: discord.Interaction):
             ephemeral=True
         )
         return
-    if player_manager.is_active(interaction.user.id):
-        await interaction.response.send_message(
-            "🚫 You are already in another active game or must finish voting first.",
-            ephemeral=True)
-        return
 
     max_players = 4
 
@@ -2879,11 +2866,6 @@ async def init_triples(interaction: discord.Interaction):
             "⚠️ A triples game is already pending or a button is active here.",
             ephemeral=True
         )
-        return
-    if player_manager.is_active(interaction.user.id):
-        await interaction.response.send_message(
-            "🚫 You are already in another active game or must finish voting first.",
-            ephemeral=True)
         return
 
     max_players = 3
