@@ -80,6 +80,21 @@ default_template = {
 }
 
 # Helpers
+
+async def send_global_notification(game_type: str, lobby_link: str, channel: discord.TextChannel):
+    embed = discord.Embed(
+        title=f"📢 NEW {game_type.upper()} LOBBY!",
+        description=f"A new **{game_type}** game is ready!\n👉 [Click here to join the lobby!]({lobby_link})",
+        color=discord.Color.red()
+    )
+    # ✅ Add banner image at the top:
+    embed.set_image(url="https://nxybekwiefwxnijrwuas.supabase.co/storage/v1/object/public/game-images/banner.png")
+
+    await channel.send(
+        content="@everyone",
+        embed=embed
+    )
+
 async def expected_score(rating_a, rating_b):
     """Expected score for player/team A vs B"""
     return 1 / (1 + 10 ** ((rating_b - rating_a) / 400))
@@ -646,6 +661,9 @@ class GameJoinView(discord.ui.View):
         # ✅ If full immediately → auto start
         if len(view.players) == view.max_players:
             await view.game_full(interaction)
+        else:
+            channel = guild.get_channel(CHANNEL_ID)
+            await send_global_notification(self.game_type, ctx.channel.jump_url, channel)
 
 
 
