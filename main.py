@@ -1322,7 +1322,6 @@ class RoomView(discord.ui.View):
                     .execute()
                 )
 
-        )
 
         # ✅ 4️⃣ Final embeds
         winner_name = winner
