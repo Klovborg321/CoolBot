@@ -2674,7 +2674,7 @@ class TournamentLobbyView(discord.ui.View):
             await interaction.response.send_message("🚫 You are already in another active match.", ephemeral=True)
             return
 
-        on
+       
         self.players.append(interaction.user.id)
 
         await self.update_message()
