@@ -662,8 +662,7 @@ class GameJoinView(discord.ui.View):
         if len(view.players) == view.max_players:
             await view.game_full(interaction)
         else:
-            channel = guild.get_channel(CHANNEL_ID)
-            await send_global_notification(self.game_type, ctx.channel.jump_url, channel)
+            await send_global_notification(self.game_type, ctx.channel.jump_url, ctx.channel)
 
 
 
