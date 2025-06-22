@@ -3863,7 +3863,7 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
 async def on_ready():
     await tree.sync()
     print(f"✅ Logged in as {bot.user}")
-	await restore_active_games(bot)
+    await restore_active_games(bot)
 
     rows = await load_pending_games()
     for row in rows:
