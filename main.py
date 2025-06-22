@@ -81,6 +81,24 @@ default_template = {
 
 # Helpers
 
+async def send_global_notification(game_type: str, lobby_link: str, guild: discord.Guild):
+        embed = discord.Embed(
+            title="📢 **MINI GOLF MISFITS!**",
+            description=(
+                f"🏌️ **A new `{game_type}` lobby has started!**\n\n"
+                f"[👉 Click here to join the lobby!]({lobby_link})"
+            ),
+            color=discord.Color.red()
+        )
+        embed.set_image(url="https://nxybekwiefwxnijrwuas.supabase.co/storage/v1/object/public/game-images/banner.png")
+
+        for member in guild.members:
+            if member.status != discord.Status.offline and not member.bot:
+                try:
+                    await member.send(embed=embed)
+                except:
+                    pass
+
 async def expected_score(rating_a, rating_b):
     """Expected score for player/team A vs B"""
     return 1 / (1 + 10 ** ((rating_b - rating_a) / 400))
@@ -598,25 +616,7 @@ class GameJoinView(discord.ui.View):
         )
         button.callback = self.start_game
         self.add_item(button)
-
-    async def send_global_notification(game_type: str, lobby_link: str, guild: discord.Guild):
-        embed = discord.Embed(
-            title="📢 **MINI GOLF MISFITS!**",
-            description=(
-                f"🏌️ **A new `{game_type}` lobby has started!**\n\n"
-                f"[👉 Click here to join the lobby!]({lobby_link})"
-            ),
-            color=discord.Color.red()
-        )
-        embed.set_image(url="https://nxybekwiefwxnijrwuas.supabase.co/storage/v1/object/public/game-images/banner.png")
-
-        for member in guild.members:
-            if member.status != discord.Status.offline and not member.bot:
-                try:
-                    await member.send(embed=embed)
-                except:
-                    pass
-
+    
     async def start_game(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
 
