@@ -3693,6 +3693,19 @@ class AdminSubmitScoreModal(discord.ui.Modal, title="Admin: Set Best Score"):
             ephemeral=True
         )
 
+@bot.event
+async def on_member_join(member):
+    # List of role names you want to auto-assign
+    role_names = ["@singles", "@doubles", "@triples, @quick-tournament"]
+
+    roles = []
+    for name in role_names:
+        role = discord.utils.get(member.guild.roles, name=name)
+        if role:
+            roles.append(role)
+
+    if roles:
+        await member.add_roles(*roles)
 
 @tree.command(
     name="get_user_id",
