@@ -1347,6 +1347,13 @@ class RoomView(discord.ui.View):
         await self.channel.edit(archived=True)
         pending_games[self.game_type] = None
 
+        await run_db(lambda: supabase
+            .table("active_games")
+            .delete()
+            .eq("game_id", str(view.message.id))
+            .execute()
+        )
+
         if self.on_tournament_complete and isinstance(winner, int):
             await self.on_tournament_complete(winner)
 
@@ -1516,6 +1523,12 @@ class GameView(discord.ui.View):
 
         if len(self.players) == self.max_players:
             await self.game_full(interaction)
+            await run_db(lambda: supabase
+                .table("active_games")
+                .delete()
+                .eq("game_id", str(view.message.id))
+                .execute()
+            )
 
     def cancel_betting_task(self):
         if self.betting_task:
@@ -3766,6 +3779,75 @@ async def on_member_join(member):
     if roles:
         await member.add_roles(*roles)
 
+async def save_game_state(manager, view):
+    """Store the current active game in Supabase for resilience."""
+
+    # Example values:
+    await run_db(lambda: supabase.table("active_games").upsert({
+        "game_id": str(view.message.id),
+        "game_type": view.game_type,
+        "thread_id": str(view.message.channel.id),
+        "parent_channel_id": str(view.parent_channel.id),
+        "players": view.players,
+        "bets": view.bets,
+        "max_players": view.max_players,
+        "started": manager.started,
+    }).execute())
+
+
+async def restore_active_games(bot):
+    """Load saved games from Supabase and rebuild the lobby Views."""
+
+    result = await run_db(lambda: supabase.table("active_games").select("*").execute())
+    active_games = result.data
+
+    if not active_games:
+        print("[restore] No active games to restore.")
+        return
+
+    print(f"[restore] Found {len(active_games)} games to restore.")
+
+    for g in active_games:
+        try:
+            guild = bot.guilds[0]  # adjust if multi-guild
+            parent_channel = guild.get_channel(int(g["parent_channel_id"]))
+            thread = await bot.fetch_channel(int(g["thread_id"]))
+            message = await thread.fetch_message(int(g["game_id"]))
+
+            # Recreate the manager and view
+            manager = TournamentManager(
+                creator=g["players"][0],  # assuming first player is creator
+                max_players=g["max_players"]
+            )
+            manager.started = g["started"]
+            manager.parent_channel = parent_channel
+            manager.bets = g["bets"]
+
+            view = TournamentLobbyView(
+                manager=manager,
+                creator=await bot.fetch_user(g["players"][0]),
+                max_players=g["max_players"],
+                parent_channel=parent_channel
+            )
+            view.players = g["players"]
+            view.bets = g["bets"]
+            view.message = message
+
+            # Attach your embed + buttons again:
+            embed = await view.build_embed(guild)
+            await message.edit(embed=embed, view=view)
+
+            # Track this manager so your system knows it's live:
+            bot.tournaments[parent_channel.id] = manager
+            manager.view = view
+
+            print(f"[restore] Restored game in thread #{thread.name}")
+
+        except Exception as e:
+            print(f"[restore] Error restoring: {e}")
+
+
+
 @tree.command(
     name="get_user_id",
     description="Show the Discord ID of a chosen member"
@@ -3784,6 +3866,7 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
 async def on_ready():
     await tree.sync()
     print(f"✅ Logged in as {bot.user}")
+	await restore_active_games(bot)
 
     rows = await load_pending_games()
     for row in rows:
