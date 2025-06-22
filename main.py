@@ -3693,6 +3693,67 @@ class AdminSubmitScoreModal(discord.ui.Modal, title="Admin: Set Best Score"):
             ephemeral=True
         )
 
+import discord
+from discord.ext import commands
+from discord import app_commands
+
+class RoleUpdater(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    @app_commands.command(
+        name="update_roles",
+        description="Assign specified roles to all server members"
+    )
+    @app_commands.describe(
+        role_names="Comma-separated list of role names to assign to all members"
+    )
+    async def update_roles(
+        self,
+        interaction: discord.Interaction,
+        role_names: str
+    ):
+        # Parse input: e.g. "singles,doubles,triples"
+        names = [r.strip() for r in role_names.split(",")]
+        guild = interaction.guild
+
+        # Find roles
+        roles_to_add = []
+        for name in names:
+            role = discord.utils.get(guild.roles, name=name)
+            if role:
+                roles_to_add.append(role)
+            else:
+                await interaction.response.send_message(
+                    f"❌ Role `{name}` not found.", ephemeral=True
+                )
+                return
+
+        await interaction.response.send_message(
+            f"✅ Adding roles {', '.join([r.name for r in roles_to_add])} to all members. This may take a while...",
+            ephemeral=True
+        )
+
+        count = 0
+        for member in guild.members:
+            # Skip bots if you want:
+            if member.bot:
+                continue
+
+            try:
+                await member.add_roles(*roles_to_add)
+                count += 1
+            except Exception as e:
+                print(f"Could not add roles to {member}: {e}")
+
+        await interaction.followup.send(
+            f"✅ Done! Updated roles for **{count}** members."
+        )
+
+async def setup(bot):
+    await bot.add_cog(RoleUpdater(bot))
+
+
 @bot.event
 async def on_member_join(member):
     # List of role names you want to auto-assign
