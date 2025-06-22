@@ -1275,9 +1275,11 @@ class RoomView(discord.ui.View):
             )
 
         # ✅ 3️⃣ Process bets
+        # ✅ Process bets
         if self.game_view:
             for uid, uname, amount, choice in self.game_view.bets:
                 won = False
+
                 if self.game_type == "singles":
                     won = (choice == "1" and self.players[0] == winner) or \
                           (choice == "2" and self.players[1] == winner)
@@ -1290,6 +1292,7 @@ class RoomView(discord.ui.View):
                     except:
                         won = False
 
+                # ✅ Store win/loss first
                 await run_db(lambda: supabase
                     .table("bets")
                     .update({"won": won})
@@ -1299,24 +1302,27 @@ class RoomView(discord.ui.View):
                     .execute()
                 )
 
-        if won:
-            odds = await self.game_view.get_odds(choice)
-            payout = int(amount * (1 / odds)) if odds > 0 else amount
-            await add_credits_internal(uid, payout)
-            print(f"💰 {uname} won! Payout: {payout}")
-        else:
-            payout = 0   # ✅ KEY: zero payout on loss
-            print(f"❌ {uname} lost {amount}")
+                # ✅ THEN calculate payout for THIS bet
+                if won:
+                    odds = await self.game_view.get_odds(choice)
+                    payout = int(amount * (1 / odds)) if odds > 0 else amount
+                    await add_credits_internal(uid, payout)
+                    print(f"💰 {uname} won! Payout: {payout}")
+                else:
+                    payout = 0
+                    print(f"❌ {uname} lost {amount}")
 
-        # ✅ Store both 'won' AND the final payout back to DB
-        await run_db(lambda: supabase
-            .table("bets")
-            .update({"won": won, "payout": payout})
-            .eq("player_id", uid)
-            .eq("game_id", self.game_view.message.id)
-            .eq("choice", choice)
-            .execute()
-)
+                # ✅ Store payout for THIS bet
+                await run_db(lambda: supabase
+                    .table("bets")
+                    .update({"payout": payout})
+                    .eq("player_id", uid)
+                    .eq("game_id", self.game_view.message.id)
+                    .eq("choice", choice)
+                    .execute()
+                )
+
+        )
 
         # ✅ 4️⃣ Final embeds
         winner_name = winner
