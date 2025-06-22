@@ -1274,7 +1274,6 @@ class RoomView(discord.ui.View):
                 winner
             )
 
-        # ✅ 3️⃣ Process bets
         # ✅ Process bets
         if self.game_view:
             for uid, uname, amount, choice in self.game_view.bets:
@@ -1321,7 +1320,6 @@ class RoomView(discord.ui.View):
                     .eq("choice", choice)
                     .execute()
                 )
-
 
         # ✅ 4️⃣ Final embeds
         winner_name = winner
