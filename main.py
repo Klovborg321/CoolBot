@@ -610,12 +610,12 @@ class GameJoinView(discord.ui.View):
         )
         embed.set_image(url="https://nxybekwiefwxnijrwuas.supabase.co/storage/v1/object/public/game-images/banner.png")
 
-    for member in guild.members:
-        if member.status != discord.Status.offline and not member.bot:
-            try:
-                await member.send(embed=embed)
-            except:
-                pass
+        for member in guild.members:
+            if member.status != discord.Status.offline and not member.bot:
+                try:
+                    await member.send(embed=embed)
+                except:
+                    pass
 
     async def start_game(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
