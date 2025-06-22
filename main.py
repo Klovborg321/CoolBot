@@ -3693,62 +3693,57 @@ class AdminSubmitScoreModal(discord.ui.Modal, title="Admin: Set Best Score"):
             ephemeral=True
         )
 
+import discord
+from discord import app_commands
 
-class RoleUpdater(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
+# ✅ Register directly on your bot instance (no separate Cog needed)
+@app_commands.command(
+    name="update_roles",
+    description="Assign specified roles to all existing server members"
+)
+@app_commands.describe(
+    role_names="Comma-separated list of role names to assign"
+)
+async def update_roles(interaction: discord.Interaction, role_names: str):
+    guild = interaction.guild
 
-    @app_commands.command(
-        name="update_roles",
-        description="Assign specified roles to all server members"
+    # Parse role names
+    names = [r.strip() for r in role_names.split(",")]
+
+    # Find roles
+    roles_to_add = []
+    for name in names:
+        role = discord.utils.get(guild.roles, name=name)
+        if not role:
+            await interaction.response.send_message(
+                f"❌ Role `{name}` not found.",
+                ephemeral=True
+            )
+            return
+        roles_to_add.append(role)
+
+    await interaction.response.send_message(
+        f"⏳ Assigning roles `{', '.join([r.name for r in roles_to_add])}` to all existing members...",
+        ephemeral=True
     )
-    @app_commands.describe(
-        role_names="Comma-separated list of role names to assign to all members"
+
+    count = 0
+    for member in guild.members:
+        if member.bot:
+            continue  # Optional: skip bots
+        try:
+            await member.add_roles(*roles_to_add, reason="Bulk role update via slash command")
+            count += 1
+        except Exception as e:
+            print(f"Error adding roles to {member}: {e}")
+
+    await interaction.followup.send(
+        f"✅ Done! Updated roles for **{count}** existing members.",
+        ephemeral=True
     )
-    async def update_roles(
-        self,
-        interaction: discord.Interaction,
-        role_names: str
-    ):
-        # Parse input: e.g. "singles,doubles,triples"
-        names = [r.strip() for r in role_names.split(",")]
-        guild = interaction.guild
 
-        # Find roles
-        roles_to_add = []
-        for name in names:
-            role = discord.utils.get(guild.roles, name=name)
-            if role:
-                roles_to_add.append(role)
-            else:
-                await interaction.response.send_message(
-                    f"❌ Role `{name}` not found.", ephemeral=True
-                )
-                return
-
-        await interaction.response.send_message(
-            f"✅ Adding roles {', '.join([r.name for r in roles_to_add])} to all members. This may take a while...",
-            ephemeral=True
-        )
-
-        count = 0
-        for member in guild.members:
-            # Skip bots if you want:
-            if member.bot:
-                continue
-
-            try:
-                await member.add_roles(*roles_to_add)
-                count += 1
-            except Exception as e:
-                print(f"Could not add roles to {member}: {e}")
-
-        await interaction.followup.send(
-            f"✅ Done! Updated roles for **{count}** members."
-        )
-
-async def setup(bot):
-    await bot.add_cog(RoleUpdater(bot))
+# ✅ Register the command with your bot
+bot.tree.add_command(update_roles)
 
 
 @bot.event
