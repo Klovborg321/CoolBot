@@ -3693,9 +3693,6 @@ class AdminSubmitScoreModal(discord.ui.Modal, title="Admin: Set Best Score"):
             ephemeral=True
         )
 
-import discord
-from discord.ext import commands
-from discord import app_commands
 
 class RoleUpdater(commands.Cog):
     def __init__(self, bot):
