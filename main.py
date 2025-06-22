@@ -135,6 +135,28 @@ async def update_elo_pair_and_save(player1_id, player2_id, winner, k=32):
     p1["rank"] = new_r1
     p2["rank"] = new_r2
 
+    # ✅ Also update stats!
+    p1["games_played"] += 1
+    p2["games_played"] += 1
+
+    if s1 == 1:
+        p1["wins"] += 1
+        p2["losses"] += 1
+        p1["current_streak"] += 1
+        p1["best_streak"] = max(p1["best_streak"], p1["current_streak"])
+        p2["current_streak"] = 0
+    elif s2 == 1:
+        p2["wins"] += 1
+        p1["losses"] += 1
+        p2["current_streak"] += 1
+        p2["best_streak"] = max(p2["best_streak"], p2["current_streak"])
+        p1["current_streak"] = 0
+    else:  # Draw
+        p1["draws"] += 1
+        p2["draws"] += 1
+        p1["current_streak"] = 0
+        p2["current_streak"] = 0
+
     await save_player(player1_id, p1)
     await save_player(player2_id, p2)
 
@@ -150,15 +172,15 @@ async def update_elo_doubles_and_save(teamA_ids, teamB_ids, winner, k=32):
     - teamB_ids: [p3_id, p4_id]
     - winner: "A", "B", or "draw"
 
-    Returns: new ELO lists for both teams
+    Also updates full player stats: wins, losses, draws, streaks, games_played.
     """
     teamA = [await get_player(pid) for pid in teamA_ids]
     teamB = [await get_player(pid) for pid in teamB_ids]
 
-    teamA_avg = sum(p.get("rank", 1000) for p in teamA) / 2
-    teamB_avg = sum(p.get("rank", 1000) for p in teamB) / 2
+    avgA = sum(p.get("rank", 1000) for p in teamA) / 2
+    avgB = sum(p.get("rank", 1000) for p in teamB) / 2
 
-    eA = await expected_score(teamA_avg, teamB_avg)
+    eA = await expected_score(avgA, avgB)
     eB = 1 - eA
 
     if winner.upper() == "A":
@@ -171,21 +193,44 @@ async def update_elo_doubles_and_save(teamA_ids, teamB_ids, winner, k=32):
     deltaA = k * (sA - eA)
     deltaB = k * (sB - eB)
 
+    # Update team A players
     new_teamA = []
-    new_teamB = []
-
     for idx, p in enumerate(teamA):
         old = p.get("rank", 1000)
         new = round(old + deltaA)
         p["rank"] = new
+        p["games_played"] += 1
+        if sA == 1:
+            p["wins"] += 1
+            p["current_streak"] += 1
+            p["best_streak"] = max(p.get("best_streak", 0), p["current_streak"])
+        elif sA == 0:
+            p["losses"] += 1
+            p["current_streak"] = 0
+        else:
+            p["draws"] += 1
+            p["current_streak"] = 0
         await save_player(teamA_ids[idx], p)
         new_teamA.append(new)
         print(f"[ELO] Team A Player {teamA_ids[idx]}: {old} → {new}")
 
+    # Update team B players
+    new_teamB = []
     for idx, p in enumerate(teamB):
         old = p.get("rank", 1000)
         new = round(old + deltaB)
         p["rank"] = new
+        p["games_played"] += 1
+        if sB == 1:
+            p["wins"] += 1
+            p["current_streak"] += 1
+            p["best_streak"] = max(p.get("best_streak", 0), p["current_streak"])
+        elif sB == 0:
+            p["losses"] += 1
+            p["current_streak"] = 0
+        else:
+            p["draws"] += 1
+            p["current_streak"] = 0
         await save_player(teamB_ids[idx], p)
         new_teamB.append(new)
         print(f"[ELO] Team B Player {teamB_ids[idx]}: {old} → {new}")
