@@ -105,13 +105,8 @@ async def expected_score(rating_a, rating_b):
 
 async def update_elo_pair_and_save(player1_id, player2_id, winner, k=32):
     """
-    Async version:
-    - Loads player ELOs
-    - Computes new ELOs
-    - Saves them back to Supabase
-    - Returns new ELOs
-
-    winner: 1 (player1), 2 (player2), or 0.5 (draw)
+    Singles: ELO + stats in one.
+    winner: 1 (player1), 2 (player2), 0.5 (draw)
     """
     p1 = await get_player(player1_id)
     p2 = await get_player(player2_id)
@@ -132,26 +127,29 @@ async def update_elo_pair_and_save(player1_id, player2_id, winner, k=32):
     new_r1 = round(r1 + k * (s1 - e1))
     new_r2 = round(r2 + k * (s2 - e2))
 
+    # ✅ Update ranks
     p1["rank"] = new_r1
     p2["rank"] = new_r2
 
-    # ✅ Also update stats!
+    # ✅ Update stats
     p1["games_played"] += 1
     p2["games_played"] += 1
 
-    if s1 == 1:
+    if s1 > s2:
         p1["wins"] += 1
         p2["losses"] += 1
         p1["current_streak"] += 1
-        p1["best_streak"] = max(p1["best_streak"], p1["current_streak"])
         p2["current_streak"] = 0
-    elif s2 == 1:
+        p1["best_streak"] = max(p1.get("best_streak", 0), p1["current_streak"])
+        p1["trophies"] += 1
+    elif s2 > s1:
         p2["wins"] += 1
         p1["losses"] += 1
         p2["current_streak"] += 1
-        p2["best_streak"] = max(p2["best_streak"], p2["current_streak"])
         p1["current_streak"] = 0
-    else:  # Draw
+        p2["best_streak"] = max(p2.get("best_streak", 0), p2["current_streak"])
+        p2["trophies"] += 1
+    else:
         p1["draws"] += 1
         p2["draws"] += 1
         p1["current_streak"] = 0
@@ -160,19 +158,14 @@ async def update_elo_pair_and_save(player1_id, player2_id, winner, k=32):
     await save_player(player1_id, p1)
     await save_player(player2_id, p2)
 
-    print(f"[ELO] Updated {player1_id}: {r1} → {new_r1} | {player2_id}: {r2} → {new_r2}")
-
+    print(f"[ELO] Singles: {player1_id} {r1}->{new_r1} | {player2_id} {r2}->{new_r2}")
     return new_r1, new_r2
 
 
 async def update_elo_doubles_and_save(teamA_ids, teamB_ids, winner, k=32):
     """
-    Async version for doubles:
-    - teamA_ids: [p1_id, p2_id]
-    - teamB_ids: [p3_id, p4_id]
-    - winner: "A", "B", or "draw"
-
-    Also updates full player stats: wins, losses, draws, streaks, games_played.
+    Doubles: full ELO + stats + trophies + streaks.
+    winner: "A", "B", or "draw"
     """
     teamA = [await get_player(pid) for pid in teamA_ids]
     teamB = [await get_player(pid) for pid in teamB_ids]
@@ -193,49 +186,76 @@ async def update_elo_doubles_and_save(teamA_ids, teamB_ids, winner, k=32):
     deltaA = k * (sA - eA)
     deltaB = k * (sB - eB)
 
-    # Update team A players
-    new_teamA = []
     for idx, p in enumerate(teamA):
         old = p.get("rank", 1000)
-        new = round(old + deltaA)
-        p["rank"] = new
+        p["rank"] = round(old + deltaA)
         p["games_played"] += 1
-        if sA == 1:
+        if sA > sB:
             p["wins"] += 1
+            p["trophies"] += 1
             p["current_streak"] += 1
             p["best_streak"] = max(p.get("best_streak", 0), p["current_streak"])
-        elif sA == 0:
+        elif sA < sB:
             p["losses"] += 1
             p["current_streak"] = 0
         else:
             p["draws"] += 1
             p["current_streak"] = 0
         await save_player(teamA_ids[idx], p)
-        new_teamA.append(new)
-        print(f"[ELO] Team A Player {teamA_ids[idx]}: {old} → {new}")
+        print(f"[ELO] Team A Player {teamA_ids[idx]}: {old} → {p['rank']}")
 
-    # Update team B players
-    new_teamB = []
     for idx, p in enumerate(teamB):
         old = p.get("rank", 1000)
-        new = round(old + deltaB)
-        p["rank"] = new
+        p["rank"] = round(old + deltaB)
         p["games_played"] += 1
-        if sB == 1:
+        if sB > sA:
             p["wins"] += 1
+            p["trophies"] += 1
             p["current_streak"] += 1
             p["best_streak"] = max(p.get("best_streak", 0), p["current_streak"])
-        elif sB == 0:
+        elif sB < sA:
             p["losses"] += 1
             p["current_streak"] = 0
         else:
             p["draws"] += 1
             p["current_streak"] = 0
         await save_player(teamB_ids[idx], p)
-        new_teamB.append(new)
-        print(f"[ELO] Team B Player {teamB_ids[idx]}: {old} → {new}")
+        print(f"[ELO] Team B Player {teamB_ids[idx]}: {old} → {p['rank']}")
 
-    return new_teamA, new_teamB
+    return [p["rank"] for p in teamA], [p["rank"] for p in teamB]
+
+
+async def update_elo_triples_and_save(player_ids, winner, k=32):
+    """
+    Triples: free-for-all ELO + full stats.
+    winner: player_id
+    """
+    players = [await get_player(pid) for pid in player_ids]
+    ranks = [p.get("rank", 1000) for p in players]
+
+    exp = [10 ** (r/400) for r in ranks]
+    total = sum(exp)
+    expected = [v/total for v in exp]
+
+    for idx, p in enumerate(players):
+        pid = player_ids[idx]
+        S = 1 if pid == winner else 0
+        E = expected[idx]
+        old = p.get("rank", 1000)
+        p["rank"] = round(old + k * (S - E))
+        p["games_played"] += 1
+        if S == 1:
+            p["wins"] += 1
+            p["trophies"] += 1
+            p["current_streak"] += 1
+            p["best_streak"] = max(p.get("best_streak", 0), p["current_streak"])
+        else:
+            p["losses"] += 1
+            p["current_streak"] = 0
+        await save_player(pid, p)
+        print(f"[ELO] Triples Player {pid}: {old} → {p['rank']}")
+
+    return [p["rank"] for p in players]
 
 
 async def update_elo_series_and_save(player1_id, player2_id, results, k=32):
@@ -1236,37 +1256,23 @@ class RoomView(discord.ui.View):
         # ✅ WIN CASE — normalize
         normalized_winner = normalize_team(winner) if self.game_type == "doubles" else winner
 
-        # ✅ Use NEW DB-SAFE ELO helpers
         if self.game_type == "singles":
             await update_elo_pair_and_save(
                 self.players[0],
                 self.players[1],
-                winner = 1 if self.players[0] == winner else 2
+                winner=1 if self.players[0] == winner else 2
             )
-
         elif self.game_type == "doubles":
             await update_elo_doubles_and_save(
                 self.players[:2],
                 self.players[2:],
-                winner = normalized_winner
+                winner=normalized_winner
             )
-
         elif self.game_type == "triples":
-            # Triples: update per player manually
-            for p in self.players:
-                pdata = await get_player(p)
-                pdata["games_played"] += 1
-                if p == winner:
-                    pdata["rank"] += 10
-                    pdata["trophies"] += 1
-                    pdata["wins"] += 1
-                    pdata["current_streak"] += 1
-                    pdata["best_streak"] = max(pdata.get("best_streak", 0), pdata["current_streak"])
-                else:
-                    pdata["rank"] -= 10
-                    pdata["losses"] += 1
-                    pdata["current_streak"] = 0
-                await save_player(p, pdata)
+            await update_elo_triples_and_save(
+                self.players,
+                winner
+            )
 
         # ✅ 3️⃣ Process bets
         if self.game_view:
