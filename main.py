@@ -1940,11 +1940,11 @@ class GameView(discord.ui.View):
         room_view.channel = thread
         room_view.original_embed = thread_embed.copy()
 
-        await save_game_state(self, self, room_view)
-
         mentions = " ".join(f"<@{p}>" for p in self.players)
         thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=thread_embed, view=room_view)
         room_view.message = thread_msg
+
+        await save_game_state(self, self, room_view)
 
         await start_new_game_button(self.channel, self.game_type, self.max_players)
 
