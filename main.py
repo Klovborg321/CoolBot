@@ -2615,6 +2615,10 @@ class TournamentLobbyView(discord.ui.View):
         self.status = None
         self.parent_channel = parent_channel
 
+        # ✅ Robust: always store a valid int ID in players list
+        creator_id = creator.id if hasattr(creator, "id") else creator
+        self.players = [creator_id]
+
         # Join button
         self.join_button = discord.ui.Button(label="Join Tournament", style=discord.ButtonStyle.success)
         self.join_button.callback = self.join
