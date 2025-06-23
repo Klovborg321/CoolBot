@@ -3856,7 +3856,7 @@ async def restore_active_games(bot):
             # ✅ Clean player IDs
             players = [int(pid) for pid in g["players"]]
 
-            # ✅ Pick valid creator using get_member first
+            # ✅ Robust: Pick valid creator using get_member first, then fetch_user, then fallback to raw ID
             creator = None
             for pid in players:
                 member = guild.get_member(pid)
@@ -3870,12 +3870,14 @@ async def restore_active_games(bot):
                     continue
 
             if creator is None:
-                print(f"[restore] ❌ No valid creator found for players {players}. Skipping game.")
-                continue
+                # ⚠️ Fallback to raw ID if no user object could be resolved
+                creator = players[0]
+                print(f"[restore] ⚠️ No valid Discord User found. Using raw ID: {creator}")
 
             # ✅ Rebuild TournamentManager
+            # Store only ID inside the manager (safe)
             manager = TournamentManager(
-                creator=creator.id,
+                creator=creator.id if hasattr(creator, "id") else creator,
                 max_players=g["max_players"]
             )
             manager.started = g["started"]
@@ -3885,7 +3887,7 @@ async def restore_active_games(bot):
             # ✅ Rebuild TournamentLobbyView (lobby)
             lobby_view = TournamentLobbyView(
                 manager=manager,
-                creator=creator,
+                creator=creator,  # could be a Member, User, or int
                 max_players=g["max_players"],
                 parent_channel=parent_channel
             )
@@ -3937,7 +3939,6 @@ async def restore_active_games(bot):
 
         except Exception as e:
             print(f"[restore] ❌ Error restoring game {g.get('game_id')}: {e}")
-
 
 @tree.command(
     name="get_user_id",
