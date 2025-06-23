@@ -3870,7 +3870,7 @@ async def restore_active_games(bot):
             if hasattr(view, "betting_closed") and not view.betting_closed:
                 if hasattr(view, "betting_task") and view.betting_task:
                     view.betting_task.cancel()
-                view.betting_task = asyncio.create_task(show_betting_phase())
+                await view.show_betting_phase()
 
             # ✅ Track in bot memory
             if not hasattr(bot, "tournaments"):
