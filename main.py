@@ -1500,7 +1500,7 @@ class RoomView(discord.ui.View):
         if self.on_tournament_complete and isinstance(winner, int):
             await self.on_tournament_complete(winner)
 
-        await update_leaderboard(self.bot)
+        await update_leaderboard(self.bot, self.game_type)
 
 
 
@@ -2726,7 +2726,7 @@ class TournamentManager:
         )
 
         # ✅ Refresh leaderboard
-        await update_leaderboard(self.bot)
+        await update_leaderboard(self.bot, game_type)
 
         # ✅ Check if all matches for this round are done
         expected = len(self.current_matches)
