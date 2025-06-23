@@ -1,4 +1,4 @@
-import requests 
+import requests
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
@@ -3809,7 +3809,7 @@ async def save_game_state(manager, view):
 
 
 async def restore_active_games(bot):
-    """Load saved games from Supabase and rebuild the lobby Views."""
+    """Load saved games from Supabase and rebuild Tournament managers + lobby Views."""
 
     result = await run_db(lambda: supabase.table("active_games").select("*").execute())
     active_games = result.data
@@ -3822,42 +3822,65 @@ async def restore_active_games(bot):
 
     for g in active_games:
         try:
-            guild = bot.guilds[0]  # adjust if multi-guild
+            guild = bot.guilds[0]  # ✅ adjust if multi-guild
             parent_channel = guild.get_channel(int(g["parent_channel_id"]))
+            if not parent_channel:
+                print(f"[restore] ❌ Parent channel {g['parent_channel_id']} not found. Skipping.")
+                continue
+
             thread = await bot.fetch_channel(int(g["thread_id"]))
+            if not thread:
+                print(f"[restore] ❌ Thread {g['thread_id']} not found. Skipping.")
+                continue
+
             message = await thread.fetch_message(int(g["game_id"]))
 
-            # Recreate the manager and view
+            # ✅ Clean player IDs
+            players = [int(pid) for pid in g["players"]]
+            creator_id = players[0]
+
+            # ✅ Rebuild manager
             manager = TournamentManager(
-                creator=g["players"][0],  # assuming first player is creator
+                creator=creator_id,
                 max_players=g["max_players"]
             )
             manager.started = g["started"]
             manager.parent_channel = parent_channel
-            manager.bets = g["bets"]
+            manager.bets = g.get("bets", [])
 
+            # ✅ Rebuild view
             view = TournamentLobbyView(
                 manager=manager,
-                creator=await bot.fetch_user(g["players"][0]),
+                creator=await bot.fetch_user(creator_id),
                 max_players=g["max_players"],
                 parent_channel=parent_channel
             )
-            view.players = g["players"]
-            view.bets = g["bets"]
+            view.players = players
+            view.bets = manager.bets
             view.message = message
 
-            # Attach your embed + buttons again:
+            # ✅ Cross-link
+            manager.view = view
+
+            # ✅ Rebuild embed + attach buttons
             embed = await view.build_embed(guild)
             await message.edit(embed=embed, view=view)
 
-            # Track this manager so your system knows it's live:
-            bot.tournaments[parent_channel.id] = manager
-            manager.view = view
+            # ✅ Restart any tasks if needed (example: betting countdown)
+            if hasattr(view, "betting_closed") and not view.betting_closed:
+                if hasattr(view, "betting_task") and view.betting_task:
+                    view.betting_task.cancel()
+                view.betting_task = asyncio.create_task(view._betting_countdown())
 
-            print(f"[restore] Restored game in thread #{thread.name}")
+            # ✅ Track in bot memory
+            if not hasattr(bot, "tournaments"):
+                bot.tournaments = {}
+            bot.tournaments[parent_channel.id] = manager
+
+            print(f"[restore] ✅ Restored tournament in thread #{thread.name}")
 
         except Exception as e:
-            print(f"[restore] Error restoring: {e}")
+            print(f"[restore] ❌ Error restoring game {g.get('game_id')}: {e}")
 
 
 
