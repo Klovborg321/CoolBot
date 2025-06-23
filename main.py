@@ -999,7 +999,7 @@ class BetModal(discord.ui.Modal, title="Place Your Bet"):
             )
 
             # ✅ Add to live bets
-            await self.game_view.add_bet(user_id, interaction.user.display_name, amount, choice)
+            await self.game_view.add_bet(user_id, interaction.user.display_name, amount, choice, interaction)
 
             # ✅ One guaranteed response
             await interaction.response.send_message(
@@ -1922,9 +1922,9 @@ class GameView(discord.ui.View):
         return 0.5
 
     async def add_bet(self, uid, uname, amount, choice, interaction):
-        if uid in self.players:
+        if choice != str(uid) and uid in self.players:
             await interaction.response.send_message(
-                "❌ You cannot bet on a game you are participating in.",
+                "❌ You cannot bet on another player in your own game.",
                 ephemeral=True
             )
             return
@@ -2934,8 +2934,12 @@ class TournamentLobbyView(discord.ui.View):
             await self.message.edit(embed=embed, view=self)
 
     async def add_bet(self, uid, uname, amount, choice):
-        if uid in self.players:
-          raise ValueError("You cannot bet on a game you are participating in.")
+        if choice != str(uid) and uid in self.players:
+            await interaction.response.send_message(
+                "❌ You cannot bet on another player in your own game.",
+                ephemeral=True
+            )
+            return
         
         self.manager.bets.append((uid, uname, amount, choice))
 
