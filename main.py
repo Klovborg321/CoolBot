@@ -125,78 +125,79 @@ async def expected_score(rating_a, rating_b):
     """Expected score for player/team A vs B"""
     return 1 / (1 + 10 ** ((rating_b - rating_a) / 400))
 
-async def update_elo_pair_and_save(player1_id, player2_id, winner, k=32):
+async def update_elo_pair_and_save(player1_id, player2_id, winner, k=32, game_type="singles"):
     """
-    Singles: ELO + stats in one.
+    Singles: ELO + stats per game_type.
     winner: 1 (player1), 2 (player2), 0.5 (draw)
     """
     p1 = await get_player(player1_id)
     p2 = await get_player(player2_id)
 
-    r1 = p1.get("rank", 1000)
-    r2 = p2.get("rank", 1000)
+    s1 = p1.setdefault("stats", {}).setdefault(game_type, {
+        "rank": 1000, "wins": 0, "losses": 0, "draws": 0,
+        "games_played": 0, "current_streak": 0, "best_streak": 0, "trophies": 0
+    })
+    s2 = p2.setdefault("stats", {}).setdefault(game_type, {
+        "rank": 1000, "wins": 0, "losses": 0, "draws": 0,
+        "games_played": 0, "current_streak": 0, "best_streak": 0, "trophies": 0
+    })
+
+    r1 = s1["rank"]
+    r2 = s2["rank"]
 
     e1 = await expected_score(r1, r2)
-    e2 = 1 - e1
 
     if winner == 1:
-        s1, s2 = 1, 0
+        actual1 = 1
     elif winner == 2:
-        s1, s2 = 0, 1
+        actual1 = 0
     else:
-        s1, s2 = 0.5, 0.5
+        actual1 = 0.5
 
-    new_r1 = round(r1 + k * (s1 - e1))
-    new_r2 = round(r2 + k * (s2 - e2))
+    delta = round(k * (actual1 - e1))
 
-    # ✅ Update ranks
-    p1["rank"] = new_r1
-    p2["rank"] = new_r2
+    s1["rank"] += delta
+    s2["rank"] -= delta
 
-    # ✅ Update stats
-    p1["games_played"] += 1
-    p2["games_played"] += 1
+    s1["games_played"] += 1
+    s2["games_played"] += 1
 
-    if s1 > s2:
-        p1["wins"] += 1
-        p2["losses"] += 1
-        p1["current_streak"] += 1
-        p2["current_streak"] = 0
-        p1["best_streak"] = max(p1.get("best_streak", 0), p1["current_streak"])
-        p1["trophies"] += 1
-    elif s2 > s1:
-        p2["wins"] += 1
-        p1["losses"] += 1
-        p2["current_streak"] += 1
-        p1["current_streak"] = 0
-        p2["best_streak"] = max(p2.get("best_streak", 0), p2["current_streak"])
-        p2["trophies"] += 1
+    if winner == 1:
+        s1["wins"] += 1
+        s2["losses"] += 1
+        s1["current_streak"] += 1
+        s2["current_streak"] = 0
+        s1["best_streak"] = max(s1["best_streak"], s1["current_streak"])
+        s1["trophies"] += 1
+    elif winner == 2:
+        s2["wins"] += 1
+        s1["losses"] += 1
+        s2["current_streak"] += 1
+        s1["current_streak"] = 0
+        s2["best_streak"] = max(s2["best_streak"], s2["current_streak"])
+        s2["trophies"] += 1
     else:
-        p1["draws"] += 1
-        p2["draws"] += 1
-        p1["current_streak"] = 0
-        p2["current_streak"] = 0
+        s1["draws"] += 1
+        s2["draws"] += 1
+        s1["current_streak"] = 0
+        s2["current_streak"] = 0
 
     await save_player(player1_id, p1)
     await save_player(player2_id, p2)
 
-    print(f"[ELO] Singles: {player1_id} {r1}->{new_r1} | {player2_id} {r2}->{new_r2}")
-    return new_r1, new_r2
+    print(f"[ELO] {game_type.title()}: {player1_id} {r1} → {s1['rank']} | {player2_id} {r2} → {s2['rank']}")
+    return s1["rank"], s2["rank"]
 
 
-async def update_elo_doubles_and_save(teamA_ids, teamB_ids, winner, k=32):
-    """
-    Doubles: full ELO + stats + trophies + streaks.
-    winner: "A", "B", or "draw"
-    """
+
+async def update_elo_doubles_and_save(teamA_ids, teamB_ids, winner, k=32, game_type="doubles"):
     teamA = [await get_player(pid) for pid in teamA_ids]
     teamB = [await get_player(pid) for pid in teamB_ids]
 
-    avgA = sum(p.get("rank", 1000) for p in teamA) / 2
-    avgB = sum(p.get("rank", 1000) for p in teamB) / 2
+    avgA = sum(p.setdefault("stats", {}).setdefault(game_type, {"rank": 1000})["rank"] for p in teamA) / 2
+    avgB = sum(p.setdefault("stats", {}).setdefault(game_type, {"rank": 1000})["rank"] for p in teamB) / 2
 
     eA = await expected_score(avgA, avgB)
-    eB = 1 - eA
 
     if winner.upper() == "A":
         sA, sB = 1, 0
@@ -205,116 +206,183 @@ async def update_elo_doubles_and_save(teamA_ids, teamB_ids, winner, k=32):
     else:
         sA, sB = 0.5, 0.5
 
-    deltaA = k * (sA - eA)
-    deltaB = k * (sB - eB)
+    delta = round(k * (sA - eA))
 
     for idx, p in enumerate(teamA):
-        old = p.get("rank", 1000)
-        p["rank"] = round(old + deltaA)
-        p["games_played"] += 1
+        s = p["stats"][game_type]
+        old = s["rank"]
+        s["rank"] += delta
+        s["games_played"] += 1
         if sA > sB:
-            p["wins"] += 1
-            p["trophies"] += 1
-            p["current_streak"] += 1
-            p["best_streak"] = max(p.get("best_streak", 0), p["current_streak"])
+            s["wins"] += 1
+            s["trophies"] += 1
+            s["current_streak"] += 1
+            s["best_streak"] = max(s.get("best_streak", 0), s["current_streak"])
         elif sA < sB:
-            p["losses"] += 1
-            p["current_streak"] = 0
+            s["losses"] += 1
+            s["current_streak"] = 0
         else:
-            p["draws"] += 1
-            p["current_streak"] = 0
+            s["draws"] += 1
+            s["current_streak"] = 0
         await save_player(teamA_ids[idx], p)
-        print(f"[ELO] Team A Player {teamA_ids[idx]}: {old} → {p['rank']}")
+        print(f"[ELO] Team A Player {teamA_ids[idx]}: {old} → {s['rank']}")
 
     for idx, p in enumerate(teamB):
-        old = p.get("rank", 1000)
-        p["rank"] = round(old + deltaB)
-        p["games_played"] += 1
+        s = p["stats"][game_type]
+        old = s["rank"]
+        s["rank"] -= delta
+        s["games_played"] += 1
         if sB > sA:
-            p["wins"] += 1
-            p["trophies"] += 1
-            p["current_streak"] += 1
-            p["best_streak"] = max(p.get("best_streak", 0), p["current_streak"])
+            s["wins"] += 1
+            s["trophies"] += 1
+            s["current_streak"] += 1
+            s["best_streak"] = max(s.get("best_streak", 0), s["current_streak"])
         elif sB < sA:
-            p["losses"] += 1
-            p["current_streak"] = 0
+            s["losses"] += 1
+            s["current_streak"] = 0
         else:
-            p["draws"] += 1
-            p["current_streak"] = 0
+            s["draws"] += 1
+            s["current_streak"] = 0
         await save_player(teamB_ids[idx], p)
-        print(f"[ELO] Team B Player {teamB_ids[idx]}: {old} → {p['rank']}")
+        print(f"[ELO] Team B Player {teamB_ids[idx]}: {old} → {s['rank']}")
 
-    return [p["rank"] for p in teamA], [p["rank"] for p in teamB]
+    return [p["stats"][game_type]["rank"] for p in teamA], [p["stats"][game_type]["rank"] for p in teamB]
 
 
-async def update_elo_triples_and_save(player_ids, winner, k=32):
+async def update_elo_triples_and_save(player_ids, winner, k=32, game_type="triples"):
     """
-    Triples: free-for-all ELO + full stats.
+    Triples: free-for-all ELO + per-game-type stats.
     winner: player_id
     """
     players = [await get_player(pid) for pid in player_ids]
-    ranks = [p.get("rank", 1000) for p in players]
 
-    exp = [10 ** (r/400) for r in ranks]
+    # ✅ Make sure each player has stats[triples]
+    stats_list = [
+        p.setdefault("stats", {}).setdefault(game_type, {
+            "rank": 1000,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "games_played": 0,
+            "current_streak": 0,
+            "best_streak": 0,
+            "trophies": 0
+        })
+        for p in players
+    ]
+
+    # ✅ Compute current ranks
+    ranks = [s["rank"] for s in stats_list]
+
+    # ✅ Expected probability for each
+    exp = [10 ** (r / 400) for r in ranks]
     total = sum(exp)
-    expected = [v/total for v in exp]
+    expected = [v / total for v in exp]
 
+    # ✅ Update each player
     for idx, p in enumerate(players):
+        s = stats_list[idx]
         pid = player_ids[idx]
+
         S = 1 if pid == winner else 0
         E = expected[idx]
-        old = p.get("rank", 1000)
-        p["rank"] = round(old + k * (S - E))
-        p["games_played"] += 1
+
+        old_rank = s["rank"]
+        s["rank"] = round(old_rank + k * (S - E))
+
+        s["games_played"] += 1
+
         if S == 1:
-            p["wins"] += 1
-            p["trophies"] += 1
-            p["current_streak"] += 1
-            p["best_streak"] = max(p.get("best_streak", 0), p["current_streak"])
+            s["wins"] += 1
+            s["trophies"] += 1
+            s["current_streak"] += 1
+            s["best_streak"] = max(s["best_streak"], s["current_streak"])
         else:
-            p["losses"] += 1
-            p["current_streak"] = 0
+            s["losses"] += 1
+            s["current_streak"] = 0
+
         await save_player(pid, p)
-        print(f"[ELO] Triples Player {pid}: {old} → {p['rank']}")
+        print(f"[ELO] Triples Player {pid}: {old_rank} → {s['rank']}")
 
-    return [p["rank"] for p in players]
+    return [s["rank"] for s in stats_list]
 
 
-async def update_elo_series_and_save(player1_id, player2_id, results, k=32):
+
+async def update_elo_series_and_save(player1_id, player2_id, results, k=32, game_type="singles"):
     """
-    Async version for multiple rounds:
-    - results: list of round outcomes (1, 2, or 0.5)
-    Updates ELO after each round.
-
-    Returns: final ELOs
+    Multiple rounds ELO + stats, scoped by game_type.
+    - results: list of outcomes per round: 1, 2, or 0.5 (draw)
+    Returns final ELOs for both players for this mode.
     """
+
     p1 = await get_player(player1_id)
     p2 = await get_player(player2_id)
 
-    r1 = p1.get("rank", 1000)
-    r2 = p2.get("rank", 1000)
+    # ✅ Ensure stats for this game_type exist
+    s1 = p1.setdefault("stats", {}).setdefault(game_type, {
+        "rank": 1000, "wins": 0, "losses": 0, "draws": 0,
+        "games_played": 0, "current_streak": 0, "best_streak": 0, "trophies": 0
+    })
+    s2 = p2.setdefault("stats", {}).setdefault(game_type, {
+        "rank": 1000, "wins": 0, "losses": 0, "draws": 0,
+        "games_played": 0, "current_streak": 0, "best_streak": 0, "trophies": 0
+    })
+
+    r1 = s1["rank"]
+    r2 = s2["rank"]
 
     for outcome in results:
         e1 = await expected_score(r1, r2)
-        e2 = 1 - e1
-
         if outcome == 1:
-            s1, s2 = 1, 0
+            s_actual, o_actual = 1, 0
         elif outcome == 2:
-            s1, s2 = 0, 1
+            s_actual, o_actual = 0, 1
         else:
-            s1, s2 = 0.5, 0.5
+            s_actual, o_actual = 0.5, 0.5
 
-        r1 = round(r1 + k * (s1 - e1))
-        r2 = round(r2 + k * (s2 - e2))
+        delta = round(k * (s_actual - e1))
+        r1 += delta
+        r2 -= delta
 
-    p1["rank"] = r1
-    p2["rank"] = r2
+    # ✅ Final updated ranks after series
+    s1["rank"] = r1
+    s2["rank"] = r2
+
+    # ✅ Update stats — treat series as 1 match with winner by majority
+    s1["games_played"] += 1
+    s2["games_played"] += 1
+
+    total = sum(results)
+    rounds = len(results)
+
+    # majority wins
+    if total > rounds / 2:
+        # player1 won series
+        s1["wins"] += 1
+        s2["losses"] += 1
+        s1["current_streak"] += 1
+        s2["current_streak"] = 0
+        s1["best_streak"] = max(s1["best_streak"], s1["current_streak"])
+        s1["trophies"] += 1
+    elif total < rounds / 2:
+        # player2 won series
+        s2["wins"] += 1
+        s1["losses"] += 1
+        s2["current_streak"] += 1
+        s1["current_streak"] = 0
+        s2["best_streak"] = max(s2["best_streak"], s2["current_streak"])
+        s2["trophies"] += 1
+    else:
+        # draw
+        s1["draws"] += 1
+        s2["draws"] += 1
+        s1["current_streak"] = 0
+        s2["current_streak"] = 0
 
     await save_player(player1_id, p1)
     await save_player(player2_id, p2)
 
-    print(f"[ELO] Series updated {player1_id}: {r1} | {player2_id}: {r2}")
+    print(f"[ELO] {game_type.title()} Series updated {player1_id}: {r1} | {player2_id}: {r2}")
 
     return r1, r2
 
@@ -1812,6 +1880,9 @@ class GameView(discord.ui.View):
         return 0.5
 
     async def add_bet(self, uid, uname, amount, choice):
+        if uid in self.players:
+            raise ValueError("You cannot bet on a game you are participating in.")
+        
         # Always store in the local bets
         if hasattr(self, "bets"):
             self.bets.append((uid, uname, amount, choice))
@@ -2590,33 +2661,30 @@ class TournamentManager:
 
         pending_games["tournament"] = None
 
-        # ✅ Deactivate loser and update stats
+        # ✅ Find the loser in the current match pair
         loser_id = None
         for match in self.current_matches:
             if winner_id in match.players:
                 loser_id = next(p for p in match.players if p != winner_id)
                 break
 
+        # ✅ Deactivate loser for tournament room tracking
         if loser_id:
             player_manager.deactivate(loser_id)
-            loser_data = await get_player(loser_id)
-            loser_data["losses"] += 1
-            loser_data["games_played"] += 1
-            #loser_data["rank"] -= 10
-            loser_data["current_streak"] = 0
-            await save_player(loser_id, loser_data)
 
-        winner_data = await get_player(winner_id)
-        winner_data["wins"] += 1
-        winner_data["games_played"] += 1
-        #winner_data["rank"] += 10
-        winner_data["trophies"] += 1
-        winner_data["current_streak"] += 1
-        winner_data["best_streak"] = max(winner_data.get("best_streak", 0), winner_data["current_streak"])
-        await save_player(winner_id, winner_data)
+        # ✅ Robust: use standard ELO + stats helper for tournaments
+        # Winner goes first, loser second, winner=1
+        await update_elo_pair_and_save(
+            winner_id,
+            loser_id,
+            winner=1,
+            game_type="tournaments"
+        )
 
+        # ✅ Refresh leaderboard
         await update_leaderboard(self.bot)
 
+        # ✅ Check if all matches for this round are done
         expected = len(self.current_matches)
 
         if len(self.winners) >= expected:
@@ -2625,7 +2693,7 @@ class TournamentManager:
                 champ = self.next_round_players[0]
                 player_manager.deactivate(champ)
 
-                # ✅ Process bets
+                # ✅ Process bets for the whole tournament
                 for uid, uname, amount, choice in self.bets:
                     try:
                         won = int(choice) == champ
@@ -2642,14 +2710,14 @@ class TournamentManager:
                     )
 
                     if won:
-                        odds = 0.5  # You might store real odds per bet in future
+                        odds = 0.5  # Optional: store real odds per bet
                         payout = int(amount / odds)
                         await add_credits_internal(uid, payout)
                         print(f"💰 {uname} won! Payout: {payout}")
                     else:
                         print(f"❌ {uname} lost {amount}")
 
-                # ✅ 2️⃣ Build FINAL embed — use a simple dummy or direct
+                # ✅ Build final champion embed
                 final_embed = discord.Embed(
                     title="🏆 Tournament Results",
                     description=f"**Champion:** <@{champ}>",
@@ -2657,17 +2725,16 @@ class TournamentManager:
                 )
                 final_embed.set_footer(text="Thanks for playing!")
 
-                # ✅ 3️⃣ Update main lobby: embed only, NO view!
                 if self.message:
                     await self.message.edit(embed=final_embed, view=None)
 
                 print(f"🏆 Tournament completed. Champion: {champ}")
 
             else:
+                # ✅ More rounds remain → start next round
                 self.round_players = self.next_round_players.copy()
-                self.next_round_players = []   # <-- THIS IS KEY!
+                self.next_round_players = []
                 await self.run_round(self.parent_channel.guild)
-
 
 
 
@@ -2823,8 +2890,10 @@ class TournamentLobbyView(discord.ui.View):
             await self.message.edit(embed=embed, view=self)
 
     async def add_bet(self, uid, uname, amount, choice):
+        if uid in self.players:
+          raise ValueError("You cannot bet on a game you are participating in.")
+        
         self.manager.bets.append((uid, uname, amount, choice))
-
 
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
     def __init__(self, parent_channel, creator, view):
@@ -3145,39 +3214,71 @@ async def stats_reset(interaction: discord.Interaction, user: discord.User):
 
 @tree.command(
     name="stats",
-    description="Show player stats"
-)
-@app_commands.describe(
-    user="User to show stats for (leave blank for yourself)",
-    dm="Send results as DM"
+    description="Show your stats (or another user's)."
 )
 async def stats(interaction: discord.Interaction, user: discord.User = None, dm: bool = False):
     await interaction.response.defer(ephemeral=True)
 
     target_user = user or interaction.user
 
-    # Fetch player base stats
+    # ✅ Fetch player row
     res = await run_db(
         lambda: supabase.table("players").select("*").eq("id", str(target_user.id)).single().execute()
     )
-    player = res.data or default_template.copy()
+    player = res.data or {}
 
-    rank = player.get("rank", 1000)
-    trophies = player.get("trophies", 0)
     credits = player.get("credits", 1000)
-    games = player.get("games_played", 0)
-    wins = player.get("wins", 0)
-    losses = player.get("losses", 0)
-    draws = player.get("draws", 0)
-    streak = player.get("current_streak", 0)
-    best_streak = player.get("best_streak", 0)
+    stats_data = player.get("stats", {})
 
-    # Bets stats
+    # ✅ Build sections for each game type
+    blocks = []
+    for game_type in ("singles", "doubles", "triples", "tournaments"):
+        stats = stats_data.get(game_type, {})
+        rank = stats.get("rank", 1000)
+        trophies = stats.get("trophies", 0)
+        games = stats.get("games_played", 0)
+        wins = stats.get("wins", 0)
+        losses = stats.get("losses", 0)
+        draws = stats.get("draws", 0)
+        streak = stats.get("current_streak", 0)
+        best_streak = stats.get("best_streak", 0)
+
+        block = [
+            f"{'📈 Rank':<20}: {rank}",
+            f"{'🏆 Trophies':<20}: {trophies}",
+            f"{'🎮 Games Played':<20}: {games}",
+            f"{'✅ Wins':<20}: {wins}",
+            f"{'❌ Losses':<20}: {losses}",
+            f"{'➖ Draws':<20}: {draws}",
+            f"{'🔥 Current Streak':<20}: {streak}",
+            f"{'🏅 Best Streak':<20}: {best_streak}"
+        ]
+        blocks.append(f"**{game_type.title()} Stats**\n```" + "\n".join(block) + "```")
+
+    # ✅ Add global credits at top
+    blocks.insert(0, f"**💰 Balls:** `{credits}`")
+
+    # ✅ Build embed with all sections
+    embed = discord.Embed(
+        title=f"📊 Stats for {target_user.display_name}",
+        description="\n\n".join(blocks),
+        color=discord.Color.blue()
+    )
+
+    # ✅ Add recent bets (unchanged)
     bets = await run_db(
-        lambda: supabase.table("bets").select("id,won,payout,amount,choice").eq("player_id", str(target_user.id)).order("id", desc=True).limit(5).execute()
+        lambda: supabase.table("bets")
+        .select("id,won,payout,amount,choice")
+        .eq("player_id", str(target_user.id))
+        .order("id", desc=True)
+        .limit(5)
+        .execute()
     )
     all_bets = await run_db(
-        lambda: supabase.table("bets").select("won,payout,amount").eq("player_id", str(target_user.id)).execute()
+        lambda: supabase.table("bets")
+        .select("won,payout,amount")
+        .eq("player_id", str(target_user.id))
+        .execute()
     )
 
     total_bets = len(all_bets.data or [])
@@ -3185,32 +3286,19 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
     bets_lost = sum(1 for b in all_bets.data if b.get("won") is False)
     net_gain = sum(b.get("payout", 0) - b.get("amount", 0) for b in all_bets.data if b.get("won") is not None)
 
-    # Build stats block
-    stats_lines = [
-        f"{'📈 Rank':<20}: {rank}",
-        f"{'🏆 Trophies':<20}: {trophies}",
-        f"{'💰 Credits':<20}: {credits}",
-        "",
-        f"{'🎮 Games Played':<20}: {games}",
-        f"{'✅ Wins':<20}: {wins}",
-        f"{'❌ Losses':<20}: {losses}",
-        f"{'➖ Draws':<20}: {draws}",
-        f"{'🔥 Current Streak':<20}: {streak}",
-        f"{'🏅 Best Streak':<20}: {best_streak}",
-        "",
+    bet_stats = [
         f"{'🪙 Total Bets':<20}: {total_bets}",
         f"{'✅ Bets Won':<20}: {bets_won}",
         f"{'❌ Bets Lost':<20}: {bets_lost}",
-        f"{'💸 Net Gain/Loss':<20}: {net_gain:+}",
+        f"{'💸 Net Gain/Loss':<20}: {net_gain:+}"
     ]
 
-    embed = discord.Embed(
-        title=f"📊 Stats for {target_user.display_name}",
-        description="```" + "\n".join(stats_lines) + "```",
-        color=discord.Color.blue()
+    embed.add_field(
+        name="🎰 Betting Stats",
+        value="```" + "\n".join(bet_stats) + "```",
+        inline=False
     )
 
-    # Add recent bets block, also monospaced
     if bets.data:
         recent_lines = []
         for b in bets.data:
@@ -3219,7 +3307,6 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
             amount = b.get("amount", 0)
             payout = b.get("payout", 0)
 
-            # 🗝️ Robust label:
             choice_label = str(choice)
             try:
                 idx = int(choice)
@@ -3243,7 +3330,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
             inline=False
         )
 
-
+    # ✅ Send DM or ephemeral
     if dm:
         try:
             await target_user.send(embed=embed)
