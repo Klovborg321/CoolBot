@@ -80,6 +80,9 @@ default_template = {
 }
 
 # Helpers
+def is_admin(interaction: discord.Interaction) -> bool:
+    return interaction.user.guild_permissions.administrator
+
 async def set_parameter(key: str, value: str):
     # Upsert means insert OR update if exists
     data = {
@@ -3048,48 +3051,11 @@ async def init_triples(interaction: discord.Interaction):
 
 
 @tree.command(
-    name="leaderboard",
+    name="admin_leaderboard",
     description="Show the paginated leaderboard"
 )
-async def leaderboard_local(interaction: discord.Interaction):
-    # 1️⃣ Fetch all players sorted by rank descending
-    res = await run_db(
-        lambda: supabase
-        .table("players")
-        .select("*")
-        .order("rank", desc=True)
-        .execute()
-    )
-
-    if not res.data:
-        await interaction.response.send_message(
-            "📭 No players found.",
-            ephemeral=True
-        )
-        return
-
-    # 2️⃣ Format as (id, stats) tuples
-    entries = [(row["id"], row) for row in res.data]
-
-    # 3️⃣ Create paginated view
-    view = LeaderboardView(entries, page_size=10, title="🏆 Leaderboard")
-
-    # 4️⃣ Send first page
-    embed = discord.Embed(
-        title=view.title,
-        description=view.format_page(interaction.guild),
-        color=discord.Color.gold()
-    )
-    await interaction.response.send_message(embed=embed, view=view)
-
-    # 5️⃣ Bind view.message for updates
-    view.message = await interaction.original_response()
-
-@tree.command(
-    name="leaderboard",
-    description="Show the paginated leaderboard"
-)
-async def leaderboard_local(interaction: discord.Interaction):
+@app_commands.check(is_admin)
+async def leaderboard_admin(interaction: discord.Interaction):
     # 1️⃣ Fetch all players sorted by rank descending
     res = await run_db(
         lambda: supabase
