@@ -3811,7 +3811,7 @@ async def save_game_state(manager, view, room_view):
 
 
 async def restore_active_games(bot):
-    """Load saved games from Supabase and rebuild Tournament managers + lobby Views."""
+    """Load saved games from Supabase and rebuild Tournament managers + lobby + RoomViews."""
 
     result = await run_db(lambda: supabase.table("active_games").select("*").execute())
     active_games = result.data
@@ -3824,43 +3824,68 @@ async def restore_active_games(bot):
 
     for g in active_games:
         try:
-            guild = bot.guilds[0]
+            guild = bot.guilds[0]  # Adjust if multi-guild
 
-            # ✅ Parent channel: where the LOBBY message lives
+            # ✅ Parent text channel (for lobby message)
             parent_channel = guild.get_channel(int(g["parent_channel_id"]))
             if not parent_channel:
                 print(f"[restore] ❌ Parent channel {g['parent_channel_id']} not found. Skipping.")
                 continue
 
-            # ✅ Get the Room thread: where the RoomView lives
+            # ✅ Room sub-thread
             room_thread = await bot.fetch_channel(int(g["thread_id"]))
             if not room_thread:
                 print(f"[restore] ❌ Room thread {g['thread_id']} not found. Skipping.")
                 continue
 
-            # ✅ Fetch lobby message from the parent channel
+            # ✅ Lobby message lives in parent channel
             lobby_message = await parent_channel.fetch_message(int(g["game_id"]))
 
-            # ✅ Fetch Room message from the Room thread
+            # ✅ Room message inside Room thread
             room_message_id = g.get("room_message_id")
             if not room_message_id:
-                print(f"[restore] ❌ No room_message_id in DB for game {g['game_id']}. Skipping Room restore.")
+                print(f"[restore] ❌ No room_message_id for game {g['game_id']}. Skipping RoomView.")
                 continue
 
-            room_message = await room_thread.fetch_message(int(room_message_id))
+            try:
+                room_message = await room_thread.fetch_message(int(room_message_id))
+            except discord.NotFound:
+                print(f"[restore] ⚠️ Room message {room_message_id} not found. Skipping RoomView restore.")
+                room_message = None
 
-            # ✅ Rebuild Manager & TournamentLobbyView (lobby)
+            # ✅ Clean player IDs
             players = [int(pid) for pid in g["players"]]
-            creator_id = players[0]
 
-            manager = TournamentManager(creator=creator_id, max_players=g["max_players"])
+            # ✅ Pick valid creator using get_member first
+            creator = None
+            for pid in players:
+                member = guild.get_member(pid)
+                if member:
+                    creator = member
+                    break
+                try:
+                    creator = await bot.fetch_user(pid)
+                    break
+                except discord.NotFound:
+                    continue
+
+            if creator is None:
+                print(f"[restore] ❌ No valid creator found for players {players}. Skipping game.")
+                continue
+
+            # ✅ Rebuild TournamentManager
+            manager = TournamentManager(
+                creator=creator.id,
+                max_players=g["max_players"]
+            )
             manager.started = g["started"]
             manager.parent_channel = parent_channel
             manager.bets = g.get("bets", [])
 
+            # ✅ Rebuild TournamentLobbyView (lobby)
             lobby_view = TournamentLobbyView(
                 manager=manager,
-                creator=await bot.fetch_user(creator_id),
+                creator=creator,
                 max_players=g["max_players"],
                 parent_channel=parent_channel
             )
@@ -3869,43 +3894,46 @@ async def restore_active_games(bot):
             lobby_view.message = lobby_message
             manager.view = lobby_view
 
-            # ✅ Rebuild RoomView
-            room_view = RoomView(
-                players=players,
-                game_type=g["game_type"],
-                room_name="Restored Room",
-                lobby_message=lobby_message,
-                lobby_embed=await lobby_view.build_embed(guild),
-                game_view=lobby_view,
-                course_name=g.get("course_name"),
-                course_id=g.get("course_id"),
-                max_players=g["max_players"]
-            )
-            room_view.channel = room_thread
-            room_view.message = room_message
-
-            # ✅ Re-apply embed + buttons for Room
-            room_embed = await room_view.build_embed(guild)
-            await room_message.edit(embed=room_embed, view=room_view)
-
-            # ✅ Rebuild embed + buttons for Lobby
+            # ✅ Update lobby embed + buttons
             lobby_embed = await lobby_view.build_embed(guild)
             await lobby_message.edit(embed=lobby_embed, view=lobby_view)
 
-            # ✅ Restart any betting tasks if needed
+            # ✅ Rebuild RoomView if Room message exists
+            if room_message:
+                room_view = RoomView(
+                    players=players,
+                    game_type=g["game_type"],
+                    room_name="Restored Room",
+                    lobby_message=lobby_message,
+                    lobby_embed=lobby_embed,
+                    game_view=lobby_view,
+                    course_name=g.get("course_name"),
+                    course_id=g.get("course_id"),
+                    max_players=g["max_players"]
+                )
+                room_view.channel = room_thread
+                room_view.message = room_message
+
+                room_embed = await room_view.build_embed(guild)
+                await room_message.edit(embed=room_embed, view=room_view)
+
+                # ✅ Track RoomView
+                if not hasattr(bot, "rooms"):
+                    bot.rooms = {}
+                bot.rooms[room_thread.id] = room_view
+
+                print(f"[restore] ✅ Restored RoomView in thread #{room_thread.name}")
+
+            # ✅ Restart betting phase if needed
             if hasattr(lobby_view, "start_betting_phase") and not lobby_view.betting_closed:
                 await lobby_view.start_betting_phase()
 
-            # ✅ Track in memory
+            # ✅ Track TournamentManager
             if not hasattr(bot, "tournaments"):
                 bot.tournaments = {}
             bot.tournaments[parent_channel.id] = manager
 
-            if not hasattr(bot, "rooms"):
-                bot.rooms = {}
-            bot.rooms[room_thread.id] = room_view
-
-            print(f"[restore] ✅ Restored tournament + RoomView in thread #{room_thread.name}")
+            print(f"[restore] ✅ Restored lobby + manager for parent channel #{parent_channel.name}")
 
         except Exception as e:
             print(f"[restore] ❌ Error restoring game {g.get('game_id')}: {e}")
