@@ -3798,7 +3798,7 @@ async def save_game_state(manager, view):
             "players": players_clean,
             "bets": bets_as_dicts,
             "max_players": int(view.max_players),
-            "started": bool(manager.started),
+            "started": True,
         }
         print("[save_game_state] Payload:", json.dumps(data, indent=2))
         res = supabase.table("active_games").upsert(data).execute()
