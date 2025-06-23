@@ -3777,25 +3777,36 @@ async def on_member_join(member):
 async def save_game_state(manager, view):
     """Store the current active game in Supabase for resilience."""
 
+    import json
+
+    print("[save_game_state] Raw players:", view.players)
+    print("[save_game_state] Raw bets:", view.bets)
+
+    players_clean = [p.id if hasattr(p, "id") else int(p) for p in view.players]
+
     bets_as_dicts = [
-        {"uid": uid, "uname": uname, "amount": amount, "choice": choice}
+        {"uid": int(uid), "uname": str(uname), "amount": int(amount), "choice": str(choice)}
         for (uid, uname, amount, choice) in view.bets
     ]
 
-    await run_db(lambda: supabase
-        .table("active_games")
-        .upsert({
+    def write_state():
+        data = {
             "game_id": str(view.message.id),
             "game_type": view.game_type,
             "thread_id": str(view.message.channel.id),
             "parent_channel_id": str(view.channel.id),
-            "players": [int(p) for p in view.players],
+            "players": players_clean,
             "bets": bets_as_dicts,
-            "max_players": view.max_players,
-            "started": manager.started,
-        })
-        .execute()
-    )
+            "max_players": int(view.max_players),
+            "started": bool(manager.started),
+        }
+        print("[save_game_state] Payload:", json.dumps(data, indent=2))
+        res = supabase.table("active_games").upsert(data).execute()
+        print("[save_game_state] Supabase response:", res)
+        return res
+
+    await run_db(write_state)
+
 
 async def restore_active_games(bot):
     """Load saved games from Supabase and rebuild the lobby Views."""
