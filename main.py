@@ -3824,71 +3824,91 @@ async def restore_active_games(bot):
 
     for g in active_games:
         try:
-            guild = bot.guilds[0]  # ✅ adjust if multi-guild
+            guild = bot.guilds[0]
+
+            # ✅ Parent channel: where the LOBBY message lives
             parent_channel = guild.get_channel(int(g["parent_channel_id"]))
             if not parent_channel:
                 print(f"[restore] ❌ Parent channel {g['parent_channel_id']} not found. Skipping.")
                 continue
 
-            thread = await bot.fetch_channel(int(g["thread_id"]))
-            if not thread:
-                print(f"[restore] ❌ Thread {g['thread_id']} not found. Skipping.")
+            # ✅ Get the Room thread: where the RoomView lives
+            room_thread = await bot.fetch_channel(int(g["thread_id"]))
+            if not room_thread:
+                print(f"[restore] ❌ Room thread {g['thread_id']} not found. Skipping.")
                 continue
 
-            message = await thread.fetch_message(int(g["game_id"]))
+            # ✅ Fetch lobby message from the parent channel
+            lobby_message = await parent_channel.fetch_message(int(g["game_id"]))
 
-            # ✅ Clean player IDs
+            # ✅ Fetch Room message from the Room thread
+            room_message_id = g.get("room_message_id")
+            if not room_message_id:
+                print(f"[restore] ❌ No room_message_id in DB for game {g['game_id']}. Skipping Room restore.")
+                continue
+
+            room_message = await room_thread.fetch_message(int(room_message_id))
+
+            # ✅ Rebuild Manager & TournamentLobbyView (lobby)
             players = [int(pid) for pid in g["players"]]
             creator_id = players[0]
 
-            # ✅ Rebuild manager
-            manager = TournamentManager(
-                creator=creator_id,
-                max_players=g["max_players"]
-            )
+            manager = TournamentManager(creator=creator_id, max_players=g["max_players"])
             manager.started = g["started"]
             manager.parent_channel = parent_channel
             manager.bets = g.get("bets", [])
 
-            # ✅ Rebuild view
-            view = TournamentLobbyView(
+            lobby_view = TournamentLobbyView(
                 manager=manager,
                 creator=await bot.fetch_user(creator_id),
                 max_players=g["max_players"],
                 parent_channel=parent_channel
             )
-            view.players = players
-            view.bets = manager.bets
-            view.message = message
+            lobby_view.players = players
+            lobby_view.bets = manager.bets
+            lobby_view.message = lobby_message
+            manager.view = lobby_view
 
-            # ✅ Cross-link
-            manager.view = view
+            # ✅ Rebuild RoomView
+            room_view = RoomView(
+                players=players,
+                game_type=g["game_type"],
+                room_name="Restored Room",
+                lobby_message=lobby_message,
+                lobby_embed=await lobby_view.build_embed(guild),
+                game_view=lobby_view,
+                course_name=g.get("course_name"),
+                course_id=g.get("course_id"),
+                max_players=g["max_players"]
+            )
+            room_view.channel = room_thread
+            room_view.message = room_message
 
-            # ✅ Rebuild embed + attach buttons
-            embed = await view.build_embed(guild)
-            await message.edit(embed=embed, view=view)
+            # ✅ Re-apply embed + buttons for Room
+            room_embed = await room_view.build_embed(guild)
+            await room_message.edit(embed=room_embed, view=room_view)
 
-            # ✅ Restart any tasks if needed (example: betting countdown)
-            if hasattr(view, "_betting_countdown") and not getattr(view, "betting_closed", True):
-                view.betting_task = asyncio.create_task(view._betting_countdown())
+            # ✅ Rebuild embed + buttons for Lobby
+            lobby_embed = await lobby_view.build_embed(guild)
+            await lobby_message.edit(embed=lobby_embed, view=lobby_view)
 
-                # For TournamentLobbyView
-            elif hasattr(view, "start_betting_phase") and not getattr(view, "betting_closed", True):
-                await view.start_betting_phase()
+            # ✅ Restart any betting tasks if needed
+            if hasattr(lobby_view, "start_betting_phase") and not lobby_view.betting_closed:
+                await lobby_view.start_betting_phase()
 
-            else:
-                print(f"[restore] Skipped betting: {type(view).__name__} has no betting method.")
-
-            # ✅ Track in bot memory
+            # ✅ Track in memory
             if not hasattr(bot, "tournaments"):
                 bot.tournaments = {}
             bot.tournaments[parent_channel.id] = manager
 
-            print(f"[restore] ✅ Restored tournament in thread #{thread.name}")
+            if not hasattr(bot, "rooms"):
+                bot.rooms = {}
+            bot.rooms[room_thread.id] = room_view
+
+            print(f"[restore] ✅ Restored tournament + RoomView in thread #{room_thread.name}")
 
         except Exception as e:
             print(f"[restore] ❌ Error restoring game {g.get('game_id')}: {e}")
-
 
 
 @tree.command(
