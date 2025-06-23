@@ -1875,7 +1875,7 @@ class GameView(discord.ui.View):
 
         await save_pending_game(self.game_type, self.players, self.channel.id, self.max_players)
         await save_game_state(self, self)
-)
+
 
         # ✅ MAIN LOBBY embed — NO image, mark thread info
         lobby_embed = await self.build_embed(interaction.guild, no_image=True)
