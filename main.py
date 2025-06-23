@@ -2158,7 +2158,7 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
         }).execute())
 
         # ✅ Add to UI live
-        await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice)
+        await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice, interaction)
         await self.game_view.update_message()
 
         # ✅ SAFELY resolve choice name:
