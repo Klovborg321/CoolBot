@@ -3867,10 +3867,15 @@ async def restore_active_games(bot):
             await message.edit(embed=embed, view=view)
 
             # ✅ Restart any tasks if needed (example: betting countdown)
-            if hasattr(view, "betting_closed") and not view.betting_closed:
-                if hasattr(view, "betting_task") and view.betting_task:
-                    view.betting_task.cancel()
-                await view.show_betting_phase()
+            if hasattr(view, "_betting_countdown") and not getattr(view, "betting_closed", True):
+                view.betting_task = asyncio.create_task(view._betting_countdown())
+
+                # For TournamentLobbyView
+            elif hasattr(view, "start_betting_phase") and not getattr(view, "betting_closed", True):
+                await view.start_betting_phase()
+
+            else:
+    print(f"[restore] Skipped betting: {type(view).__name__} has no betting method.")
 
             # ✅ Track in bot memory
             if not hasattr(bot, "tournaments"):
