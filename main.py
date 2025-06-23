@@ -3788,7 +3788,7 @@ async def save_game_state(manager, view):
             "game_id": str(view.message.id),
             "game_type": view.game_type,
             "thread_id": str(view.message.channel.id),
-            "parent_channel_id": str(view.parent_channel.id),
+            "parent_channel_id": str(view.channel.id),
             "players": [int(p) for p in view.players],
             "bets": bets_as_dicts,
             "max_players": view.max_players,
