@@ -1345,12 +1345,23 @@ class RoomView(discord.ui.View):
         await self.channel.edit(archived=True)
         pending_games[self.game_type] = None
 
-        await run_db(lambda: supabase
-            .table("active_games")
-            .delete()
-            .eq("game_id", str(self.message.id))
-            .execute()
+        # ✅ Robust: delete active_game row with fallback ID
+        target_game_id = (
+            str(self.lobby_message.id)
+            if self.lobby_message else
+            str(self.game_view.message.id) if self.game_view and self.game_view.message else
+            str(self.message.id) if self.message else None
         )
+        if target_game_id:
+            await run_db(lambda: supabase
+                .table("active_games")
+                .delete()
+                .eq("game_id", target_game_id)
+                .execute()
+            )
+            print(f"[finalize_game] ✅ Deleted active_game for {target_game_id}")
+        else:
+            print("[finalize_game] ⚠️ No valid game_id found to delete active_game row.")
 
         if self.on_tournament_complete and isinstance(winner, int):
             await self.on_tournament_complete(winner)
