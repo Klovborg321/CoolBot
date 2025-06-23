@@ -3920,7 +3920,7 @@ async def restore_active_games(bot):
                 room_view.channel = room_thread
                 room_view.message = room_message
 
-                room_embed = await room_view.build_embed(guild)
+                room_embed = await room_view.build_room_embed(guild)
                 await room_message.edit(embed=room_embed, view=room_view)
 
                 # ✅ Track RoomView
