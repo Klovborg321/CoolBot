@@ -68,16 +68,51 @@ players_data = "players.json"
 WORDS = ["alpha", "bravo", "delta", "foxtrot", "gamma"]
 
 default_template = {
-    "rank": 1000,
-    "trophies": 0,
     "credits": 1000,
-    "wins": 0,
-    "losses": 0,
-    "draws": 0,
-    "games_played": 0,
-    "current_streak": 0,
-    "best_streak": 0
+    "stats": {
+        "singles": {
+            "rank": 1000,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "games_played": 0,
+            "current_streak": 0,
+            "best_streak": 0,
+            "trophies": 0
+        },
+        "doubles": {
+            "rank": 1000,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "games_played": 0,
+            "current_streak": 0,
+            "best_streak": 0,
+            "trophies": 0
+        },
+        "triples": {
+            "rank": 1000,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "games_played": 0,
+            "current_streak": 0,
+            "best_streak": 0,
+            "trophies": 0
+        },
+        "tournaments": {
+            "rank": 1000,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "games_played": 0,
+            "current_streak": 0,
+            "best_streak": 0,
+            "trophies": 0
+        }
+    }
 }
+
 
 # Helpers
 def is_admin(interaction: discord.Interaction) -> bool:
@@ -587,22 +622,29 @@ async def get_complete_user_data(user_id):
     return res.data
 
 
-async def update_user_stat(user_id, key, value, mode="set"):
+async def update_user_stat(user_id, key, value, mode="set", game_type=None):
     res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).single().execute())
 
     if res.data is None:
-        # Player missing, create fresh
         data = default_template.copy()
         data["id"] = str(user_id)
     else:
         data = res.data
 
-    if mode == "set":
-        data[key] = value
-    elif mode == "add":
-        data[key] = data.get(key, 0) + value
+    if game_type:
+        stats_branch = data.setdefault("stats", {}).setdefault(game_type, {})
+        if mode == "set":
+            stats_branch[key] = value
+        elif mode == "add":
+            stats_branch[key] = stats_branch.get(key, 0) + value
+    else:
+        if mode == "set":
+            data[key] = value
+        elif mode == "add":
+            data[key] = data.get(key, 0) + value
 
     await save_player(user_id, data)
+
 
 
 # Load ALL players as a dict
@@ -2169,15 +2211,16 @@ async def update_leaderboard(bot):
 
 
 class LeaderboardView(discord.ui.View):
-    def __init__(self, entries, page_size=10, title="🏆 Leaderboard"):
+    def __init__(self, entries, page_size=10, title="🏆 Leaderboard", game_type="singles"):
         """
-        entries: list of (id, stats_dict) OR list of stats_dicts with 'id'
+        entries: list of (id, row dict) OR list of row dicts with 'id'
         """
         super().__init__(timeout=120)
         self.entries = entries
         self.page_size = page_size
         self.page = 0
         self.title = title
+        self.game_type = game_type  # ✅ NEW: selected game type
         self.message = None
         self.update_buttons()
 
@@ -2194,20 +2237,21 @@ class LeaderboardView(discord.ui.View):
         lines = []
 
         for i, entry in enumerate(self.entries[start:end], start=start + 1):
-            # Support both (id, stats) or plain dicts with 'id'
             if isinstance(entry, tuple):
-                uid, stats = entry
+                uid, row = entry
             else:
-                stats = entry
-                uid = stats.get("id")
+                row = entry
+                uid = row.get("id")
 
             member = guild.get_member(int(uid))
             display = member.display_name if member else f"User {uid}"
-            name = display[:18].ljust(18)  # ✅ force exactly 18 chars
+            name = display[:18].ljust(18)
 
+            # ✅ pull correct stats branch
+            stats = row.get("stats", {}).get(self.game_type, {})
             rank = stats.get("rank", 1000)
             trophies = stats.get("trophies", 0)
-            credits = stats.get("credits", 0)
+            credits = row.get("credits", 0)  # ✅ top-level credits
 
             badge = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else ""
 
@@ -2218,7 +2262,7 @@ class LeaderboardView(discord.ui.View):
             lines = ["No entries found."]
 
         page_info = f"Page {self.page + 1} of {max(1, (len(self.entries) + self.page_size - 1) // self.page_size)}"
-        return f"```{chr(10).join(lines)}\n\n{page_info}```"  # ✅ wrap in code block!
+        return f"```{chr(10).join(lines)}\n\n{page_info}```"
 
     async def update(self):
         self.update_buttons()
@@ -3134,12 +3178,12 @@ async def init_triples(interaction: discord.Interaction):
 )
 @app_commands.check(is_admin)
 async def leaderboard_admin(interaction: discord.Interaction):
-    # 1️⃣ Fetch all players sorted by rank descending
+    # ✅ 1️⃣ Fetch players sorted by singles rank DESC
     res = await run_db(
         lambda: supabase
         .table("players")
         .select("*")
-        .order("rank", desc=True)
+        .order("stats->singles->>rank", desc=True)
         .execute()
     )
 
@@ -3150,13 +3194,13 @@ async def leaderboard_admin(interaction: discord.Interaction):
         )
         return
 
-    # 2️⃣ Format as (id, stats) tuples
+    # ✅ 2️⃣ Format as (id, row) tuples — same
     entries = [(row["id"], row) for row in res.data]
 
-    # 3️⃣ Create paginated view
-    view = LeaderboardView(entries, page_size=10, title="🏆 Leaderboard")
+    # ✅ 3️⃣ Create paginated view — pass game type!
+    view = LeaderboardView(entries, page_size=10, title="🏆 Singles Leaderboard", game_type="singles")
 
-    # 4️⃣ Send first page
+    # ✅ 4️⃣ Send first page
     embed = discord.Embed(
         title=view.title,
         description=view.format_page(interaction.guild),
@@ -3164,13 +3208,12 @@ async def leaderboard_admin(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed, view=view)
 
-    # 5️⃣ Bind view.message for updates
+    # ✅ 5️⃣ Bind message for updates
     view.message = await interaction.original_response()
 
-    # ✅ 6️⃣ Store channel and message IDs for auto-update later
+    # ✅ 6️⃣ Store for auto-update later
     await set_parameter("leaderboard_channel_id", str(interaction.channel.id))
     await set_parameter("leaderboard_message_id", str(view.message.id))
-
 
 
 @tree.command(
@@ -3678,21 +3721,25 @@ async def handicap_leaderboard(interaction: discord.Interaction):
         await interaction.followup.send("❌ No handicap data found.", ephemeral=True)
         return
 
-    # 2️⃣ Group by player and calculate their index
     from collections import defaultdict
 
     grouped = defaultdict(list)
     for row in res.data:
-        grouped[row["player_id"]].append(row["handicap"])
+        try:
+            hcp = float(row["handicap"])
+            grouped[row["player_id"]].append(hcp)
+        except (TypeError, ValueError):
+            continue  # skip invalid
 
     leaderboard = []
     for pid, diffs in grouped.items():
-        diffs.sort()
+        diffs = sorted(diffs)
         count = min(len(diffs), 8)
-        index = round(sum(diffs[:count]) / count, 1)
-        leaderboard.append((pid, index))
+        if count > 0:
+            index = round(sum(diffs[:count]) / count, 1)
+            leaderboard.append((pid, index))
 
-    # 3️⃣ Sort by index ascending
+    # 3️⃣ Sort by index ascending (lower is better)
     leaderboard.sort(key=lambda x: x[1])
 
     # 4️⃣ Build embed
@@ -3706,13 +3753,12 @@ async def handicap_leaderboard(interaction: discord.Interaction):
     for rank, (pid, index) in enumerate(leaderboard, start=1):
         member = interaction.guild.get_member(int(pid))
         name = member.display_name if member else f"User {pid}"
-        name = fixed_width_name(name)  # ← ✅ fixed width here
+        name = fixed_width_name(name)
         lines.append(f"**#{rank}** — {name} | Index: `{index}`")
 
     embed.description = "\n".join(lines)
 
     await interaction.followup.send(embed=embed, ephemeral=True)
-
 
 
 @tree.command(name="dm_online")
