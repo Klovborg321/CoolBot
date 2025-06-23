@@ -1489,6 +1489,7 @@ class GameView(discord.ui.View):
         self.course_image = None
         self.on_tournament_complete = None
         self.game_has_ended = False
+        self.thread = None                      # will hold your thread object
 
         # ✅ static Leave button:
         self.add_item(LeaveGameButton(self))
@@ -1520,12 +1521,6 @@ class GameView(discord.ui.View):
 
         if len(self.players) == self.max_players:
             await self.game_full(interaction)
-            await run_db(lambda: supabase
-                .table("active_games")
-                .delete()
-                .eq("game_id", str(view.message.id))
-                .execute()
-            )
 
     def cancel_betting_task(self):
         if self.betting_task:
@@ -1879,6 +1874,8 @@ class GameView(discord.ui.View):
         pending_games[self.game_type] = None
 
         await save_pending_game(self.game_type, self.players, self.channel.id, self.max_players)
+        await save_game_state(self, self)
+)
 
         # ✅ MAIN LOBBY embed — NO image, mark thread info
         lobby_embed = await self.build_embed(interaction.guild, no_image=True)
@@ -1917,6 +1914,7 @@ class GameView(discord.ui.View):
             type=discord.ChannelType.private_thread,
             invitable=False
         )
+        self.thread = thread;
 
         # ✅ Add all players to the private thread
         for pid in self.players:
@@ -3779,18 +3777,25 @@ async def on_member_join(member):
 async def save_game_state(manager, view):
     """Store the current active game in Supabase for resilience."""
 
-    # Example values:
-    await run_db(lambda: supabase.table("active_games").upsert({
-        "game_id": str(view.message.id),
-        "game_type": view.game_type,
-        "thread_id": str(view.message.channel.id),
-        "parent_channel_id": str(view.parent_channel.id),
-        "players": view.players,
-        "bets": view.bets,
-        "max_players": view.max_players,
-        "started": manager.started,
-    }).execute())
+    bets_as_dicts = [
+        {"uid": uid, "uname": uname, "amount": amount, "choice": choice}
+        for (uid, uname, amount, choice) in view.bets
+    ]
 
+    await run_db(lambda: supabase
+        .table("active_games")
+        .upsert({
+            "game_id": str(view.message.id),
+            "game_type": view.game_type,
+            "thread_id": str(view.message.channel.id),
+            "parent_channel_id": str(view.parent_channel.id),
+            "players": [int(p) for p in view.players],
+            "bets": bets_as_dicts,
+            "max_players": view.max_players,
+            "started": manager.started,
+        })
+        .execute()
+    )
 
 async def restore_active_games(bot):
     """Load saved games from Supabase and rebuild the lobby Views."""
