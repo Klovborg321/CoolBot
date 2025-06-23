@@ -41,13 +41,13 @@ tree = bot.tree
 IS_TEST_MODE = os.getenv("TEST_MODE", "1") == "1"
 
 TEST_PLAYER_IDS = [
-    #970268488239317023,
-    807840646764429342,
-    701689044635091124,
-    1117780404011815003,
-    769210966150742056,
-    928692043780325448,
-    1041382761996492830
+    970268488239317023,
+    #807840646764429342,
+    #701689044635091124,
+    #1117780404011815003,
+    #769210966150742056,
+    #928692043780325448,
+    #1041382761996492830
 ]
 
 start_buttons = {}  # (channel_id, game_type) => Message
@@ -1347,7 +1347,7 @@ class RoomView(discord.ui.View):
         await run_db(lambda: supabase
             .table("active_games")
             .delete()
-            .eq("game_id", str(view.message.id))
+            .eq("game_id", str(self.message.id))
             .execute()
         )
 
