@@ -3174,44 +3174,69 @@ async def init_triples(interaction: discord.Interaction):
 
 @tree.command(
     name="admin_leaderboard",
-    description="Show the paginated leaderboard"
+    description="Admin: Show the leaderboard for a specific game type"
+)
+@app_commands.describe(
+    game_type="Which game type to show (singles, doubles, triples, tournaments)"
 )
 @app_commands.check(is_admin)
-async def leaderboard_admin(interaction: discord.Interaction):
-    # ✅ 1️⃣ Fetch players sorted by singles rank DESC
+async def leaderboard_admin(
+    interaction: discord.Interaction,
+    game_type: str
+):
+    # ✅ Supported game types
+    allowed = ["singles", "doubles", "triples", "tournaments"]
+    if game_type not in allowed:
+        await interaction.response.send_message(
+            f"❌ Invalid game type. Use: {', '.join(allowed)}",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    # ✅ 1️⃣ Fetch ALL players (unsorted)
     res = await run_db(
-        lambda: supabase
-        .table("players")
-        .select("*")
-        .order("stats->singles->>rank", desc=True)
-        .execute()
+        lambda: supabase.table("players").select("*").execute()
+    )
+    players = res.data or []
+
+    # ✅ 2️⃣ Sort numerically by stats[game_type].rank
+    players.sort(
+        key=lambda p: int(
+            p.get("stats", {}).get(game_type, {}).get("rank", 1000)
+        ),
+        reverse=True
     )
 
-    if not res.data:
-        await interaction.response.send_message(
+    if not players:
+        await interaction.followup.send(
             "📭 No players found.",
             ephemeral=True
         )
         return
 
-    # ✅ 2️⃣ Format as (id, row) tuples — same
-    entries = [(row["id"], row) for row in res.data]
+    # ✅ 3️⃣ Format entries as (id, row)
+    entries = [(p["id"], p) for p in players]
 
-    # ✅ 3️⃣ Create paginated view — pass game type!
-    view = LeaderboardView(entries, page_size=10, title="🏆 Singles Leaderboard", game_type="singles")
+    # ✅ 4️⃣ Create paginated view
+    view = LeaderboardView(
+        entries,
+        page_size=10,
+        title=f"🏆 {game_type.capitalize()} Leaderboard",
+        game_type=game_type  # 🔑 so View uses correct branch
+    )
 
-    # ✅ 4️⃣ Send first page
+    # ✅ 5️⃣ Send first page
     embed = discord.Embed(
         title=view.title,
         description=view.format_page(interaction.guild),
         color=discord.Color.gold()
     )
-    await interaction.response.send_message(embed=embed, view=view)
-
-    # ✅ 5️⃣ Bind message for updates
+    await interaction.followup.send(embed=embed, view=view)
     view.message = await interaction.original_response()
 
-    # ✅ 6️⃣ Store for auto-update later
+    # ✅ 6️⃣ Store for auto-updates
     await set_parameter("leaderboard_channel_id", str(interaction.channel.id))
     await set_parameter("leaderboard_message_id", str(view.message.id))
 
