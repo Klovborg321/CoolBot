@@ -2602,14 +2602,14 @@ class TournamentManager:
             loser_data = await get_player(loser_id)
             loser_data["losses"] += 1
             loser_data["games_played"] += 1
-            loser_data["rank"] -= 10
+            #loser_data["rank"] -= 10
             loser_data["current_streak"] = 0
             await save_player(loser_id, loser_data)
 
         winner_data = await get_player(winner_id)
         winner_data["wins"] += 1
         winner_data["games_played"] += 1
-        winner_data["rank"] += 10
+        #winner_data["rank"] += 10
         winner_data["trophies"] += 1
         winner_data["current_streak"] += 1
         winner_data["best_streak"] = max(winner_data.get("best_streak", 0), winner_data["current_streak"])
