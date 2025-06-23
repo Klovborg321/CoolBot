@@ -84,24 +84,24 @@ def is_admin(interaction: discord.Interaction) -> bool:
     return interaction.user.guild_permissions.administrator
 
 async def set_parameter(key: str, value: str):
-    # Upsert means insert OR update if exists
-    data = {
-        "key": key,
-        "value": value
-    }
-    res = supabase.table("parameters").upsert(data).execute()
-    if res.error:
-        print(f"Error setting parameter: {res.error}")
+    await run_db(
+        lambda: supabase
+            .table("parameters")
+            .upsert({"key": key, "value": value})
+            .execute()
+    )
 
 async def get_parameter(key: str):
-    res = supabase.table("parameters").select("value").eq("key", key).execute()
-    if res.error:
-        print(f"Error getting parameter: {res.error}")
-        return None
-    if res.data:
+    res = await run_db(
+        lambda: supabase
+            .table("parameters")
+            .select("value")
+            .eq("key", key)
+            .execute()
+    )
+    if res and res.data:
         return res.data[0]["value"]
     return None
-
 
 async def send_global_notification(game_type: str, lobby_link: str, guild: discord.Guild):
         embed = discord.Embed(
