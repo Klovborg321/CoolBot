@@ -1366,6 +1366,8 @@ class RoomView(discord.ui.View):
         if self.on_tournament_complete and isinstance(winner, int):
             await self.on_tournament_complete(winner)
 
+        await update_leaderboard(self.bot)
+
 
 
 class GameEndedButton(discord.ui.Button):
@@ -2040,6 +2042,28 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
         )
 
 
+async def update_leaderboard(bot):
+    # 1️⃣ Load stats — example from local JSON
+    stats = load_stats()  # your function or Supabase query
+
+    # 2️⃣ Sort top players
+    entries = sorted(stats.items(), key=lambda x: x[1].get("rank", 1000), reverse=True)
+
+    # 3️⃣ Create the view
+    view = LeaderboardView(entries)
+
+    # 4️⃣ Fetch leaderboard message
+    channel = bot.get_channel(1386646800978542684)
+    message = await channel.fetch_message(1386647081309048863)
+
+    # 5️⃣ Attach and send
+    view.message = message
+    embed = discord.Embed(
+        title=view.title,
+        description=view.format_page(channel.guild),
+        color=discord.Color.gold()
+    )
+    await message.edit(embed=embed, view=view)
 
 
 class LeaderboardView(discord.ui.View):
@@ -2085,7 +2109,7 @@ class LeaderboardView(discord.ui.View):
 
             badge = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else ""
 
-            line = f"#{i:>2} {name} | 🏆 {trophies:<3} | 💰 {credits:<4} | 📈 {rank} {badge}"
+            line = f"#{i:>2} {name} | 📈 {rank} {badge} | 🏆 {trophies:<3} | 💰 {credits:<4}"
             lines.append(line)
 
         if not lines:
