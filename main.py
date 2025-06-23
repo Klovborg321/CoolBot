@@ -1921,9 +1921,13 @@ class GameView(discord.ui.View):
 
         return 0.5
 
-    async def add_bet(self, uid, uname, amount, choice):
+    async def add_bet(self, uid, uname, amount, choice, interaction):
         if uid in self.players:
-            raise ValueError("You cannot bet on a game you are participating in.")
+            await interaction.response.send_message(
+                "❌ You cannot bet on a game you are participating in.",
+                ephemeral=True
+            )
+            return
         
         # Always store in the local bets
         if hasattr(self, "bets"):
