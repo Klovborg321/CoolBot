@@ -2181,47 +2181,49 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
         )
 
 
-async def update_leaderboard(bot):
-    # Fetch params
-    channel_id = int(await get_parameter("leaderboard_channel_id"))
-    message_id = int(await get_parameter("leaderboard_message_id"))
+async def update_leaderboard(bot, game_type="singles"):
+    chan_id = await get_parameter(f"{game_type}_leaderboard_channel_id")
+    msg_id = await get_parameter(f"{game_type}_leaderboard_message_id")
+    if not chan_id or not msg_id:
+        return
 
-    channel = bot.get_channel(channel_id)
-    message = await channel.fetch_message(message_id)
+    chan = bot.get_channel(int(chan_id))
+    if not chan:
+        return
 
-    # Rebuild entries
-    res = await run_db(
-        lambda: supabase
-        .table("players")
-        .select("*")
-        .order("rank", desc=True)
-        .execute()
+    try:
+        msg = await chan.fetch_message(int(msg_id))
+    except:
+        return
+
+    res = await run_db(lambda: supabase.table("players").select("*").execute())
+    players = res.data or []
+    players.sort(
+        key=lambda p: int(p.get("stats", {}).get(game_type, {}).get("rank", 1000)),
+        reverse=True
     )
-    entries = [(row["id"], row) for row in res.data]
-    view = LeaderboardView(entries, page_size=10, title="🏆 Leaderboard")
 
-    view.message = message
+    entries = [(p["id"], p) for p in players]
+    view = LeaderboardView(entries, page_size=10, title=f"🏆 {game_type.capitalize()} Leaderboard", game_type=game_type)
+    view.message = msg
+
     embed = discord.Embed(
         title=view.title,
-        description=view.format_page(channel.guild),
+        description=view.format_page(chan.guild),
         color=discord.Color.gold()
     )
-    await message.edit(embed=embed, view=view)
-
+    await msg.edit(embed=embed, view=view)
 
 
 class LeaderboardView(discord.ui.View):
     def __init__(self, entries, page_size=10, title="🏆 Leaderboard", game_type="singles"):
-        """
-        entries: list of (id, row dict) OR list of row dicts with 'id'
-        """
         super().__init__(timeout=120)
         self.entries = entries
         self.page_size = page_size
         self.page = 0
         self.title = title
-        self.game_type = game_type  # ✅ NEW: selected game type
         self.message = None
+        self.game_type = game_type  # ✅ dynamic!
         self.update_buttons()
 
     def update_buttons(self):
@@ -2237,24 +2239,17 @@ class LeaderboardView(discord.ui.View):
         lines = []
 
         for i, entry in enumerate(self.entries[start:end], start=start + 1):
-            if isinstance(entry, tuple):
-                uid, row = entry
-            else:
-                row = entry
-                uid = row.get("id")
-
+            uid, stats = entry if isinstance(entry, tuple) else (entry.get("id"), entry)
             member = guild.get_member(int(uid))
             display = member.display_name if member else f"User {uid}"
             name = display[:18].ljust(18)
 
-            # ✅ pull correct stats branch
-            stats = row.get("stats", {}).get(self.game_type, {})
-            rank = stats.get("rank", 1000)
-            trophies = stats.get("trophies", 0)
-            credits = row.get("credits", 0)  # ✅ top-level credits
+            # ✅ dynamic rank for this game type
+            rank = stats.get("stats", {}).get(self.game_type, {}).get("rank", 1000)
+            trophies = stats.get("stats", {}).get(self.game_type, {}).get("trophies", 0)
+            credits = stats.get("credits", 0)
 
             badge = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else ""
-
             line = f"#{i:>2} {name} | 📈 {rank} {badge} | 🏆 {trophies:<3} | 💰 {credits:<4}"
             lines.append(line)
 
@@ -2293,6 +2288,7 @@ class LeaderboardView(discord.ui.View):
             self.view_obj.page = min(max_pages, self.view_obj.page + 1)
             await self.view_obj.update()
             await interaction.response.defer()
+
 
 
 
@@ -3173,14 +3169,13 @@ async def init_triples(interaction: discord.Interaction):
 
 
 @tree.command(
-    name="admin_leaderboard",
-    description="Admin: Show the leaderboard for a specific game type"
+    name="leaderboard",
+    description="Show the leaderboard for a specific game type"
 )
 @app_commands.describe(
     game_type="Which game type to show (singles, doubles, triples, tournaments)"
 )
-@app_commands.check(is_admin)
-async def leaderboard_admin(
+async def leaderboard(
     interaction: discord.Interaction,
     game_type: str
 ):
@@ -3188,37 +3183,23 @@ async def leaderboard_admin(
     if game_type not in allowed:
         await interaction.response.send_message(
             f"❌ Invalid game type. Use: {', '.join(allowed)}",
-            ephemeral=True  # ✅ error can be ephemeral
+            ephemeral=True
         )
         return
 
-    await interaction.response.defer()  # ✅ PUBLIC defer
+    await interaction.response.defer()
 
-    # 1️⃣ Fetch ALL players
-    res = await run_db(
-        lambda: supabase.table("players").select("*").execute()
-    )
+    res = await run_db(lambda: supabase.table("players").select("*").execute())
     players = res.data or []
-
-    # 2️⃣ Sort numerically by JSON rank
     players.sort(
-        key=lambda p: int(
-            p.get("stats", {}).get(game_type, {}).get("rank", 1000)
-        ),
+        key=lambda p: int(p.get("stats", {}).get(game_type, {}).get("rank", 1000)),
         reverse=True
     )
-
     if not players:
-        await interaction.followup.send(
-            "📭 No players found.",
-            ephemeral=True  # ✅ optional, makes sense for empty result
-        )
+        await interaction.followup.send("📭 No players found.", ephemeral=True)
         return
 
-    # 3️⃣ Format entries
     entries = [(p["id"], p) for p in players]
-
-    # 4️⃣ Create view
     view = LeaderboardView(
         entries,
         page_size=10,
@@ -3226,19 +3207,17 @@ async def leaderboard_admin(
         game_type=game_type
     )
 
-    # 5️⃣ Send PUBLIC message
     embed = discord.Embed(
         title=view.title,
         description=view.format_page(interaction.guild),
         color=discord.Color.gold()
     )
-    await interaction.followup.send(embed=embed, view=view)  # ✅ NO ephemeral here!
+    await interaction.followup.send(embed=embed, view=view)
     view.message = await interaction.original_response()
 
-    # 6️⃣ Save for auto-updates
-    await set_parameter("leaderboard_channel_id", str(interaction.channel.id))
-    await set_parameter("leaderboard_message_id", str(view.message.id))
-
+    # ✅ Store with game_type prefix!
+    await set_parameter(f"{game_type}_leaderboard_channel_id", str(interaction.channel.id))
+    await set_parameter(f"{game_type}_leaderboard_message_id", str(view.message.id))
 
 
 @tree.command(
