@@ -1874,7 +1874,6 @@ class GameView(discord.ui.View):
         pending_games[self.game_type] = None
 
         await save_pending_game(self.game_type, self.players, self.channel.id, self.max_players)
-        await save_game_state(self, self)
 
 
         # ✅ MAIN LOBBY embed — NO image, mark thread info
@@ -1939,6 +1938,8 @@ class GameView(discord.ui.View):
         )
         room_view.channel = thread
         room_view.original_embed = thread_embed.copy()
+
+        await save_game_state(self, self, room_view)
 
         mentions = " ".join(f"<@{p}>" for p in self.players)
         thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=thread_embed, view=room_view)
@@ -3774,7 +3775,7 @@ async def on_member_join(member):
     if roles:
         await member.add_roles(*roles)
 
-async def save_game_state(manager, view):
+async def save_game_state(manager, view, room_view):
     """Store the current active game in Supabase for resilience."""
 
     import json
@@ -3793,8 +3794,9 @@ async def save_game_state(manager, view):
         data = {
             "game_id": str(view.message.id),
             "game_type": view.game_type,
-            "thread_id": str(view.message.channel.id),
             "parent_channel_id": str(view.channel.id),
+            "thread_id": str(room_view.channel.id) if room_view else str(view.message.channel.id),
+            "room_message_id": str(room_view.message.id) if room_view else None,
             "players": players_clean,
             "bets": bets_as_dicts,
             "max_players": int(view.max_players),
