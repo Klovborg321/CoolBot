@@ -1003,8 +1003,10 @@ class BetDropdown(discord.ui.Select):
 
 
 class RoomView(discord.ui.View):
-    def __init__(self, players, game_type, room_name, lobby_message=None, lobby_embed=None, game_view=None, course_name=None, course_id=None, max_players=2):
+    def __init__(self, bot, guild, players, game_type, room_name, lobby_message=None, lobby_embed=None, game_view=None, course_name=None, course_id=None, max_players=2):
         super().__init__(timeout=None)
+        self.bot = bot             # ✅ store bot
+        self.guild = guild     
         self.players = [p.id if hasattr(p, "id") else p for p in players]
         self.game_type = game_type
         self.room_name = room_name
@@ -1388,7 +1390,7 @@ class RoomView(discord.ui.View):
         if self.on_tournament_complete and isinstance(winner, int):
             await self.on_tournament_complete(winner)
 
-        await update_leaderboard(self.bot)
+        await update_leaderboard(self.guild.bot)
 
 
 
@@ -1962,6 +1964,8 @@ class GameView(discord.ui.View):
         thread_embed.description = f"Course: {self.course_name}"
 
         room_view = RoomView(
+            bot=bot,
+            guild=interaction.guild,
             players=self.players,
             game_type=self.game_type,
             room_name=room_name,
@@ -2466,7 +2470,8 @@ class SetCourseRatingModal(discord.ui.Modal, title="Set Course Par"):
 ######################################
 
 class TournamentManager:
-    def __init__(self, creator, max_players=8):
+    def __init__(self, bot, creator, max_players=16):
+        self.bot = bot
         self.creator = creator
         self.players = [creator]
         self.max_players = max_players
@@ -2545,6 +2550,8 @@ class TournamentManager:
                         await match_thread.add_user(member)
 
                 room_view = RoomView(
+                    bot=bot,
+                    guild=guild,
                     players=[p1, p2],
                     game_type="singles",
                     room_name=room_name,
@@ -2607,6 +2614,8 @@ class TournamentManager:
         winner_data["current_streak"] += 1
         winner_data["best_streak"] = max(winner_data.get("best_streak", 0), winner_data["current_streak"])
         await save_player(winner_id, winner_data)
+
+        await update_leaderboard(self.bot)
 
         expected = len(self.current_matches)
 
@@ -2858,7 +2867,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         await interaction.response.defer(ephemeral=True)
 
         # ✅ Always provide parent_channel up-front:
-        manager = TournamentManager(creator=self.creator.id, max_players=count)
+        manager = TournamentManager(bot=bot, creator=self.creator.id, max_players=count)
         manager.parent_channel = self.parent_channel
 
         interaction.client.tournaments[self.parent_channel.id] = manager
@@ -3949,6 +3958,7 @@ async def restore_active_games(bot):
             # ✅ Rebuild TournamentManager
             # Store only ID inside the manager (safe)
             manager = TournamentManager(
+                bot=bot,
                 creator=creator.id if hasattr(creator, "id") else creator,
                 max_players=g["max_players"]
             )
@@ -3975,6 +3985,8 @@ async def restore_active_games(bot):
             # ✅ Rebuild RoomView if Room message exists
             if room_message:
                 room_view = RoomView(
+                    bot=bot,
+                    guild=guild,
                     players=players,
                     game_type=g["game_type"],
                     room_name="Restored Room",
