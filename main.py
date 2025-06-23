@@ -3875,7 +3875,7 @@ async def restore_active_games(bot):
                 await view.start_betting_phase()
 
             else:
-    print(f"[restore] Skipped betting: {type(view).__name__} has no betting method.")
+                print(f"[restore] Skipped betting: {type(view).__name__} has no betting method.")
 
             # ✅ Track in bot memory
             if not hasattr(bot, "tournaments"):
