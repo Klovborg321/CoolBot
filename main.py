@@ -3169,13 +3169,14 @@ async def init_triples(interaction: discord.Interaction):
 
 
 @tree.command(
-    name="leaderboard",
-    description="Show the leaderboard for a specific game type"
+    name="admin_leaderboard",
+    description="Admin: Show the leaderboard for a specific game type"
 )
 @app_commands.describe(
     game_type="Which game type to show (singles, doubles, triples, tournaments)"
 )
-async def leaderboard(
+@app_commands.check(is_admin)  # ✅ only admins can run
+async def admin_leaderboard(
     interaction: discord.Interaction,
     game_type: str
 ):
@@ -3187,19 +3188,29 @@ async def leaderboard(
         )
         return
 
-    await interaction.response.defer()
+    await interaction.response.defer()  # ✅ public defer
 
+    # ✅ Fetch all players
     res = await run_db(lambda: supabase.table("players").select("*").execute())
     players = res.data or []
+
+    # ✅ Sort numerically by selected game type rank
     players.sort(
         key=lambda p: int(p.get("stats", {}).get(game_type, {}).get("rank", 1000)),
         reverse=True
     )
+
     if not players:
-        await interaction.followup.send("📭 No players found.", ephemeral=True)
+        await interaction.followup.send(
+            "📭 No players found.",
+            ephemeral=True  # error stays private
+        )
         return
 
+    # ✅ Format entries for the view
     entries = [(p["id"], p) for p in players]
+
+    # ✅ Create view with game_type
     view = LeaderboardView(
         entries,
         page_size=10,
@@ -3207,6 +3218,7 @@ async def leaderboard(
         game_type=game_type
     )
 
+    # ✅ Send the leaderboard PUBLICLY in channel
     embed = discord.Embed(
         title=view.title,
         description=view.format_page(interaction.guild),
@@ -3215,7 +3227,7 @@ async def leaderboard(
     await interaction.followup.send(embed=embed, view=view)
     view.message = await interaction.original_response()
 
-    # ✅ Store with game_type prefix!
+    # ✅ Store channel/message IDs PER game type for auto-update
     await set_parameter(f"{game_type}_leaderboard_channel_id", str(interaction.channel.id))
     await set_parameter(f"{game_type}_leaderboard_message_id", str(view.message.id))
 
