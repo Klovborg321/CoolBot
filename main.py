@@ -80,6 +80,25 @@ default_template = {
 }
 
 # Helpers
+async def set_parameter(key: str, value: str):
+    # Upsert means insert OR update if exists
+    data = {
+        "key": key,
+        "value": value
+    }
+    res = supabase.table("parameters").upsert(data).execute()
+    if res.error:
+        print(f"Error setting parameter: {res.error}")
+
+async def get_parameter(key: str):
+    res = supabase.table("parameters").select("value").eq("key", key).execute()
+    if res.error:
+        print(f"Error getting parameter: {res.error}")
+        return None
+    if res.data:
+        return res.data[0]["value"]
+    return None
+
 
 async def send_global_notification(game_type: str, lobby_link: str, guild: discord.Guild):
         embed = discord.Embed(
@@ -2043,20 +2062,24 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
 
 
 async def update_leaderboard(bot):
-    # 1️⃣ Load stats — example from local JSON
-    stats = load_stats()  # your function or Supabase query
+    # Fetch params
+    channel_id = int(await get_parameter("leaderboard_channel_id"))
+    message_id = int(await get_parameter("leaderboard_message_id"))
 
-    # 2️⃣ Sort top players
-    entries = sorted(stats.items(), key=lambda x: x[1].get("rank", 1000), reverse=True)
+    channel = bot.get_channel(channel_id)
+    message = await channel.fetch_message(message_id)
 
-    # 3️⃣ Create the view
-    view = LeaderboardView(entries)
+    # Rebuild entries
+    res = await run_db(
+        lambda: supabase
+        .table("players")
+        .select("*")
+        .order("rank", desc=True)
+        .execute()
+    )
+    entries = [(row["id"], row) for row in res.data]
+    view = LeaderboardView(entries, page_size=10, title="🏆 Leaderboard")
 
-    # 4️⃣ Fetch leaderboard message
-    channel = bot.get_channel(1386646800978542684)
-    message = await channel.fetch_message(1386647081309048863)
-
-    # 5️⃣ Attach and send
     view.message = message
     embed = discord.Embed(
         title=view.title,
@@ -2064,6 +2087,7 @@ async def update_leaderboard(bot):
         color=discord.Color.gold()
     )
     await message.edit(embed=embed, view=view)
+
 
 
 class LeaderboardView(discord.ui.View):
@@ -3060,6 +3084,48 @@ async def leaderboard_local(interaction: discord.Interaction):
 
     # 5️⃣ Bind view.message for updates
     view.message = await interaction.original_response()
+
+@tree.command(
+    name="leaderboard",
+    description="Show the paginated leaderboard"
+)
+async def leaderboard_local(interaction: discord.Interaction):
+    # 1️⃣ Fetch all players sorted by rank descending
+    res = await run_db(
+        lambda: supabase
+        .table("players")
+        .select("*")
+        .order("rank", desc=True)
+        .execute()
+    )
+
+    if not res.data:
+        await interaction.response.send_message(
+            "📭 No players found.",
+            ephemeral=True
+        )
+        return
+
+    # 2️⃣ Format as (id, stats) tuples
+    entries = [(row["id"], row) for row in res.data]
+
+    # 3️⃣ Create paginated view
+    view = LeaderboardView(entries, page_size=10, title="🏆 Leaderboard")
+
+    # 4️⃣ Send first page
+    embed = discord.Embed(
+        title=view.title,
+        description=view.format_page(interaction.guild),
+        color=discord.Color.gold()
+    )
+    await interaction.response.send_message(embed=embed, view=view)
+
+    # 5️⃣ Bind view.message for updates
+    view.message = await interaction.original_response()
+
+    # ✅ 6️⃣ Store channel and message IDs for auto-update later
+    await set_parameter("leaderboard_channel_id", str(interaction.channel.id))
+    await set_parameter("leaderboard_message_id", str(view.message.id))
 
 
 
