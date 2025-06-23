@@ -983,7 +983,10 @@ class BetDropdown(discord.ui.Select):
 class RoomView(discord.ui.View):
     def __init__(self, players, game_type, room_name, lobby_message=None, lobby_embed=None, game_view=None, course_name=None, course_id=None, max_players=2):
         super().__init__(timeout=None)
-        self.players = players
+        self.players = [
+            p.id if hasattr(p, "id") else p
+            for p in players
+        ]
         self.game_type = game_type
         self.room_name = room_name
         self.message = None  # thread message
@@ -1005,6 +1008,7 @@ class RoomView(discord.ui.View):
         self.voting_closed = False
         self.add_item(GameEndedButton(self))
         self.on_tournament_complete = None
+
 
     def cancel_abandon_task(self):
         if hasattr(self, "abandon_task") and self.abandon_task:
