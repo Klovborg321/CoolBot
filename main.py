@@ -3184,24 +3184,23 @@ async def leaderboard_admin(
     interaction: discord.Interaction,
     game_type: str
 ):
-    # ✅ Supported game types
     allowed = ["singles", "doubles", "triples", "tournaments"]
     if game_type not in allowed:
         await interaction.response.send_message(
             f"❌ Invalid game type. Use: {', '.join(allowed)}",
-            ephemeral=True
+            ephemeral=True  # ✅ error can be ephemeral
         )
         return
 
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer()  # ✅ PUBLIC defer
 
-    # ✅ 1️⃣ Fetch ALL players (unsorted)
+    # 1️⃣ Fetch ALL players
     res = await run_db(
         lambda: supabase.table("players").select("*").execute()
     )
     players = res.data or []
 
-    # ✅ 2️⃣ Sort numerically by stats[game_type].rank
+    # 2️⃣ Sort numerically by JSON rank
     players.sort(
         key=lambda p: int(
             p.get("stats", {}).get(game_type, {}).get("rank", 1000)
@@ -3212,33 +3211,34 @@ async def leaderboard_admin(
     if not players:
         await interaction.followup.send(
             "📭 No players found.",
-            ephemeral=True
+            ephemeral=True  # ✅ optional, makes sense for empty result
         )
         return
 
-    # ✅ 3️⃣ Format entries as (id, row)
+    # 3️⃣ Format entries
     entries = [(p["id"], p) for p in players]
 
-    # ✅ 4️⃣ Create paginated view
+    # 4️⃣ Create view
     view = LeaderboardView(
         entries,
         page_size=10,
         title=f"🏆 {game_type.capitalize()} Leaderboard",
-        game_type=game_type  # 🔑 so View uses correct branch
+        game_type=game_type
     )
 
-    # ✅ 5️⃣ Send first page
+    # 5️⃣ Send PUBLIC message
     embed = discord.Embed(
         title=view.title,
         description=view.format_page(interaction.guild),
         color=discord.Color.gold()
     )
-    await interaction.followup.send(embed=embed, view=view)
+    await interaction.followup.send(embed=embed, view=view)  # ✅ NO ephemeral here!
     view.message = await interaction.original_response()
 
-    # ✅ 6️⃣ Store for auto-updates
+    # 6️⃣ Save for auto-updates
     await set_parameter("leaderboard_channel_id", str(interaction.channel.id))
     await set_parameter("leaderboard_message_id", str(view.message.id))
+
 
 
 @tree.command(
