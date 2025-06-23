@@ -1390,7 +1390,7 @@ class RoomView(discord.ui.View):
         if self.on_tournament_complete and isinstance(winner, int):
             await self.on_tournament_complete(winner)
 
-        await update_leaderboard(self.guild.bot)
+        await update_leaderboard(self.bot)
 
 
 
