@@ -2022,6 +2022,8 @@ class GameView(discord.ui.View):
         )
         await target_message.edit(embed=embed, view=self if not self.betting_closed else None)
 
+        return True
+
     def get_bet_summary(self):
         if not bets:
             return "No bets placed yet."
@@ -2114,7 +2116,13 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
         }).execute())
 
         # ✅ Update UI
-        await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice, interaction)
+        # ✅ Check if bet was truly accepted!
+        accepted = await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice, interaction)
+        if not accepted:
+            # Bet rejected — refund credits:
+            await add_credits_internal(user_id, amount)
+            return  # ⏹️ DO NOT continue
+        
         await self.game_view.update_message()
 
         # ✅ Resolve choice name
