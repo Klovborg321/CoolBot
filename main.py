@@ -872,7 +872,55 @@ class GameJoinView(discord.ui.View):
                 interaction.guild        # ← The server to DM everyone in
             )
 
+class HandicapLeaderboardView(discord.ui.View):
+    def __init__(self, player_name, all_data, requester_name, per_page=10):
+        super().__init__(timeout=60)  # auto-timeout
+        self.player_name = player_name
+        self.requester_name = requester_name
+        self.data = all_data
+        self.per_page = per_page
+        self.page = 0
 
+    def get_page_data(self):
+        start = self.page * self.per_page
+        end = start + self.per_page
+        page_items = self.data[start:end]
+
+        lines = []
+        lines.append(f"`{'#':<3} {'Course':<20} {'Handicap':>8}`")
+        lines.append(f"`{'—'*35}`")
+
+        for i, row in enumerate(page_items, start=1 + start):
+            course_name = row['courses']['name'][:20]
+            handicap = f"{row['handicap']:.1f}"
+            lines.append(f"`{i:<3} {course_name:<20} {handicap:>8}`")
+
+        leaderboard = "\n".join(lines)
+        return leaderboard
+
+    def create_embed(self):
+        embed = discord.Embed(
+            title=f"🏆 {self.player_name}'s Course Handicaps (Page {self.page + 1}/{self.total_pages()})",
+            description=self.get_page_data(),
+            color=discord.Color.gold()
+        )
+        embed.set_footer(text=f"Requested by {self.requester_name}")
+        return embed
+
+    def total_pages(self):
+        return (len(self.data) + self.per_page - 1) // self.per_page
+
+    @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.secondary)
+    async def previous_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.page > 0:
+            self.page -= 1
+            await interaction.response.edit_message(embed=self.create_embed(), view=self)
+
+    @discord.ui.button(label="➡️ Next", style=discord.ButtonStyle.secondary)
+    async def next_page(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.page < self.total_pages() - 1:
+            self.page += 1
+            await interaction.response.edit_message(embed=self.create_embed(), view=self)
 
 class LeaveGameButton(discord.ui.Button):
     def __init__(self, game_view):
@@ -4172,13 +4220,13 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
 
 @bot.tree.command(
     name="course_handicaps",
-    description="Show a player's handicaps for all courses"
+    description="Show a player's handicaps for all courses with pagination"
 )
 @app_commands.describe(player="Select a player")
 async def course_handicaps(interaction: discord.Interaction, player: discord.Member):
     await interaction.response.defer(ephemeral=True)
 
-    # 1) Query Supabase
+    # ✅ Fetch with join
     response = (
         supabase.table("handicaps")
         .select("handicap, course_id, courses (name, image_url)")
@@ -4197,23 +4245,20 @@ async def course_handicaps(interaction: discord.Interaction, player: discord.Mem
         await interaction.followup.send(f"❌ No handicaps found for {player.mention}.")
         return
 
-    # 2) Build Embed
-    embed = discord.Embed(
-        title=f"📊 Handicaps for {player.display_name}",
-        description="Here are all recorded course handicaps:",
-        color=discord.Color.blue()
+    # ✅ Sort by handicap ascending
+    data.sort(key=lambda x: x["handicap"])
+
+    # ✅ Create paginated view & embed
+    view = HandicapLeaderboardView(
+        player_name=player.display_name,
+        all_data=data,
+        requester_name=interaction.user.display_name,
+        per_page=10
     )
+    embed = view.create_embed()
 
-    for row in data:
-        course = row["courses"]
-        course_name = course["name"]
-        handicap = row["handicap"]
+    await interaction.followup.send(embed=embed, view=view)
 
-        embed.add_field(name=course_name, value=f"**Handicap:** {handicap}", inline=False)
-
-    embed.set_footer(text=f"Requested by {interaction.user.display_name}")
-
-    await interaction.followup.send(embed=embed)
 
 @bot.event
 async def on_ready():
