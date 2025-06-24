@@ -4019,7 +4019,7 @@ bot.tree.add_command(update_roles)
 @bot.event
 async def on_member_join(member):
     # List of role names you want to auto-assign
-    role_names = ["@singles", "@doubles", "@triples, @quick-tournament"]
+    role_names = ["singles", "doubles", "triples, quick-tournament"]
 
     roles = []
     for name in role_names:
