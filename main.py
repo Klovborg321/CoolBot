@@ -865,13 +865,6 @@ class GameJoinView(discord.ui.View):
         # ✅ If full immediately → auto start
         if len(view.players) == view.max_players:
             await view.game_full(interaction)
-        else:
-            # ✅ Send global notification with correct link!
-            await send_global_notification(
-                self.game_type,
-                view.message.jump_url,   # ← This is the correct link!
-                interaction.guild        # ← The server to DM everyone in
-            )
 
 class HandicapLeaderboardView(discord.ui.View):
     def __init__(self, player_name, all_data, requester_name, per_page=10):
