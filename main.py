@@ -4238,6 +4238,10 @@ async def course_handicaps(interaction: discord.Interaction, player: Optional[di
         .execute()
     )
 
+    # ✅ Correct: get raw data first
+    data = response.data
+
+    # ✅ Then filter out nulls
     data = [row for row in data if row["handicap"] is not None]
 
     if not data:
