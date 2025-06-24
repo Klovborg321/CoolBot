@@ -4218,22 +4218,15 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
     )
 
 
-@bot.tree.command(
-    name="course_handicaps",
-    description="Show a player's handicaps for all courses with pagination"
-)
-@app_commands.describe(player="Select a player")
-async def course_handicaps(interaction: discord.Interaction, player: discord.Member):
+@app_commands.describe(player="Optional: show handicaps for another player")
+@app_commands.command(name="course_handicaps", description="Show a player's course handicaps in a paginated leaderboard")
+async def course_handicaps(interaction: discord.Interaction, player: Optional[discord.Member] = None):
     await interaction.response.defer(ephemeral=True)
 
-    # ✅ Fetch with join
-    response = (
-        supabase.table("handicaps")
-        .select("handicap, course_id, courses (name, image_url)")
-        .eq("player_id", str(player.id))
-        .execute()
-    )
+    # ✅ If no player, fallback to the command invoker
+    player = player or interaction.user
 
+    # Rest stays the same...
     response = (
         supabase.table("handicaps")
         .select("handicap, course_id, courses (name, image_url)")
@@ -4247,10 +4240,9 @@ async def course_handicaps(interaction: discord.Interaction, player: discord.Mem
         await interaction.followup.send(f"❌ No handicaps found for {player.mention}.")
         return
 
-    # ✅ Sort by handicap ascending
+    # Sort + create paginated view
     data.sort(key=lambda x: x["handicap"])
 
-    # ✅ Create paginated view & embed
     view = HandicapLeaderboardView(
         player_name=player.display_name,
         all_data=data,
@@ -4260,6 +4252,7 @@ async def course_handicaps(interaction: discord.Interaction, player: discord.Mem
     embed = view.create_embed()
 
     await interaction.followup.send(embed=embed, view=view)
+
 
 
 @bot.event
