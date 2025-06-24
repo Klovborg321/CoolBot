@@ -1645,17 +1645,17 @@ class GameView(discord.ui.View):
     @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
     async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id in self.players:
-            await interaction.response.send_message(
+            await self.safe_send(interaction,
                 "✅ You have already joined this game.", ephemeral=True)
             return
 
         if len(self.players) >= self.max_players:
-            await interaction.response.send_message(
+            await self.safe_send(interaction,
                 "🚫 This game is already full.", ephemeral=True)
             return
 
         if player_manager.is_active(interaction.user.id):
-            await interaction.response.send_message(
+            await self.safe_send(interaction,
                 "🚫 You are already in another active game or must finish voting first.",
                 ephemeral=True)
             return
@@ -1923,7 +1923,7 @@ class GameView(discord.ui.View):
 
     async def add_bet(self, uid, uname, amount, choice, interaction):
         if choice != str(uid) and uid in self.players:
-            await interaction.response.send_message(
+            await self.safe_send(interaction,
                 "❌ You cannot bet on another player in your own game.",
                 ephemeral=True
             )
@@ -1950,6 +1950,16 @@ class GameView(discord.ui.View):
         )
         await target_message.edit(embed=embed, view=self if not self.betting_closed else None)
 
+    @staticmethod
+    async def safe_send(interaction: discord.Interaction, content=None, embed=None, view=None, **kwargs):
+        """
+        Safe wrapper: uses interaction.response for first reply,
+        uses interaction.followup for any further replies.
+        """
+        if interaction.response.is_done():
+            await interaction.followup.send(content=content, embed=embed, view=view, **kwargs)
+        else:
+            await interaction.response.send_message(content=content, embed=embed, view=view, **kwargs)
 
     def get_bet_summary(self):
         if not bets:
@@ -2128,26 +2138,27 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
     async def on_submit(self, interaction: discord.Interaction):
         user_id = interaction.user.id
 
+        # ✅ Validate amount
         try:
             amount = int(self.bet_amount.value.strip())
             if amount <= 0:
                 raise ValueError()
         except ValueError:
-            await interaction.response.send_message("❌ Invalid amount.", ephemeral=True)
+            await self.safe_send(interaction, "❌ Invalid amount.", ephemeral=True)
             return
 
-        # ✅ Compute odds & payout (use standard payout!)
+        # ✅ Get odds & payout
         odds_provider = getattr(self.game_view, "_embed_helper", self.game_view)
         odds = await odds_provider.get_odds(self.choice)
-        payout = int(amount * (1 / odds)) if odds > 0 else amount  # FIX: standard payout
+        payout = int(amount * (1 / odds)) if odds > 0 else amount
 
-        # ✅ Atomic deduction
+        # ✅ Try deducting credits
         success = await deduct_credits_atomic(user_id, amount)
         if not success:
-            await interaction.response.send_message("❌ Not enough credits.", ephemeral=True)
+            await self.safe_send(interaction, "❌ Not enough credits.", ephemeral=True)
             return
 
-        # ✅ Log bet in DB
+        # ✅ Log bet
         await run_db(lambda: supabase.table("bets").insert({
             "player_id": str(user_id),
             "game_id": self.game_view.message.id,
@@ -2157,11 +2168,11 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
             "won": None
         }).execute())
 
-        # ✅ Add to UI live
+        # ✅ Update UI
         await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice, interaction)
         await self.game_view.update_message()
 
-        # ✅ SAFELY resolve choice name:
+        # ✅ Resolve choice name
         guild = self.game_view.message.guild if self.game_view.message else None
         choice_name = str(self.choice)
 
@@ -2175,14 +2186,23 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
                     member = guild.get_member(pid) if guild else None
                     choice_name = member.display_name if member else f"Player {self.choice}"
             except ValueError:
-                pass  # fallback remains
+                pass  # fallback
 
-        # ✅ Respond
-        await interaction.response.send_message(
+        # ✅ Final confirmation
+        await self.safe_send(
+            interaction,
             f"✅ Bet of **{amount}** on **{choice_name}** placed!\n"
             f"📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
             ephemeral=True
         )
+
+    async def safe_send(self, interaction: discord.Interaction, content: str, **kwargs):
+        """Send safely: first response OR followup."""
+        if interaction.response.is_done():
+            await interaction.followup.send(content, **kwargs)
+        else:
+            await interaction.response.send_message(content, **kwargs)
+
 
 
 async def update_leaderboard(bot, game_type="singles"):
@@ -2263,14 +2283,16 @@ class LeaderboardView(discord.ui.View):
         page_info = f"Page {self.page + 1} of {max(1, (len(self.entries) + self.page_size - 1) // self.page_size)}"
         return f"```{chr(10).join(lines)}\n\n{page_info}```"
 
-    async def update(self):
+    async def update(self, interaction: discord.Interaction):
         self.update_buttons()
         embed = discord.Embed(
             title=self.title,
-            description=self.format_page(self.message.guild),
+            description=self.format_page(interaction.guild),
             color=discord.Color.gold()
         )
-        await self.message.edit(embed=embed, view=self)
+        await interaction.response.edit_message(embed=embed, view=self)
+        self.message = interaction.message  # update stored message in case you need it later
+
 
     class PreviousButton(discord.ui.Button):
         def __init__(self, view_obj):
@@ -2279,8 +2301,8 @@ class LeaderboardView(discord.ui.View):
 
         async def callback(self, interaction: discord.Interaction):
             self.view_obj.page = max(0, self.view_obj.page - 1)
-            await self.view_obj.update()
-            await interaction.response.defer()
+            await self.view_obj.update(interaction)
+
 
     class NextButton(discord.ui.Button):
         def __init__(self, view_obj):
@@ -2290,8 +2312,8 @@ class LeaderboardView(discord.ui.View):
         async def callback(self, interaction: discord.Interaction):
             max_pages = (len(self.view_obj.entries) - 1) // self.view_obj.page_size
             self.view_obj.page = min(max_pages, self.view_obj.page + 1)
-            await self.view_obj.update()
-            await interaction.response.defer()
+            await self.view_obj.update(interaction)
+
 
 
 
