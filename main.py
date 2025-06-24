@@ -4219,8 +4219,11 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
     )
 
 
+@bot.tree.command(
+    name="course_handicaps",
+    description="Show a player's course handicaps in a paginated leaderboard"
+)
 @app_commands.describe(player="Optional: show handicaps for another player")
-@app_commands.command(name="course_handicaps", description="Show a player's course handicaps in a paginated leaderboard")
 async def course_handicaps(interaction: discord.Interaction, player: Optional[discord.Member] = None):
     await interaction.response.defer(ephemeral=True)
 
