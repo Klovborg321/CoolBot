@@ -1952,14 +1952,17 @@ class GameView(discord.ui.View):
 
     @staticmethod
     async def safe_send(interaction: discord.Interaction, content=None, embed=None, view=None, **kwargs):
-        """
-        Safe wrapper: uses interaction.response for first reply,
-        uses interaction.followup for any further replies.
-        """
         if interaction.response.is_done():
-            await interaction.followup.send(content=content, embed=embed, view=view, **kwargs)
+            if view is None:
+                await interaction.followup.send(content=content, embed=embed, **kwargs)
+            else:
+                await interaction.followup.send(content=content, embed=embed, view=view, **kwargs)
         else:
-            await interaction.response.send_message(content=content, embed=embed, view=view, **kwargs)
+            if view is None:
+                await interaction.response.send_message(content=content, embed=embed, **kwargs)
+            else:
+                await interaction.response.send_message(content=content, embed=embed, view=view, **kwargs)
+
 
     def get_bet_summary(self):
         if not bets:
