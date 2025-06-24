@@ -4234,10 +4234,12 @@ async def course_handicaps(interaction: discord.Interaction, player: discord.Mem
         .execute()
     )
 
-    if response.error:
-        print(response.error)
-        await interaction.followup.send("❌ Error fetching handicaps.")
-        return
+    response = (
+        supabase.table("handicaps")
+        .select("handicap, course_id, courses (name, image_url)")
+        .eq("player_id", str(player.id))
+        .execute()
+    )
 
     data = response.data
 
