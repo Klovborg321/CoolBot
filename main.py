@@ -141,23 +141,56 @@ async def get_parameter(key: str):
         return res.data[0]["value"]
     return None
 
-async def send_global_notification(game_type: str, lobby_link: str, guild: discord.Guild):
-        embed = discord.Embed(
-            title="📢 **MINI GOLF MISFITS!**",
-            description=(
-                f"🏌️ **A new `{game_type}` lobby has started!**\n\n"
-                f"[👉 Click here to join the lobby!]({lobby_link})"
-            ),
-            color=discord.Color.red()
-        )
-        embed.set_image(url="https://nxybekwiefwxnijrwuas.supabase.co/storage/v1/object/public/game-images/banner.png")
 
-        for member in guild.members:
-            if member.status != discord.Status.offline and not member.bot:
-                try:
-                    await member.send(embed=embed)
-                except:
-                    pass
+async def send_global_notification(game_type: str, lobby_link: str, guild: discord.Guild):
+    """
+    📢 Ping a role + send a rich embed with banner.
+    """
+
+    # ✅ 1) Find your server role to ping
+    # SAFEST: use role ID
+    # Example: get the ID from server settings and store as env var or constant
+    if game_type == "singles":
+        ROLE_ID = 1386426975790301235  # Replace with your actual role ID!
+    elif game_type == "doubles":
+        ROLE_ID = 1386428417414795366  # Replace with your actual role ID!
+    elif game_type == "triples":
+        ROLE_ID = 1386428480224366692  # Replace with your actual role ID!
+    elif game_type == "quick-tournament":
+        ROLE_ID = 1386428531411517480  # Replace with your actual role ID!
+
+    role = guild.get_role(ROLE_ID)
+
+    if not role:
+        print(f"[WARN] Role ID {ROLE_ID} not found in guild {guild.name}")
+        return
+
+    # ✅ 2) Build a nice embed
+    embed = discord.Embed(
+        title="🏌️ **Mini Golf Misfits**",
+        description=(
+            f"A new **`{game_type}`** lobby is open!\n\n"
+            f"[👉 **Click here to join the lobby!**]({lobby_link})"
+        ),
+        color=discord.Color.green()
+    )
+    embed.set_image(
+        url="https://nxybekwiefwxnijrwuas.supabase.co/storage/v1/object/public/game-images/banner.png"
+    )
+    embed.set_footer(text="League of Extraordinary Misfits")
+
+    # ✅ 3) Send the ping + embed in ONE atomic message
+    await guild.system_channel.send(
+        content=f"{role.mention} ⛳ **New game alert!**",
+        embed=embed,
+        allowed_mentions=discord.AllowedMentions(
+            roles=True,  # ✅ Only roles can be pinged
+            everyone=False,
+            users=False
+        )
+    )
+
+
 
 async def expected_score(rating_a, rating_b):
     """Expected score for player/team A vs B"""
@@ -865,6 +898,12 @@ class GameJoinView(discord.ui.View):
         # ✅ If full immediately → auto start
         if len(view.players) == view.max_players:
             await view.game_full(interaction)
+        else:
+            await send_global_notification(
+                self.game_type,
+                view.message.jump_url,
+                interaction.guild
+            )
 
 class HandicapLeaderboardView(discord.ui.View):
     def __init__(self, player_name, all_data, requester_name, per_page=10):
