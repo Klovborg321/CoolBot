@@ -4234,13 +4234,13 @@ async def course_handicaps(interaction: discord.Interaction, player: Optional[di
         .execute()
     )
 
-    data = response.data
+    data = [row for row in data if row["handicap"] is not None]
 
     if not data:
-        await interaction.followup.send(f"❌ No handicaps found for {player.mention}.")
+        await interaction.followup.send(f"❌ No valid handicaps found for {player.mention}.")
         return
 
-    # Sort + create paginated view
+    # Now safe to sort
     data.sort(key=lambda x: x["handicap"])
 
     view = HandicapLeaderboardView(
