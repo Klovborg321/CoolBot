@@ -1814,9 +1814,9 @@ class GameView(discord.ui.View):
         self.cancel_abandon_task()
         self.cancel_betting_task()
 
-        pending_games[self.game_type] = self
+        pending_games.pop(self.game_type, None)
 
-        await save_pending_game(self.game_type, self.players, self.channel.id, self.max_players)
+        #await save_pending_game(self.game_type, self.players, self.channel.id, self.max_players)
 
         lobby_embed = await self.build_embed(interaction.guild, no_image=True)
         lobby_embed.title = f"{self.game_type.title()} Game Lobby"
