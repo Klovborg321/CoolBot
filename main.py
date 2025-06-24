@@ -31,7 +31,7 @@ def setup_supabase():
 setup_supabase()  # ← runs immediately when script loads!
 
 # ✅ Discord intents
-intents = discord.Intents.default()
+intents = discord.Intents.all()
 intents.message_content = True
 intents.members = True
 
@@ -4169,6 +4169,51 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
         ephemeral=True  # Only the caller can see it
     )
 
+
+@bot.tree.command(
+    name="course_handicaps",
+    description="Show a player's handicaps for all courses"
+)
+@app_commands.describe(player="Select a player")
+async def course_handicaps(interaction: discord.Interaction, player: discord.Member):
+    await interaction.response.defer(ephemeral=True)
+
+    # 1) Query Supabase
+    response = (
+        supabase.table("handicaps")
+        .select("handicap, course_id, courses (name, image_url)")
+        .eq("player_id", str(player.id))
+        .execute()
+    )
+
+    if response.error:
+        print(response.error)
+        await interaction.followup.send("❌ Error fetching handicaps.")
+        return
+
+    data = response.data
+
+    if not data:
+        await interaction.followup.send(f"❌ No handicaps found for {player.mention}.")
+        return
+
+    # 2) Build Embed
+    embed = discord.Embed(
+        title=f"📊 Handicaps for {player.display_name}",
+        description="Here are all recorded course handicaps:",
+        color=discord.Color.blue()
+    )
+
+    for row in data:
+        course = row["courses"]
+        course_name = course["name"]
+        handicap = row["handicap"]
+
+        embed.add_field(name=course_name, value=f"**Handicap:** {handicap}", inline=False)
+
+    embed.set_footer(text=f"Requested by {interaction.user.display_name}")
+
+    await interaction.followup.send(embed=embed)
 
 @bot.event
 async def on_ready():
