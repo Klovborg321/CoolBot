@@ -142,6 +142,32 @@ async def get_parameter(key: str):
     return None
 
 
+def resolve_bet_choice_name(choice, game_type, players=None, guild=None):
+    choice = str(choice)
+    
+    if choice.upper() in ["A", "B"]:
+        return f"Team {choice.upper()}"
+    
+    if game_type in ["singles", "triples", "tournament"]:
+        try:
+            idx = int(choice) - 1
+            if players and 0 <= idx < len(players):
+                pid = players[idx]
+                if guild:
+                    member = guild.get_member(pid)
+                    return member.display_name if member else f"Player {choice}"
+                return f"Player {choice}"
+        except ValueError:
+            pass
+
+    try:
+        # fallback: treat as Discord user ID
+        member = guild.get_member(int(choice)) if guild else None
+        return member.display_name if member else f"User {choice}"
+    except:
+        return f"User {choice}"
+
+
 async def send_global_notification(game_type: str, lobby_link: str, guild: discord.Guild):
     """
     🔔 Send a push-worthy notification to the alerts channel, with @role ping, embed, and banner.
@@ -3558,13 +3584,18 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
             amount = b.get("amount", 0)
             payout = b.get("payout", 0)
 
+            guild = interaction.guild
             choice_label = str(choice)
-            try:
-                idx = int(choice)
-                choice_label = f"Player {idx}"
-            except (ValueError, TypeError):
-                if str(choice).upper() in ("A", "B"):
-                    choice_label = f"Team {choice.upper()}"
+
+            if str(choice).upper() in ("A", "B"):
+                choice_label = f"Team {choice.upper()}"
+            else:
+                try:
+                    # Attempt to resolve as Discord user ID
+                    member = guild.get_member(int(choice)) if guild else None
+                    choice_label = member.display_name if member else f"User {choice}"
+                except:
+                    pass
 
             if won is True:
                 line = f"✅ Won  {amount:<5} on {choice_label:<8} → Payout {payout}"
