@@ -3070,7 +3070,7 @@ class TournamentLobbyView(discord.ui.View):
             embed = await self.build_embed(self.message.guild)
             await self.message.edit(embed=embed, view=self)
 
-    async def add_bet(self, uid, uname, amount, choice):
+    async def add_bet(self, uid, uname, amount, choice, interaction):
         if choice != str(uid) and uid in self.players:
             await interaction.response.send_message(
                 "❌ You cannot bet on another player in your own game.",
