@@ -3061,7 +3061,9 @@ class TournamentLobbyView(discord.ui.View):
         print(f"[abandon_game] New start posted for {self.game_type} in #{self.parent_channel.name}")
 
     async def join(self, interaction: discord.Interaction):
-        if interaction.user.id in self.players:
+        uid = interaction.user.id
+
+        if uid in self.players:
             await interaction.response.send_message("✅ You are already in the tournament.", ephemeral=True)
             return
 
@@ -3069,19 +3071,23 @@ class TournamentLobbyView(discord.ui.View):
             await interaction.response.send_message("🚫 Tournament is full.", ephemeral=True)
             return
 
-        if player_manager.is_active(interaction.user.id):
+        if player_manager.is_active(uid):
             await interaction.response.send_message("🚫 You are already in another active match.", ephemeral=True)
             return
 
-       
-        self.players.append(interaction.user.id)
+        # ✅ Append to both
+        self.players.append(uid)
+        self.manager.players.append(uid)
+        player_manager.activate(uid)
 
         await self.update_message()
         await interaction.response.send_message("✅ You joined the tournament!", ephemeral=True)
 
-        if len(self.players) == self.max_players and not self.manager.started:
-            self.manager.started = True
+        print(f"👥 Players: {self.players} / {self.max_players}")
+        print(f"📦 Manager players: {self.manager.players}")
 
+        if len(self.players) == self.max_players and not getattr(self.manager, "started", False):
+            self.manager.started = True
             pending_games["tournament"] = None
 
             self.clear_items()
@@ -3089,16 +3095,13 @@ class TournamentLobbyView(discord.ui.View):
                 self.add_item(BettingButtonDropdown(self))
 
             await self.update_message(status="✅ Match is full. Place your bets!")
-            
+
             if self.abandon_task:
                 self.abandon_task.cancel()
 
+            print("🚀 Starting tournament bracket...")
             await self.manager.start_bracket(interaction)
 
-          #  await asyncio.sleep(120)
-          #  self.betting_closed = True
-          #  self.clear_items()
-          #  await self.update_message(status="🕐 Betting closed. Good luck!")
 
     async def abandon_if_not_filled(self):
         try:
