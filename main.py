@@ -39,7 +39,7 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 bot.tournaments = {}
-tree = app_commands.CommandTree(bot) 
+tree = bot.tree 
 
 
 IS_TEST_MODE = os.getenv("TEST_MODE", "1") == "1"
