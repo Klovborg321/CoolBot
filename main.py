@@ -672,8 +672,12 @@ async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
         "won": None
     }).execute())
 
+    target_id = int(choice)  # or however you're storing it
+    member = interaction.guild.get_member(target_id)
+    target_name = member.display_name if member else f"User {target_id}"
+
     await interaction.response.send_message(
-        f"✅ Bet of {amount} placed on {choice}. Potential payout: {payout}",
+        f"✅ Bet of {amount} placed on {target_name}. Potential payout: {payout}",
         ephemeral=True
     )
 
