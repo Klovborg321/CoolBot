@@ -3079,6 +3079,7 @@ class TournamentLobbyView(discord.ui.View):
             return
         
         self.manager.bets.append((uid, uname, amount, choice))
+        return True;
 
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
     def __init__(self, parent_channel, creator, view):
