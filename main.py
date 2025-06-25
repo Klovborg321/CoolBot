@@ -1924,9 +1924,19 @@ class GameView(discord.ui.View):
             return
         embed = await self.build_embed(self.message.guild, bets=self.bets, status=status)
         self.clear_items()
+
+        # ✅ Add Join button if lobby not full
         if not self.betting_closed and len(self.players) < self.max_players:
+            join_button = discord.ui.Button(label="Join Game", style=discord.ButtonStyle.success)
+            join_button.callback = self.join
+            self.add_item(join_button)
+
+        # ✅ Always allow players to leave until game starts
+        if not self.betting_closed:
             self.add_item(LeaveGameButton(self))
-        elif not self.betting_closed and hasattr(self, "betting_button"):
+
+        # ✅ Add betting button if needed
+        if not self.betting_closed and hasattr(self, "betting_button"):
             self.add_item(self.betting_button)
         await self.message.edit(embed=embed, view=self)
 
