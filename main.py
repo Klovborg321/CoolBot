@@ -119,15 +119,6 @@ default_template = {
 
 
 # Helpers
-async def course_name_autocomplete(interaction: Interaction, current: str):
-    try:
-        res = await run_db(lambda: supabase.table("courses").select("name").execute())
-        return [
-            app_commands.Choice(name=row["name"], value=row["name"])
-            for row in res.data if current.lower() in row["name"].lower()
-        ][:25]
-    except Exception:
-        return []
 
 def is_admin(interaction: discord.Interaction) -> bool:
     return interaction.user.guild_permissions.administrator
@@ -4475,53 +4466,6 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
 
 
 
-@tree.command(name="handicaps", description="See all players' handicaps for a course (or all courses)")
-@app_commands.describe(course_name="Filter by a specific course name")
-@app_commands.autocomplete(course_name=course_name_autocomplete)
-async def handicaps(interaction: Interaction, course_name: str = None):
-    await interaction.response.defer(ephemeral=True)
-
-    try:
-        query = supabase.table("handicaps").select("score,handicap,player_id,courses(name),players(username)")
-        if course_name:
-            query = query.ilike("courses.name", f"%{course_name}%")
-
-        res = await run_db(lambda: query.order("courses.name").order("handicap").execute())
-    except Exception as e:
-        await interaction.followup.send(f"❌ Database error: {e}", ephemeral=True)
-        return
-
-    data = res.data or []
-    if not data:
-        await interaction.followup.send("❌ No handicap records found.", ephemeral=True)
-        return
-
-    grouped = defaultdict(list)
-    for h in data:
-        course = h["courses"]["name"]
-        grouped[course].append(h)
-
-    embeds = []
-    for course, records in grouped.items():
-        embed = Embed(title=f"📋 Handicaps for {course}", color=0x3498db)
-        for h in records[:25]:
-            user = h.get("players", {}).get("username", h["player_id"])
-            score = h.get("score", "N/A")
-            handicap = h.get("handicap", "N/A")
-
-            embed.add_field(
-                name=user,
-                value=(
-                    f"Score: **{score}**\n"
-                    f"Handicap: **{handicap:.2f}**"
-                    if isinstance(handicap, (int, float))
-                    else f"Score: **{score}**\nHandicap: **{handicap}**"
-                ),
-                inline=False
-            )
-        embeds.append(embed)
-
-    await interaction.followup.send(embed=embeds[0], ephemeral=True)
 
 @bot.event
 async def on_ready():
