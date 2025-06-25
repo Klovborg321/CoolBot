@@ -2275,19 +2275,19 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
         odds = await odds_provider.get_odds(self.choice)
         payout = int(amount * (1 / odds)) if odds > 0 else amount
 
-        # ✅ Try deducting credits
+        # ✅ Deduct credits
         success = await deduct_credits_atomic(user_id, amount)
         if not success:
             await self.safe_send(interaction, "❌ Not enough credits.", ephemeral=True)
             return
 
-        # ✅ Check if bet is accepted before logging
+        # ✅ Check if bet is allowed
         accepted = await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice, interaction)
         if not accepted:
-            await add_credits_internal(user_id, amount)  # Refund
-            return  # Don't continue
+            await add_credits_internal(user_id, amount)
+            return
 
-        # ✅ Log bet
+        # ✅ Log bet in DB
         await run_db(lambda: supabase.table("bets").insert({
             "player_id": str(user_id),
             "game_id": self.game_view.message.id,
@@ -2297,18 +2297,12 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
             "won": None
         }).execute())
 
-        # ✅ Update UI
-        # ✅ Check if bet was truly accepted!
-        accepted = await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice, interaction)
-        if not accepted:
-            # Bet rejected — refund credits:
-            await add_credits_internal(user_id, amount)
-            return  # ⏹️ DO NOT continue
-        
+        # ✅ Update embed
         await self.game_view.update_message()
 
         # ✅ Resolve choice name
         guild = self.game_view.message.guild if self.game_view.message else None
+        players = getattr(self.game_view, "players", [])
         choice_name = str(self.choice)
 
         if self.choice.upper() in ["A", "B"]:
@@ -2316,11 +2310,14 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
         else:
             try:
                 idx = int(self.choice) - 1
-                if 0 <= idx < len(self.game_view.players):
-                    pid = self.game_view.players[idx]
+                if 0 <= idx < len(players):
+                    pid = players[idx]
                     member = guild.get_member(pid) if guild else None
                     choice_name = member.display_name if member else f"Player {self.choice}"
-            except ValueError:
+                else:
+                    member = guild.get_member(int(self.choice)) if guild else None
+                    choice_name = member.display_name if member else f"User {self.choice}"
+            except:
                 pass  # fallback
 
         # ✅ Final confirmation
@@ -2330,6 +2327,7 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
             f"📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
             ephemeral=True
         )
+
 
     async def safe_send(self, interaction: discord.Interaction, content: str, **kwargs):
         """Send safely: first response OR followup."""
