@@ -3943,13 +3943,28 @@ async def my_handicaps(interaction: discord.Interaction, user: discord.User = No
     description="Show the leaderboard of players ranked by handicap index"
 )
 
+@app_commands.autocomplete("course_name")
+async def course_name_autocomplete(
+    interaction: discord.Interaction,
+    current: str
+) -> list[app_commands.Choice[str]]:
+    try:
+        res = await run_db(lambda: supabase.table("courses").select("name").execute())
+        return [
+            app_commands.Choice(name=row["name"], value=row["name"])
+            for row in res.data if current.lower() in row["name"].lower()
+        ][:25]
+    except Exception:
+        return []
+
+
 @tree.command(
     name="handicaps",
     description="See all players' handicaps for a course (or all courses)"
 )
 @app_commands.describe(course_name="Filter by a specific course name")
-@app_commands.autocomplete(course_name=lambda interaction, current: get_course_autocomplete(current))
-async def handicaps(interaction: Interaction, course_name: str = None):
+@app_commands.autocomplete(course_name=course_name_autocomplete)
+async def handicaps(interaction: discord.Interaction, course_name: str = None):
     await interaction.response.defer(ephemeral=True)
 
     try:
@@ -3974,8 +3989,8 @@ async def handicaps(interaction: Interaction, course_name: str = None):
 
     embeds = []
     for course, records in grouped.items():
-        embed = Embed(title=f"📋 Handicaps for {course}", color=discord.Color.blue())
-        for h in records[:25]:  # Discord allows max 25 fields per embed
+        embed = discord.Embed(title=f"📋 Handicaps for {course}", color=discord.Color.blue())
+        for h in records[:25]:
             user = h.get("players", {}).get("username", h["player_id"])
             score = h.get("score", "N/A")
             handicap = h.get("handicap", "N/A")
@@ -3992,7 +4007,6 @@ async def handicaps(interaction: Interaction, course_name: str = None):
             )
         embeds.append(embed)
 
-    # Pagination
     if len(embeds) == 1:
         await interaction.followup.send(embed=embeds[0], ephemeral=True)
     else:
