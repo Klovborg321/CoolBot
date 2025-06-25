@@ -14,6 +14,7 @@ from discord import app_commands, Interaction, SelectOption, ui, Embed
 from supabase import create_client, Client
 import os
 import uuid
+from collections import defaultdict
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -167,10 +168,7 @@ def resolve_bet_choice_name(choice, game_type, players=None, guild=None):
     except:
         return f"User {choice}"
 
-async def course_name_autocomplete(
-    interaction: discord.Interaction,
-    current: str
-) -> list[app_commands.Choice[str]]:
+async def course_name_autocomplete(interaction: Interaction, current: str):
     try:
         res = await run_db(lambda: supabase.table("courses").select("name").execute())
         return [
@@ -4476,49 +4474,53 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
     )
 
 
-@bot.tree.command(
-    name="course_handicaps",
-    description="Show a player's course handicaps in a paginated leaderboard"
-)
-@app_commands.describe(player="Optional: show handicaps for another player")
-async def course_handicaps(interaction: discord.Interaction, player: Optional[discord.Member] = None):
+@tree.command(name="handicaps", description="See all players' handicaps for a course (or all courses)")
+@app_commands.describe(course_name="Filter by a specific course name")
+@app_commands.autocomplete(course_name=course_name_autocomplete)
+async def handicaps(interaction: Interaction, course_name: str = None):
     await interaction.response.defer(ephemeral=True)
 
-    # ✅ If no player, fallback to the command invoker
-    player = player or interaction.user
+    try:
+        query = supabase.table("handicaps").select("score,handicap,player_id,courses(name),players(username)")
+        if course_name:
+            query = query.ilike("courses.name", f"%{course_name}%")
 
-    # Rest stays the same...
-    response = (
-        supabase.table("handicaps")
-        .select("handicap, course_id, courses (name, image_url)")
-        .eq("player_id", str(player.id))
-        .execute()
-    )
-
-    # ✅ Correct: get raw data first
-    data = response.data
-
-    # ✅ Then filter out nulls
-    data = [row for row in data if row["handicap"] is not None]
-
-    if not data:
-        await interaction.followup.send(f"❌ No valid handicaps found for {player.mention}.")
+        res = await run_db(lambda: query.order("courses.name").order("handicap").execute())
+    except Exception as e:
+        await interaction.followup.send(f"❌ Database error: {e}", ephemeral=True)
         return
 
-    # Now safe to sort
-    data.sort(key=lambda x: x["handicap"])
+    data = res.data or []
+    if not data:
+        await interaction.followup.send("❌ No handicap records found.", ephemeral=True)
+        return
 
-    view = HandicapLeaderboardView(
-        player_name=player.display_name,
-        all_data=data,
-        requester_name=interaction.user.display_name,
-        per_page=10
-    )
-    embed = view.create_embed()
+    grouped = defaultdict(list)
+    for h in data:
+        course = h["courses"]["name"]
+        grouped[course].append(h)
 
-    await interaction.followup.send(embed=embed, view=view)
+    embeds = []
+    for course, records in grouped.items():
+        embed = Embed(title=f"📋 Handicaps for {course}", color=0x3498db)
+        for h in records[:25]:
+            user = h.get("players", {}).get("username", h["player_id"])
+            score = h.get("score", "N/A")
+            handicap = h.get("handicap", "N/A")
 
+            embed.add_field(
+                name=user,
+                value=(
+                    f"Score: **{score}**\n"
+                    f"Handicap: **{handicap:.2f}**"
+                    if isinstance(handicap, (int, float))
+                    else f"Score: **{score}**\nHandicap: **{handicap}**"
+                ),
+                inline=False
+            )
+        embeds.append(embed)
 
+    await interaction.followup.send(embed=embeds[0], ephemeral=True)
 
 @bot.event
 async def on_ready():
