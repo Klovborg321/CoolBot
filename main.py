@@ -2165,10 +2165,12 @@ class GameView(discord.ui.View):
         
         # Always store in the local bets
         if hasattr(self, "bets"):
+            self.bets = [b for b in self.bets if b[0] != uid]
             self.bets.append((uid, uname, amount, choice))
 
         # ✅ Also store in manager if present
         if hasattr(self, "manager") and self.manager:
+            self.manager.bets = [b for b in self.manager.bets if b[0] != uid]
             self.manager.bets.append((uid, uname, amount, choice))
 
         # ✅ Safe fallback for which message to update
@@ -3088,15 +3090,30 @@ class TournamentLobbyView(discord.ui.View):
             await self.message.edit(embed=embed, view=self)
 
     async def add_bet(self, uid, uname, amount, choice, interaction):
-        if choice != str(uid) and uid in self.players:
-            await interaction.response.send_message(
-                "❌ You cannot bet on another player in your own game.",
-                ephemeral=True
+        # ✅ Block players from betting on others in their own tournament
+        if uid in self.players:
+            is_self_bet = (
+                choice == str(uid)
+                or choice == str(self.players.index(uid) + 1)
             )
-            return False
-        
+            if not is_self_bet:
+                await interaction.response.send_message(
+                    "❌ You can only bet on **yourself**.",
+                    ephemeral=True
+                )
+                return False
+
+        # ✅ Deduplicate in tournament bets
+        self.manager.bets = [b for b in self.manager.bets if b[0] != uid]
         self.manager.bets.append((uid, uname, amount, choice))
-        return True;
+
+        # ✅ Re-render updated embed
+        if self.message:
+            embed = await self.build_embed(self.message.guild)
+            await self.message.edit(embed=embed, view=self)
+
+        return True
+
 
 class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
     def __init__(self, parent_channel, creator, view):
