@@ -2102,12 +2102,14 @@ class GameView(discord.ui.View):
         if uid in self.players:
             is_self_bet = (
                 choice == str(uid)
-                or choice == str(self.players.index(uid) + 1)  # player slot number
+                or choice == str(self.players.index(uid) + 1)  # player slot
+                or choice.lower() in ("a", "team a", "b", "team b")  # if teams used
             )
+
             if not is_self_bet:
                 await self.safe_send(
                     interaction,
-                    "❌ You cannot bet on other players in your own game.",
+                    "❌ You can only bet on yourself or your team.",
                     ephemeral=True
                 )
                 return
