@@ -3128,9 +3128,9 @@ class TournamentLobbyView(discord.ui.View):
             bets=bets
         )
 
-    async def update_message(self):
+    async def update_message(self, status=None):
         if self.message:
-            embed = await self.build_embed(self.message.guild)
+            embed = await self.build_embed(self.message.guild, status=status)
             await self.message.edit(embed=embed, view=self)
 
     async def add_bet(self, uid, uname, amount, choice, interaction):
