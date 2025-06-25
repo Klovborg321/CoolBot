@@ -204,14 +204,23 @@ async def update_elo_pair_and_save(player1_id, player2_id, winner, k=32, game_ty
     p1 = await get_player(player1_id)
     p2 = await get_player(player2_id)
 
-    s1 = p1.setdefault("stats", {}).setdefault(game_type, {
-        "rank": 1000, "wins": 0, "losses": 0, "draws": 0,
-        "games_played": 0, "current_streak": 0, "best_streak": 0, "trophies": 0
-    })
-    s2 = p2.setdefault("stats", {}).setdefault(game_type, {
-        "rank": 1000, "wins": 0, "losses": 0, "draws": 0,
-        "games_played": 0, "current_streak": 0, "best_streak": 0, "trophies": 0
-    })
+    # ✅ Safely initialize full stat block
+    default_stats = {
+        "rank": 1000,
+        "wins": 0,
+        "losses": 0,
+        "draws": 0,
+        "games_played": 0,
+        "current_streak": 0,
+        "best_streak": 0,
+        "trophies": 0
+    }
+
+    p1.setdefault("stats", {}).setdefault(game_type, default_stats.copy())
+    p2.setdefault("stats", {}).setdefault(game_type, default_stats.copy())
+
+    s1 = p1["stats"][game_type]
+    s2 = p2["stats"][game_type]
 
     r1 = s1["rank"]
     r2 = s2["rank"]
@@ -265,8 +274,21 @@ async def update_elo_doubles_and_save(teamA_ids, teamB_ids, winner, k=32, game_t
     teamA = [await get_player(pid) for pid in teamA_ids]
     teamB = [await get_player(pid) for pid in teamB_ids]
 
-    avgA = sum(p.setdefault("stats", {}).setdefault(game_type, {"rank": 1000})["rank"] for p in teamA) / 2
-    avgB = sum(p.setdefault("stats", {}).setdefault(game_type, {"rank": 1000})["rank"] for p in teamB) / 2
+    for p in teamA + teamB:
+        p.setdefault("stats", {})
+        p["stats"].setdefault(game_type, {
+            "rank": 1000,
+            "games_played": 0,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "trophies": 0,
+            "current_streak": 0,
+            "best_streak": 0,
+        })
+
+    avgA = sum(p["stats"][game_type]["rank"] for p in teamA) / 2
+    avgB = sum(p["stats"][game_type]["rank"] for p in teamB) / 2
 
     eA = await expected_score(avgA, avgB)
 
@@ -284,17 +306,19 @@ async def update_elo_doubles_and_save(teamA_ids, teamB_ids, winner, k=32, game_t
         old = s["rank"]
         s["rank"] += delta
         s["games_played"] += 1
+
         if sA > sB:
             s["wins"] += 1
             s["trophies"] += 1
             s["current_streak"] += 1
-            s["best_streak"] = max(s.get("best_streak", 0), s["current_streak"])
+            s["best_streak"] = max(s["best_streak"], s["current_streak"])
         elif sA < sB:
             s["losses"] += 1
             s["current_streak"] = 0
         else:
             s["draws"] += 1
             s["current_streak"] = 0
+
         await save_player(teamA_ids[idx], p)
         print(f"[ELO] Team A Player {teamA_ids[idx]}: {old} → {s['rank']}")
 
@@ -303,17 +327,19 @@ async def update_elo_doubles_and_save(teamA_ids, teamB_ids, winner, k=32, game_t
         old = s["rank"]
         s["rank"] -= delta
         s["games_played"] += 1
+
         if sB > sA:
             s["wins"] += 1
             s["trophies"] += 1
             s["current_streak"] += 1
-            s["best_streak"] = max(s.get("best_streak", 0), s["current_streak"])
+            s["best_streak"] = max(s["best_streak"], s["current_streak"])
         elif sB < sA:
             s["losses"] += 1
             s["current_streak"] = 0
         else:
             s["draws"] += 1
             s["current_streak"] = 0
+
         await save_player(teamB_ids[idx], p)
         print(f"[ELO] Team B Player {teamB_ids[idx]}: {old} → {s['rank']}")
 
@@ -325,32 +351,33 @@ async def update_elo_triples_and_save(player_ids, winner, k=32, game_type="tripl
     Triples: free-for-all ELO + per-game-type stats.
     winner: player_id
     """
+    default_stats = {
+        "rank": 1000,
+        "wins": 0,
+        "losses": 0,
+        "draws": 0,
+        "games_played": 0,
+        "current_streak": 0,
+        "best_streak": 0,
+        "trophies": 0
+    }
+
     players = [await get_player(pid) for pid in player_ids]
+    stats_list = []
 
-    # ✅ Make sure each player has stats[triples]
-    stats_list = [
-        p.setdefault("stats", {}).setdefault(game_type, {
-            "rank": 1000,
-            "wins": 0,
-            "losses": 0,
-            "draws": 0,
-            "games_played": 0,
-            "current_streak": 0,
-            "best_streak": 0,
-            "trophies": 0
-        })
-        for p in players
-    ]
+    for p in players:
+        p.setdefault("stats", {})
+        p["stats"].setdefault(game_type, default_stats.copy())
+        stats_list.append(p["stats"][game_type])
 
-    # ✅ Compute current ranks
+    # Compute current ranks
     ranks = [s["rank"] for s in stats_list]
 
-    # ✅ Expected probability for each
+    # Expected score for each player
     exp = [10 ** (r / 400) for r in ranks]
     total = sum(exp)
     expected = [v / total for v in exp]
 
-    # ✅ Update each player
     for idx, p in enumerate(players):
         s = stats_list[idx]
         pid = player_ids[idx]
@@ -372,11 +399,10 @@ async def update_elo_triples_and_save(player_ids, winner, k=32, game_type="tripl
             s["losses"] += 1
             s["current_streak"] = 0
 
-        await save_player(pid, p)
+        await save_player(pid, players[idx])
         print(f"[ELO] Triples Player {pid}: {old_rank} → {s['rank']}")
 
     return [s["rank"] for s in stats_list]
-
 
 
 async def update_elo_series_and_save(player1_id, player2_id, results, k=32, game_type="singles"):
@@ -385,19 +411,25 @@ async def update_elo_series_and_save(player1_id, player2_id, results, k=32, game
     - results: list of outcomes per round: 1, 2, or 0.5 (draw)
     Returns final ELOs for both players for this mode.
     """
+    default_stats = {
+        "rank": 1000,
+        "wins": 0,
+        "losses": 0,
+        "draws": 0,
+        "games_played": 0,
+        "current_streak": 0,
+        "best_streak": 0,
+        "trophies": 0
+    }
 
     p1 = await get_player(player1_id)
     p2 = await get_player(player2_id)
 
-    # ✅ Ensure stats for this game_type exist
-    s1 = p1.setdefault("stats", {}).setdefault(game_type, {
-        "rank": 1000, "wins": 0, "losses": 0, "draws": 0,
-        "games_played": 0, "current_streak": 0, "best_streak": 0, "trophies": 0
-    })
-    s2 = p2.setdefault("stats", {}).setdefault(game_type, {
-        "rank": 1000, "wins": 0, "losses": 0, "draws": 0,
-        "games_played": 0, "current_streak": 0, "best_streak": 0, "trophies": 0
-    })
+    p1.setdefault("stats", {}).setdefault(game_type, default_stats.copy())
+    p2.setdefault("stats", {}).setdefault(game_type, default_stats.copy())
+
+    s1 = p1["stats"][game_type]
+    s2 = p2["stats"][game_type]
 
     r1 = s1["rank"]
     r2 = s2["rank"]
@@ -415,20 +447,19 @@ async def update_elo_series_and_save(player1_id, player2_id, results, k=32, game
         r1 += delta
         r2 -= delta
 
-    # ✅ Final updated ranks after series
+    # Final updated ranks after series
     s1["rank"] = r1
     s2["rank"] = r2
 
-    # ✅ Update stats — treat series as 1 match with winner by majority
+    # Series counted as one game
     s1["games_played"] += 1
     s2["games_played"] += 1
 
     total = sum(results)
     rounds = len(results)
 
-    # majority wins
     if total > rounds / 2:
-        # player1 won series
+        # p1 wins
         s1["wins"] += 1
         s2["losses"] += 1
         s1["current_streak"] += 1
@@ -436,7 +467,7 @@ async def update_elo_series_and_save(player1_id, player2_id, results, k=32, game
         s1["best_streak"] = max(s1["best_streak"], s1["current_streak"])
         s1["trophies"] += 1
     elif total < rounds / 2:
-        # player2 won series
+        # p2 wins
         s2["wins"] += 1
         s1["losses"] += 1
         s2["current_streak"] += 1
@@ -454,7 +485,6 @@ async def update_elo_series_and_save(player1_id, player2_id, results, k=32, game
     await save_player(player2_id, p2)
 
     print(f"[ELO] {game_type.title()} Series updated {player1_id}: {r1} | {player2_id}: {r2}")
-
     return r1, r2
 
 
