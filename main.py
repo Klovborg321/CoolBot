@@ -2770,7 +2770,7 @@ class TournamentManager:
     def __init__(self, bot, creator, max_players=16):
         self.bot = bot
         self.creator = creator
-        self.players = [creator]
+        self.players = [creator.id if hasattr(creator, "id") else creator]
         self.max_players = max_players
         self.bot = bot
         self.matches_completed_this_round = 0
@@ -2789,10 +2789,11 @@ class TournamentManager:
         player_manager.activate(creator) 
 
     async def add_player(self, user):
-        if user.id in self.players or len(self.players) >= self.max_players:
+        uid = user.id if hasattr(user, "id") else user
+        if uid in self.players or len(self.players) >= self.max_players:
             return False
-        self.players.append(user.id)
-        player_manager.activate(user.id)
+        self.players.append(uid)
+        player_manager.activate(uid)
         return True
 
     async def abandon_if_not_filled(self):
@@ -2881,11 +2882,16 @@ class TournamentManager:
 
                 mentions = f"<@{p1}> <@{p2}>"
 
-                msg = await match_thread.send(
-                    content=f"{mentions}\n🏆 This match is part of the tournament!",
-                    embed=embed,
-                    view=room_view
-                )
+                try:
+                    msg = await match_thread.send(
+                        content=f"{mentions}\n🏆 This match is part of the tournament!",
+                        embed=embed,
+                        view=room_view
+                    )
+                except Exception as e:
+                    print(f"❌ Failed to send match embed in thread: {e}")
+                    continue
+
                 room_view.message = msg
                 room_view.channel = match_thread
 
