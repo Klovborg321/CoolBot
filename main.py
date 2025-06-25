@@ -3109,6 +3109,9 @@ class TournamentLobbyView(discord.ui.View):
             print("🚀 Starting tournament bracket...")
             await self.manager.start_bracket(interaction)
 
+            # ✅ Immediately post a new tournament button
+            await start_new_game_button(self.parent_channel, "tournament")
+
 
     async def abandon_if_not_filled(self):
         try:
