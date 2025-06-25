@@ -14,6 +14,7 @@ from discord import app_commands, Interaction, SelectOption, ui, Embed
 from supabase import create_client, Client
 import os
 import uuid
+from collections import defaultdict
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -3943,61 +3944,6 @@ async def my_handicaps(interaction: discord.Interaction, user: discord.User = No
     description="Show the leaderboard of players ranked by handicap index"
 )
 
-
-@tree.command(
-    name="handicaps",
-    description="See all players' handicaps for a course (or all courses)"
-)
-@app_commands.describe(course_name="Filter by a specific course name")
-@app_commands.autocomplete(course_name=course_name_autocomplete)
-async def handicaps(interaction: discord.Interaction, course_name: str = None):
-    await interaction.response.defer(ephemeral=True)
-
-    try:
-        query = supabase.table("handicaps").select("score,handicap,player_id,courses(name),players(username)")
-        if course_name:
-            query = query.ilike("courses.name", f"%{course_name}%")
-
-        res = await run_db(lambda: query.order("courses.name").order("handicap").execute())
-    except Exception as e:
-        await interaction.followup.send(f"❌ Database error: {e}", ephemeral=True)
-        return
-
-    data = res.data or []
-    if not data:
-        await interaction.followup.send("❌ No handicap records found.", ephemeral=True)
-        return
-
-    grouped = defaultdict(list)
-    for h in data:
-        course = h["courses"]["name"]
-        grouped[course].append(h)
-
-    embeds = []
-    for course, records in grouped.items():
-        embed = discord.Embed(title=f"📋 Handicaps for {course}", color=discord.Color.blue())
-        for h in records[:25]:
-            user = h.get("players", {}).get("username", h["player_id"])
-            score = h.get("score", "N/A")
-            handicap = h.get("handicap", "N/A")
-
-            embed.add_field(
-                name=user,
-                value=(
-                    f"Score: **{score}**\n"
-                    f"Handicap: **{handicap:.2f}**"
-                    if isinstance(handicap, (int, float))
-                    else f"Score: **{score}**\nHandicap: **{handicap}**"
-                ),
-                inline=False
-            )
-        embeds.append(embed)
-
-    if len(embeds) == 1:
-        await interaction.followup.send(embed=embeds[0], ephemeral=True)
-    else:
-        view = HandicapPaginator(embeds)
-        await interaction.followup.send(embed=embeds[0], view=view, ephemeral=True)
 
 
 async def handicap_leaderboard(interaction: discord.Interaction):
