@@ -2148,7 +2148,7 @@ class GameView(discord.ui.View):
                         "❌ You can only bet on your **own team**.",
                         ephemeral=True
                     )
-                    return
+                    return False
             else:
                 # Allow only if betting on self
                 is_self_bet = (
@@ -2161,7 +2161,7 @@ class GameView(discord.ui.View):
                         "❌ You can only bet on **yourself**.",
                         ephemeral=True
                     )
-                    return
+                    return False
         
         # Always store in the local bets
         if hasattr(self, "bets"):
@@ -3087,7 +3087,7 @@ class TournamentLobbyView(discord.ui.View):
                 "❌ You cannot bet on another player in your own game.",
                 ephemeral=True
             )
-            return
+            return False
         
         self.manager.bets.append((uid, uname, amount, choice))
         return True;
