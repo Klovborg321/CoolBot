@@ -3901,16 +3901,13 @@ async def handicap_index(interaction: discord.Interaction, user: discord.User = 
     description="See all your submitted scores and handicap differentials"
 )
 async def my_handicaps(interaction: discord.Interaction, user: discord.User = None):
-    # ⏱️ Defer immediately, before anything slow
     await interaction.response.defer(ephemeral=True)
-
-    # Now safe to do slow things
     target = user or interaction.user
 
     try:
         res = await run_db(lambda: supabase
             .table("handicaps")
-            .select("*")
+            .select("score,handicap,course_id,courses(name)")
             .eq("player_id", str(target.id))
             .order("score")
             .execute()
@@ -3929,23 +3926,80 @@ async def my_handicaps(interaction: discord.Interaction, user: discord.User = No
     )
 
     for h in res.data:
-        embed.add_field(
-        name=f"{h['course_name']}",
-        value=(
-            f"Score: **{h['score']}**\n"
-            f"Differential: **{h.get('handicap', 'N/A')}**"
-        ),
-        inline=False
-    )
+        course_name = h["courses"]["name"]
+        score = h["score"]
+        differential = h.get("handicap", "N/A")
 
+        embed.add_field(
+            name=course_name,
+            value=f"Score: **{score}**\nDifferential: **{differential:.2f}**" if isinstance(differential, (int, float)) else f"Score: **{score}**\nDifferential: **{differential}**",
+            inline=False
+        )
 
     await interaction.followup.send(embed=embed, ephemeral=True)
-
 
 @tree.command(
     name="handicap_leaderboard",
     description="Show the leaderboard of players ranked by handicap index"
 )
+
+@tree.command(
+    name="handicaps",
+    description="See all players' handicaps for a course (or all courses)"
+)
+@app_commands.describe(course_name="Filter by a specific course name")
+@app_commands.autocomplete(course_name=lambda interaction, current: get_course_autocomplete(current))
+async def handicaps(interaction: Interaction, course_name: str = None):
+    await interaction.response.defer(ephemeral=True)
+
+    try:
+        query = supabase.table("handicaps").select("score,handicap,player_id,courses(name),players(username)")
+        if course_name:
+            query = query.ilike("courses.name", f"%{course_name}%")
+
+        res = await run_db(lambda: query.order("courses.name").order("handicap").execute())
+    except Exception as e:
+        await interaction.followup.send(f"❌ Database error: {e}", ephemeral=True)
+        return
+
+    data = res.data or []
+    if not data:
+        await interaction.followup.send("❌ No handicap records found.", ephemeral=True)
+        return
+
+    grouped = defaultdict(list)
+    for h in data:
+        course = h["courses"]["name"]
+        grouped[course].append(h)
+
+    embeds = []
+    for course, records in grouped.items():
+        embed = Embed(title=f"📋 Handicaps for {course}", color=discord.Color.blue())
+        for h in records[:25]:  # Discord allows max 25 fields per embed
+            user = h.get("players", {}).get("username", h["player_id"])
+            score = h.get("score", "N/A")
+            handicap = h.get("handicap", "N/A")
+
+            embed.add_field(
+                name=user,
+                value=(
+                    f"Score: **{score}**\n"
+                    f"Handicap: **{handicap:.2f}**"
+                    if isinstance(handicap, (int, float))
+                    else f"Score: **{score}**\nHandicap: **{handicap}**"
+                ),
+                inline=False
+            )
+        embeds.append(embed)
+
+    # Pagination
+    if len(embeds) == 1:
+        await interaction.followup.send(embed=embeds[0], ephemeral=True)
+    else:
+        view = HandicapPaginator(embeds)
+        await interaction.followup.send(embed=embeds[0], view=view, ephemeral=True)
+
+
 async def handicap_leaderboard(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
