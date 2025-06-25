@@ -2646,7 +2646,8 @@ class TournamentManager:
         self.creator = creator
         self.players = [creator]
         self.max_players = max_players
-
+        self.bot = bot
+        self.matches_completed_this_round = 0
         self.message = None           # the main lobby message in parent channel
         self.parent_channel = None    # the parent text channel
 
@@ -2689,6 +2690,7 @@ class TournamentManager:
         await self.run_round(interaction.guild)
 
     async def run_round(self, guild):
+        self.matches_completed_this_round = 0
         players = self.round_players.copy()
         random.shuffle(players)
 
@@ -2765,6 +2767,7 @@ class TournamentManager:
                 self.next_round_players.append(players[i])
 
     async def match_complete(self, winner_id):
+        self.matches_completed_this_round += 1
         self.winners.append(winner_id)
         self.next_round_players.append(winner_id)
 
@@ -2793,22 +2796,11 @@ class TournamentManager:
         if loser_id:
             player_manager.deactivate(loser_id)
 
-        # ✅ Robust: use standard ELO + stats helper for tournaments
-        # Winner goes first, loser second, winner=1
-        await update_elo_pair_and_save(
-            winner_id,
-            loser_id,
-            winner=1,
-            game_type="tournaments"
-        )
-
         # ✅ Refresh leaderboard
         await update_leaderboard(self.bot, game_type)
 
         # ✅ Check if all matches for this round are done
-        expected = len(self.current_matches)
-
-        if len(self.winners) >= expected:
+        if self.matches_completed_this_round >= len(self.current_matches):
             if len(self.next_round_players) == 1:
                 # ✅ Final champion found
                 champ = self.next_round_players[0]
@@ -2959,14 +2951,14 @@ class TournamentLobbyView(discord.ui.View):
             pending_games["tournament"] = None
 
             self.clear_items()
-            self.add_item(BettingButtonDropdown(self))
+            if not any(isinstance(item, BettingButtonDropdown) for item in self.children):
+                self.add_item(BettingButtonDropdown(self))
 
             await self.update_message(status="✅ Match is full. Place your bets!")
             
             if self.abandon_task:
                 self.abandon_task.cancel()
 
-            manager.started = True
             await self.manager.start_bracket(interaction)
 
           #  await asyncio.sleep(120)
