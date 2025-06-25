@@ -119,6 +119,16 @@ default_template = {
 
 
 # Helpers
+async def course_name_autocomplete(interaction: Interaction, current: str):
+    try:
+        res = await run_db(lambda: supabase.table("courses").select("name").execute())
+        return [
+            app_commands.Choice(name=row["name"], value=row["name"])
+            for row in res.data if current.lower() in row["name"].lower()
+        ][:25]
+    except Exception:
+        return []
+
 def is_admin(interaction: discord.Interaction) -> bool:
     return interaction.user.guild_permissions.administrator
 
@@ -4463,15 +4473,7 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
         ephemeral=True  # Only the caller can see it
     )
 
-async def course_name_autocomplete(interaction: Interaction, current: str):
-    try:
-        res = await run_db(lambda: supabase.table("courses").select("name").execute())
-        return [
-            app_commands.Choice(name=row["name"], value=row["name"])
-            for row in res.data if current.lower() in row["name"].lower()
-        ][:25]
-    except Exception:
-        return []
+
 
 @tree.command(name="handicaps", description="See all players' handicaps for a course (or all courses)")
 @app_commands.describe(course_name="Filter by a specific course name")
