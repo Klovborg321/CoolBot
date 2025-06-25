@@ -2100,16 +2100,30 @@ class GameView(discord.ui.View):
 
     async def add_bet(self, uid, uname, amount, choice, interaction):
         if uid in self.players:
-            is_self_bet = (
-                choice == str(uid)
-                or choice == str(self.players.index(uid) + 1)  # player slot
-                or choice.lower() in ("a", "team a", "b", "team b")  # if teams used
-            )
+            if self.game_type == "doubles":
+            # Determine the team the bettor is in
+            team_a = self.players[:2]
+            team_b = self.players[2:]
+            my_team = team_a if uid in team_a else team_b
 
+            if normalize_team(choice) not in ("A", "B") or uid not in my_team:
+                await self.safe_send(
+                    interaction,
+                    "❌ You can only bet on your **own team**.",
+                    ephemeral=True
+                )
+                return
+
+        elif self.game_type in ("singles", "triples", "tournaments"):
+            # Bet must be on self (by ID or slot number)
+            is_self_bet = (
+                choice == str(uid) or
+                choice == str(self.players.index(uid) + 1)
+            )
             if not is_self_bet:
                 await self.safe_send(
                     interaction,
-                    "❌ You can only bet on yourself or your team.",
+                    "❌ You can only bet on **yourself**.",
                     ephemeral=True
                 )
                 return
