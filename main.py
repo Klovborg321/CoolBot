@@ -2267,6 +2267,12 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
             await self.safe_send(interaction, "❌ Not enough credits.", ephemeral=True)
             return
 
+        # ✅ Check if bet is accepted before logging
+        accepted = await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice, interaction)
+        if not accepted:
+            await add_credits_internal(user_id, amount)  # Refund
+            return  # Don't continue
+
         # ✅ Log bet
         await run_db(lambda: supabase.table("bets").insert({
             "player_id": str(user_id),
