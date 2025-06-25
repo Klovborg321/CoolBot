@@ -1096,18 +1096,18 @@ class BetModal(discord.ui.Modal, title="Place Your Bet"):
                 await interaction.response.send_message(f"❌ Invalid choice. Use one of: {', '.join(valid_choices)}.", ephemeral=True)
                 return
 
-            # ✅ Compute odds & payout safely
+            # ✅ Compute odds
             odds_provider = getattr(self.game_view, "_embed_helper", self.game_view)
-            odds = await odds_provider.get_odds(self.choice)
+            odds = await odds_provider.get_odds(choice)
             payout = max(1, int(amount / odds)) if odds > 0 else amount
 
-            # ✅ Atomic balance deduction
+            # ✅ Deduct credits
             success = await deduct_credits_atomic(user_id, amount)
             if not success:
                 await interaction.response.send_message("❌ Not enough credits to place this bet.", ephemeral=True)
                 return
 
-            # ✅ Insert bet in DB
+            # ✅ Insert into database
             await run_db(lambda: supabase
                 .table("bets")
                 .insert({
@@ -1117,25 +1117,32 @@ class BetModal(discord.ui.Modal, title="Place Your Bet"):
                     "amount": amount,
                     "payout": payout,
                     "won": None
-                })
-                .execute()
+                }).execute()
             )
 
-            # ✅ Add to live bets
+            # ✅ Register live bet in memory
             await self.game_view.add_bet(user_id, interaction.user.display_name, amount, choice, interaction)
 
-            # ✅ One guaranteed response
+            # ✅ Attempt to resolve choice name if numeric
+            try:
+                target_id = int(choice)
+                member = interaction.guild.get_member(target_id)
+                target_name = member.display_name if member else f"User {target_id}"
+            except:
+                target_name = choice
+
+            # ✅ Response
             await interaction.response.send_message(
-                f"✅ Bet placed!\n• Choice: **{choice}**\n• Bet: **{amount}**\n• Odds: **{odds * 100:.1f}%**\n• Payout: **{payout}**",
+                f"✅ Bet placed!\n• Choice: **{target_name}**\n• Bet: **{amount}**\n• Odds: **{odds * 100:.1f}%**\n• Payout: **{payout}**",
                 ephemeral=True
             )
 
         except Exception as e:
-            # Failsafe: if interaction already used, fallback
             try:
                 await interaction.followup.send(f"❌ Bet failed: {e}", ephemeral=True)
             except:
                 pass
+
 
 
 
