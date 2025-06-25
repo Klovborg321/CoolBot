@@ -2709,16 +2709,25 @@ class TournamentManager:
 
                 room_name = await room_name_generator.get_unique_word()
 
-                match_thread = await self.parent_channel.create_thread(
-                    name=f"Match-{room_name}",
-                    type=discord.ChannelType.private_thread,
-                    invitable=False
-                )
+                try:
+                    match_thread = await self.parent_channel.create_thread(
+                        name=f"Match-{room_name}",
+                        type=discord.ChannelType.private_thread,
+                        invitable=False
+                    )
+                except discord.Forbidden:
+                    print(f"❌ Missing permission to create thread in #{self.parent_channel}")
+                    continue
+                except discord.HTTPException as e:
+                    print(f"❌ Failed to create thread: {e}")
+                    continue
 
                 for pid in [p1, p2]:
-                    member = guild.get_member(pid)
-                    if member:
+                    try:
+                        member = guild.get_member(pid) or await guild.fetch_member(pid)
                         await match_thread.add_user(member)
+                    except discord.NotFound:
+                        print(f"[warn] Could not fetch or add user {pid}")
 
                 room_view = RoomView(
                     bot=bot,
@@ -2846,10 +2855,10 @@ class TournamentLobbyView(discord.ui.View):
         self.max_players = max_players
         self.game_type = "tournament"
         self.betting_task = None
+        self.abandon_task = None 
         self.message = None
         self.betting_closed = False
         self.bets = []
-        self.manager.started = False
         self.status = None
         self.parent_channel = parent_channel
 
@@ -2881,7 +2890,7 @@ class TournamentLobbyView(discord.ui.View):
             self.betting_task = None
 
     def cancel_abandon_task(self):
-        if hasattr(self, "abandon_task") and self.abandon_task:
+        if hasattr(self, "abandon_game") and self.abandon_task:
             self.abandon_task.cancel()
             self.abandon_task = None
 
@@ -2913,11 +2922,6 @@ class TournamentLobbyView(discord.ui.View):
 
         print(f"[abandon_game] New start posted for {self.game_type} in #{self.parent_channel.name}")
 
-    def cancel_abandon_task(self):
-        if hasattr(self, "abandon_task") and self.abandon_task:
-            self.abandon_task.cancel()
-            self.abandon_task = None
-
     async def join(self, interaction: discord.Interaction):
         if interaction.user.id in self.players:
             await interaction.response.send_message("✅ You are already in the tournament.", ephemeral=True)
@@ -2940,16 +2944,17 @@ class TournamentLobbyView(discord.ui.View):
         if len(self.players) == self.max_players and not self.manager.started:
             self.manager.started = True
 
-            if self.abandon_task:
-                self.abandon_task.cancel()
-
             pending_games["tournament"] = None
 
             self.clear_items()
             self.add_item(BettingButtonDropdown(self))
 
             await self.update_message(status="✅ Match is full. Place your bets!")
+            
+            if self.abandon_task:
+                self.abandon_task.cancel()
 
+            manager.started = True
             await self.manager.start_bracket(interaction)
 
           #  await asyncio.sleep(120)
@@ -2957,15 +2962,16 @@ class TournamentLobbyView(discord.ui.View):
           #  self.clear_items()
           #  await self.update_message(status="🕐 Betting closed. Good luck!")
 
-    #async def abandon_if_not_filled(self):
-    #    timeout = 1000
-    #    elapsed = 0
-    #    while len(self.players) < self.max_players and not self.betting_closed and elapsed < timeout:
-    #        await asyncio.sleep(30)
-    #        elapsed += 30
-    #    if len(self.players) < self.max_players and not self.betting_closed:
-    #        await self.manager.abandon("⏰ Tournament timed out.")
-    #        pending_games["tournament"] = None
+    async def abandon_if_not_filled(self):
+        try:
+            await asyncio.sleep(1000)
+            if self.started:
+                return  # ✅ Game already started
+
+            if len(self.players) < self.max_players:
+                await self.view.abandon_game("⏰ Tournament timed out.")
+        except asyncio.CancelledError:
+            pass  # ✅ clean cancel
 
     async def build_embed(self, guild, winner=None, no_image=True, status=None, bets=None):
         self._embed_helper.players = self.players
@@ -3073,6 +3079,8 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
 
             if manager.abandon_task:
                 manager.abandon_task.cancel()
+
+            manager.started = True
 
             await manager.start_bracket(interaction)
 
