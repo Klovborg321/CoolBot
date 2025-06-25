@@ -2774,8 +2774,20 @@ class TournamentManager:
         loser_id = None
         for match in self.current_matches:
             if winner_id in match.players:
-                loser_id = next(p for p in match.players if p != winner_id)
+                loser_id = next((p for p in match.players if p != winner_id), None)
                 break
+
+        # ✅ SAFEGUARD
+        if loser_id is None:
+            print(f"[ELO ERROR] Could not determine loser for winner {winner_id}. Skipping ELO update.")
+        else:
+            # Only update ELO if both players are known
+            await update_elo_pair_and_save(
+                winner_id,
+                loser_id,
+                winner=1,
+                game_type="tournaments"
+            )
 
         # ✅ Deactivate loser for tournament room tracking
         if loser_id:
