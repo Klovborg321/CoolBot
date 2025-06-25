@@ -917,6 +917,8 @@ class GameJoinView(discord.ui.View):
             interaction.channel
         )
 
+        player_manager.activate(interaction.user.id)
+
         # ✅ TEST MODE: auto-fill dummy players
         if IS_TEST_MODE:
             for pid in TEST_PLAYER_IDS:
@@ -2718,7 +2720,6 @@ class TournamentManager:
         self.matches_completed_this_round = 0
         self.message = None           # the main lobby message in parent channel
         self.parent_channel = None    # the parent text channel
-
         self.current_matches = []
         self.winners = []
         self.round_players = []
@@ -2727,6 +2728,8 @@ class TournamentManager:
         self.bets = []  # ✅ NEW: store live bets (uid, uname, amount, choice)
 
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
+
+        player_manager.activate(creator) 
 
     async def add_player(self, user):
         if user.id in self.players or len(self.players) >= self.max_players:
