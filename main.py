@@ -2797,7 +2797,7 @@ class TournamentManager:
             player_manager.deactivate(loser_id)
 
         # ✅ Refresh leaderboard
-        await update_leaderboard(self.bot, game_type)
+        await update_leaderboard(self.bot, "tournaments")
 
         # ✅ Check if all matches for this round are done
         if self.matches_completed_this_round >= len(self.current_matches):
