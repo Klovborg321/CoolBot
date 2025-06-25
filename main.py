@@ -167,6 +167,18 @@ def resolve_bet_choice_name(choice, game_type, players=None, guild=None):
     except:
         return f"User {choice}"
 
+async def course_name_autocomplete(
+    interaction: discord.Interaction,
+    current: str
+) -> list[app_commands.Choice[str]]:
+    try:
+        res = await run_db(lambda: supabase.table("courses").select("name").execute())
+        return [
+            app_commands.Choice(name=row["name"], value=row["name"])
+            for row in res.data if current.lower() in row["name"].lower()
+        ][:25]
+    except Exception:
+        return []
 
 async def send_global_notification(game_type: str, lobby_link: str, guild: discord.Guild):
     """
@@ -3942,20 +3954,6 @@ async def my_handicaps(interaction: discord.Interaction, user: discord.User = No
     name="handicap_leaderboard",
     description="Show the leaderboard of players ranked by handicap index"
 )
-
-@app_commands.autocomplete("course_name")
-async def course_name_autocomplete(
-    interaction: discord.Interaction,
-    current: str
-) -> list[app_commands.Choice[str]]:
-    try:
-        res = await run_db(lambda: supabase.table("courses").select("name").execute())
-        return [
-            app_commands.Choice(name=row["name"], value=row["name"])
-            for row in res.data if current.lower() in row["name"].lower()
-        ][:25]
-    except Exception:
-        return []
 
 
 @tree.command(
