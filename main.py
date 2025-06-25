@@ -1922,13 +1922,18 @@ class GameView(discord.ui.View):
         if not self.message:
             print("[update_message] SKIPPED: no message to update.")
             return
+
         embed = await self.build_embed(self.message.guild, bets=self.bets, status=status)
         self.clear_items()
 
         # ✅ Add Join button if lobby not full
         if not self.betting_closed and len(self.players) < self.max_players:
             join_button = discord.ui.Button(label="Join Game", style=discord.ButtonStyle.success)
-            join_button.callback = self.join
+
+            async def join_callback(interaction: discord.Interaction):
+                await self.join(interaction, join_button)
+
+            join_button.callback = join_callback
             self.add_item(join_button)
 
         # ✅ Always allow players to leave until game starts
@@ -1938,7 +1943,9 @@ class GameView(discord.ui.View):
         # ✅ Add betting button if needed
         if not self.betting_closed and hasattr(self, "betting_button"):
             self.add_item(self.betting_button)
+
         await self.message.edit(embed=embed, view=self)
+
 
     async def build_embed(self, guild=None, winner=None, no_image=True, status=None, bets=None):
         # Title
