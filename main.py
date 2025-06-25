@@ -2780,6 +2780,7 @@ class TournamentManager:
         self.winners = []
         self.round_players = []
         self.next_round_players = []
+        self.started = False  
 
         self.bets = []  # ✅ NEW: store live bets (uid, uname, amount, choice)
 
