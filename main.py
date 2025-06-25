@@ -144,32 +144,39 @@ async def get_parameter(key: str):
 
 async def send_global_notification(game_type: str, lobby_link: str, guild: discord.Guild):
     """
-    📢 Ping a role + send a rich embed with banner.
+    🔔 Send a push-worthy notification to the alerts channel, with @role ping, embed, and banner.
     """
 
-    # ✅ 1) Find your server role to ping
-    # SAFEST: use role ID
-    # Example: get the ID from server settings and store as env var or constant
-    if game_type == "singles":
-        ROLE_ID = 1386426975790301235  # Replace with your actual role ID!
-    elif game_type == "doubles":
-        ROLE_ID = 1386428417414795366  # Replace with your actual role ID!
-    elif game_type == "triples":
-        ROLE_ID = 1386428480224366692  # Replace with your actual role ID!
-    elif game_type == "quick-tournament":
-        ROLE_ID = 1386428531411517480  # Replace with your actual role ID!
+    # 📌 Match each game type to its ping role
+    ROLE_IDS = {
+        "singles": 1386426975790301235,
+        "doubles": 1386428417414795366,
+        "triples": 1386428480224366692,
+        "quick-tournament": 1386428531411517480,
+    }
 
-    role = guild.get_role(ROLE_ID)
+    # 📢 Channel to send alerts to
+    ALERT_CHANNEL_ID = 1368622438513905715  # replace with your real game-alerts channel ID
 
-    if not role:
-        print(f"[WARN] Role ID {ROLE_ID} not found in guild {guild.name}")
+    role_id = ROLE_IDS.get(game_type)
+    if not role_id:
+        print(f"[WARN] Unknown game type: {game_type}")
         return
 
-    # ✅ 2) Build a nice embed
+    role = guild.get_role(role_id)
+    if not role:
+        print(f"[WARN] Role ID {role_id} not found in guild {guild.name}")
+        return
+
+    channel = guild.get_channel(ALERT_CHANNEL_ID)
+    if not channel:
+        print(f"[ERROR] Channel ID {ALERT_CHANNEL_ID} not found in guild {guild.name}")
+        return
+
     embed = discord.Embed(
         title="🏌️ **Mini Golf Misfits**",
         description=(
-            f"A new **`{game_type}`** lobby is open!\n\n"
+            f"A new **`{game_type}`** lobby just opened!\n\n"
             f"[👉 **Click here to join the lobby!**]({lobby_link})"
         ),
         color=discord.Color.green()
@@ -179,16 +186,13 @@ async def send_global_notification(game_type: str, lobby_link: str, guild: disco
     )
     embed.set_footer(text="League of Extraordinary Misfits")
 
-    # ✅ 3) Send the ping + embed in ONE atomic message
-    await guild.system_channel.send(
-        content=f"{role.mention} ⛳ **New game alert!**",
+    await channel.send(
+        content=f"{role.mention} ⛳ **New `{game_type}` game alert!**",
         embed=embed,
-        allowed_mentions=discord.AllowedMentions(
-            roles=True,  # ✅ Only roles can be pinged
-            everyone=False,
-            users=False
-        )
+        allowed_mentions=discord.AllowedMentions(roles=True)
     )
+
+    print(f"[INFO] Global alert sent for '{game_type}' to #{channel.name}")
 
 
 
