@@ -1123,13 +1123,25 @@ class BetModal(discord.ui.Modal, title="Place Your Bet"):
             # ✅ Register live bet in memory
             await self.game_view.add_bet(user_id, interaction.user.display_name, amount, choice, interaction)
 
-            # ✅ Attempt to resolve choice name if numeric
-            try:
-                target_id = int(choice)
-                member = interaction.guild.get_member(target_id)
-                target_name = member.display_name if member else f"User {target_id}"
-            except:
-                target_name = choice
+            # ✅ Attempt to resolve choice to a display name
+            guild = self.game_view.message.guild if self.game_view.message else None
+            players = getattr(self.game_view, "players", [])
+            target_name = str(choice)
+
+            if choice.upper() in ["A", "B"]:
+                target_name = f"Team {choice.upper()}"
+            else:
+                try:
+                    idx = int(choice) - 1
+                    if 0 <= idx < len(players):
+                        pid = players[idx]
+                        member = guild.get_member(pid) if guild else None
+                        target_name = member.display_name if member else f"Player {choice}"
+                    else:
+                        member = guild.get_member(int(choice)) if guild else None
+                        target_name = member.display_name if member else f"User {choice}"
+                except:
+                    pass  # fallback to raw choice
 
             # ✅ Response
             await interaction.response.send_message(
