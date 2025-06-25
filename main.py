@@ -1666,8 +1666,14 @@ class RoomView(discord.ui.View):
         else:
             print("[finalize_game] ⚠️ No valid game_id found to delete active_game row.")
 
-        if self.on_tournament_complete and isinstance(winner, int):
-            await self.on_tournament_complete(winner)
+        if self.on_tournament_complete:
+            if isinstance(winner, int):
+                await self.on_tournament_complete(winner)
+            else:
+                # ✅ Fallback for draw or no votes — pick a random winner so the tournament can continue
+                print(f"[Tournament] No clear winner — randomly picking from: {self.players}")
+                fallback = random.choice(self.players)
+                await self.on_tournament_complete(fallback)
 
         await update_leaderboard(self.bot, self.game_type)
 
