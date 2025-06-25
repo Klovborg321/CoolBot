@@ -1511,6 +1511,7 @@ class RoomView(discord.ui.View):
         self.game_has_ended = True
 
         # ✅ Count votes
+        self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
         vote_counts = Counter(self.votes.values())
         most_common = vote_counts.most_common()
 
