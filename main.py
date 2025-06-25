@@ -14,7 +14,6 @@ from discord import app_commands, Interaction, SelectOption, ui, Embed
 from supabase import create_client, Client
 import os
 import uuid
-from collections import defaultdict
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
