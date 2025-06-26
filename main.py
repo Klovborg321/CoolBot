@@ -175,24 +175,18 @@ async def send_global_notification(game_type: str, lobby_link: str, guild: disco
     """
 
     # 📌 Match each game type to its ping role
-    ROLE_IDS = {
-        "singles": 1386426975790301235,
-        "doubles": 1386428417414795366,
-        "triples": 1386428480224366692,
-        "quick-tournament": 1386428531411517480,
-    }
+    ROLE_ID = 1387692640438456361
 
     # 📢 Channel to send alerts to
-    ALERT_CHANNEL_ID = 1368622438513905715  # replace with your real game-alerts channel ID
+    ALERT_CHANNEL_ID = 1387693753631772844  # replace with your real game-alerts channel ID
 
-    role_id = ROLE_IDS.get(game_type)
-    if not role_id:
+    if not ROLE_ID:
         print(f"[WARN] Unknown game type: {game_type}")
         return
 
-    role = guild.get_role(role_id)
+    role = guild.get_role(ROLE_ID)
     if not role:
-        print(f"[WARN] Role ID {role_id} not found in guild {guild.name}")
+        print(f"[WARN] Role ID {ROLE_ID} not found in guild {guild.name}")
         return
 
     channel = guild.get_channel(ALERT_CHANNEL_ID)
@@ -1682,7 +1676,7 @@ class RoomView(discord.ui.View):
 
 class GameEndedButton(discord.ui.Button):
     def __init__(self, view):
-        super().__init__(label="Game Ended", style=discord.ButtonStyle.danger)
+        super().__init__(label="End Game", style=discord.ButtonStyle.danger)
         self.view_obj = view  # RoomView
 
     async def callback(self, interaction: discord.Interaction):
