@@ -4684,8 +4684,8 @@ async def on_ready():
     #await restore_active_games(bot)
     #bot.loop.create_task(hourly_room_announcer(bot, 1388042320061927434))
     guild = bot.get_guild(1368622436454633633)
-        channel = guild.get_channel(1388042320061927434)
-        bot.loop.create_task(start_hourly_scheduler(guild, channel))
+    channel = guild.get_channel(1388042320061927434)
+    bot.loop.create_task(start_hourly_scheduler(guild, channel))
 
     rows = await load_pending_games()
     for row in rows:
