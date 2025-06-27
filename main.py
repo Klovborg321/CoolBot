@@ -910,49 +910,63 @@ class PlayerManager:
 
     async def is_active(self, user_id: str | int) -> bool:
         user_id = str(user_id)
-        res = await run_db(lambda: supabase
-            .table("active_players")
-            .select("player_id")
-            .eq("player_id", user_id)
-            .maybe_single()
-            .execute()
-        )
-        return res.data is not None
+        try:
+            res = await run_db(lambda: supabase
+                .table("active_players")
+                .select("player_id")
+                .eq("player_id", user_id)
+                .maybe_single()
+                .execute()
+            )
+            return res is not None and res.data is not None
+        except Exception as e:
+            print(f"[PlayerManager.is_active] Error checking active for {user_id}: {e}")
+            return False
 
     async def activate(self, user_id: str | int):
         user_id = str(user_id)
-        await run_db(lambda: supabase
-            .table("active_players")
-            .upsert({"player_id": user_id})
-            .execute()
-        )
-        print(f"[Supabase] Activated player {user_id}")
+        try:
+            await run_db(lambda: supabase
+                .table("active_players")
+                .upsert({"player_id": user_id})
+                .execute()
+            )
+            print(f"[PlayerManager.activate] Activated player {user_id}")
+        except Exception as e:
+            print(f"[PlayerManager.activate] Failed to activate {user_id}: {e}")
 
     async def deactivate(self, user_id: str | int):
         user_id = str(user_id)
-        await run_db(lambda: supabase
-            .table("active_players")
-            .delete()
-            .eq("player_id", user_id)
-            .execute()
-        )
-        print(f"[Supabase] Deactivated player {user_id}")
+        try:
+            await run_db(lambda: supabase
+                .table("active_players")
+                .delete()
+                .eq("player_id", user_id)
+                .execute()
+            )
+            print(f"[PlayerManager.deactivate] Deactivated player {user_id}")
+        except Exception as e:
+            print(f"[PlayerManager.deactivate] Failed to deactivate {user_id}: {e}")
 
     async def deactivate_many(self, user_ids: list[str | int]):
         for uid in user_ids:
             await self.deactivate(uid)
 
     async def clear(self):
-        await run_db(lambda: supabase
-            .table("active_players")
-            .delete()
-            .neq("player_id", "")  # crude catch-all
-            .execute()
-        )
-        print("[Supabase] Cleared all active players")
+        try:
+            await run_db(lambda: supabase
+                .table("active_players")
+                .delete()
+                .neq("player_id", "")  # crude catch-all
+                .execute()
+            )
+            print("[PlayerManager.clear] Cleared all active players")
+        except Exception as e:
+            print(f"[PlayerManager.clear] Failed to clear active players: {e}")
 
 
 player_manager = PlayerManager()
+
 
 class RoomNameGenerator:
     def __init__(self):
