@@ -1897,7 +1897,6 @@ class GameView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
         await self._handle_join(interaction, button)
 
-        player_manager.activate(interaction.user.id)
         self.players.append(interaction.user.id)
         await interaction.response.defer()
         await self.update_message()
