@@ -2601,7 +2601,7 @@ class SelectedGameInitButton(discord.ui.View):
 
 
 class PaginatedCourseView(discord.ui.View):
-    def __init__(self, courses, per_page=25):
+    def __init__(self, courses, per_page=25, callback_fn=None):
         super().__init__(timeout=120)
         self.courses = courses
         self.per_page = per_page
