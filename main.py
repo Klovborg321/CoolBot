@@ -122,35 +122,63 @@ default_template = {
 
 
 # Helpers
+
 async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChannel):
     await bot.wait_until_ready()
-    print("[scheduler] ⏰ Golden Hour scheduler is active")
+    from views.game_start_view import GameJoinView  # adjust import if needed
 
     while True:
-        now = datetime.now()
-        if now.minute == 0 and now.second == 0:
-            await run_hourly_singles(guild, channel)
-            await asyncio.sleep(60)  # avoid double triggering
-        await asyncio.sleep(1)
+        now = datetime.utcnow()
+        next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+        seconds_until = int((next_hour - now).total_seconds())
 
+        # ✅ Create countdown UI
+        view = HourlyCountdownView(bot, guild, channel, seconds_until)
+        msg = await channel.send("🕒 Golden Hour countdown running...", view=view)
+        view.message = msg
 
-async def run_hourly_singles(guild: discord.Guild, channel: discord.TextChannel):
-    from views.game_start_view import GameJoinView  # your working import
+        await asyncio.sleep(seconds_until + 60)  # wait past the top of the hour
 
-    print("[scheduler] 🎮 Spawning Golden Hour singles match")
+class HourlyCountdownView(discord.ui.View):
+    def __init__(self, bot, guild: discord.Guild, channel: discord.TextChannel, seconds_until_start: int):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.guild = guild
+        self.channel = channel
+        self.seconds_until_start = seconds_until_start
+        self.message = None
+        self.task = asyncio.create_task(self.run_countdown())
 
-    view = GameJoinView(
-        game_type="singles",
-        max_players=2,
-        scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 25 BALLS!"
-    )
+    async def run_countdown(self):
+        while self.seconds_until_start > 0:
+            mins, secs = divmod(self.seconds_until_start, 60)
+            content = f"⏳ Starting **Golden Hour Singles Game** in `{mins:02}:{secs:02}`..."
+            await self.update_message(content)
+            await asyncio.sleep(5)
+            self.seconds_until_start -= 5
 
-    embed = await view.build_embed(guild)
-    view.message = await channel.send(embed=embed, view=view)
+        await self.update_message("🏁 Posting Golden Hour Game...")
 
-    # ✅ Register the active game
-    pending_games["singles"] = view
+        # ✅ Start the hourly singles game
+        await self.post_hourly_game()
 
+    async def update_message(self, content):
+        if self.message:
+            try:
+                await self.message.edit(content=content, view=self)
+            except discord.NotFound:
+                pass
+
+    async def post_hourly_game(self):
+        from views.game_start_view import GameJoinView  # Adjust path if needed
+
+        view = GameJoinView(
+            game_type="singles",
+            max_players=2,
+            scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 25 BALLS!"
+        )
+        msg = await self.channel.send("🎮 **Golden Hour Game** is now live:", view=view)
+        start_buttons[(self.channel.id, "singles")] = msg
 
 async def hourly_room_announcer(bot, lobby_channel_id):
     await bot.wait_until_ready()
@@ -4676,17 +4704,39 @@ async def run_hourly_singles(guild: discord.Guild, channel: discord.TextChannel)
         # ✅ Wait at least a minute to avoid double trigger
         await asyncio.sleep(60)
 
+@tree.command(name="golden_hour")
+async def golden_hour(interaction: discord.Interaction):
+    """Starts a countdown for a golden hour singles game."""
+    await interaction.response.defer()
+
+    now = datetime.utcnow()
+    next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+    seconds_until = int((next_hour - now).total_seconds())
+
+    view = HourlyCountdownView(bot, interaction.guild, interaction.channel, seconds_until)
+    msg = await interaction.channel.send("⏳ Countdown starting...", view=view)
+    view.message = msg
 
 @bot.event
 async def on_ready():
     await tree.sync()
     print(f"✅ Logged in as {bot.user}")
-    #await restore_active_games(bot)
-    #bot.loop.create_task(hourly_room_announcer(bot, 1388042320061927434))
+
+    # ✅ Optional: restore active games if needed
+    # await restore_active_games(bot)
+
+    # ✅ Get your main guild and channel
     guild = bot.get_guild(1368622436454633633)
     channel = guild.get_channel(1388042320061927434)
+
+    if not guild or not channel:
+        print("❌ Guild or channel not found.")
+        return
+
+    # ✅ Start hourly countdown loop
     bot.loop.create_task(start_hourly_scheduler(guild, channel))
 
+    # ✅ Load any leftover pending games into memory
     rows = await load_pending_games()
     for row in rows:
         game_type = row["game_type"]
@@ -4694,6 +4744,7 @@ async def on_ready():
         pending_games[game_type] = {"players": players}
 
     print(f"✅ Loaded pending games into RAM for checks: {pending_games}")
+
 
 
 bot.run(os.getenv("DISCORD_BOT_TOKEN"))
