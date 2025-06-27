@@ -15,6 +15,7 @@ from supabase import create_client, Client
 import os
 import uuid
 from collections import defaultdict
+import datetime
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -119,6 +120,54 @@ default_template = {
 
 
 # Helpers
+async def hourly_room_announcer(bot, lobby_channel_id):
+    await bot.wait_until_ready()
+    lobby_channel = bot.get_channel(lobby_channel_id)
+    
+    active_announcement = None
+
+    while not bot.is_closed():
+        now = datetime.datetime.now()
+
+        # Handle creation at :15 and :45
+        if now.minute in (15, 45):
+            timestamp = now.strftime("%H:%M")
+
+            # 🎯 Fetch a random course
+            res = await run_db(lambda: supabase.table("courses").select("id", "name", "image_url").execute())
+            chosen = random.choice(res.data or [{}])
+            course_name = chosen.get("name", "Unknown Course")
+            course_image = chosen.get("image_url", "")
+            
+            room_name = await get_unique_word()
+            expire_ts = int((datetime.datetime.now() + datetime.timedelta(minutes=15)).timestamp())
+
+            embed = discord.Embed(
+                title=f"🕹️ Special Match Room: **{room_name.upper()}**",
+                description=(
+                    f"**Course:** `{course_name}`\n"
+                    f"**Start Time:** `{timestamp}`\n"
+                    f"⏳ *Expires <t:{expire_ts}:R>*"
+                ),
+                color=discord.Color.gold()
+            )
+            if course_image:
+                embed.set_image(url=course_image)
+
+            active_announcement = await lobby_channel.send(embed=embed)
+
+        # Handle expiration at :00 and :30
+        elif now.minute in (0, 30):
+            if active_announcement:
+                try:
+                    await active_announcement.edit(content="⚠️ This room has now expired.", embed=None, view=None)
+                except Exception as e:
+                    print(f"[ERROR] Failed to expire room message: {e}")
+                active_announcement = None
+
+        await asyncio.sleep(60)
+
+
 
 def is_admin(interaction: discord.Interaction) -> bool:
     return interaction.user.guild_permissions.administrator
@@ -4431,6 +4480,7 @@ async def on_ready():
     await tree.sync()
     print(f"✅ Logged in as {bot.user}")
     #await restore_active_games(bot)
+    bot.loop.create_task(hourly_room_announcer(bot, 1388042320061927434))
 
     rows = await load_pending_games()
     for row in rows:
