@@ -122,6 +122,35 @@ default_template = {
 
 
 # Helpers
+async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChannel):
+    await bot.wait_until_ready()
+    print("[scheduler] ⏰ Golden Hour scheduler is active")
+
+    while True:
+        now = datetime.now()
+        if now.minute == 0 and now.second == 0:
+            await run_hourly_singles(guild, channel)
+            await asyncio.sleep(60)  # avoid double triggering
+        await asyncio.sleep(1)
+
+
+async def run_hourly_singles(guild: discord.Guild, channel: discord.TextChannel):
+    from views.game_start_view import GameJoinView  # your working import
+
+    print("[scheduler] 🎮 Spawning Golden Hour singles match")
+
+    view = GameJoinView(
+        game_type="singles",
+        max_players=2,
+        scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 25 BALLS!"
+    )
+
+    embed = await view.build_embed(guild)
+    view.message = await channel.send(embed=embed, view=view)
+
+    # ✅ Register the active game
+    pending_games["singles"] = view
+
 
 async def hourly_room_announcer(bot, lobby_channel_id):
     await bot.wait_until_ready()
@@ -4654,6 +4683,9 @@ async def on_ready():
     print(f"✅ Logged in as {bot.user}")
     #await restore_active_games(bot)
     #bot.loop.create_task(hourly_room_announcer(bot, 1388042320061927434))
+    guild = bot.get_guild(1368622436454633633)
+        channel = guild.get_channel(1388042320061927434)
+        bot.loop.create_task(start_hourly_scheduler(guild, channel))
 
     rows = await load_pending_games()
     for row in rows:
