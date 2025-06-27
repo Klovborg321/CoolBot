@@ -123,51 +123,68 @@ default_template = {
 async def hourly_room_announcer(bot, lobby_channel_id):
     await bot.wait_until_ready()
     lobby_channel = bot.get_channel(lobby_channel_id)
-    
+
+    if not lobby_channel:
+        print(f"[ERROR] Lobby channel ID {lobby_channel_id} not found!")
+        return
+
+    last_triggered_minute = None
     active_announcement = None
 
     while not bot.is_closed():
         now = datetime.datetime.now()
+        minute = now.minute
 
-        # Handle creation at :15 and :45
-        if now.minute in (15, 45):
+        # Create game at HH:15 or HH:45
+        if minute in (15, 45) and last_triggered_minute != minute:
+            last_triggered_minute = minute
             timestamp = now.strftime("%H:%M")
 
-            # 🎯 Fetch a random course
-            res = await run_db(lambda: supabase.table("courses").select("id", "name", "image_url").execute())
-            chosen = random.choice(res.data or [{}])
-            course_name = chosen.get("name", "Unknown Course")
-            course_image = chosen.get("image_url", "")
-            
-            room_name = await room_name_generator.get_unique_word()
-            expire_ts = int((datetime.datetime.now() + datetime.timedelta(minutes=15)).timestamp())
+            try:
+                # Fetch random course
+                res = await run_db(lambda: supabase.table("courses").select("id", "name", "image_url").execute())
+                chosen = random.choice(res.data or [{}])
+                course_name = chosen.get("name", "Unknown Course")
+                course_image = chosen.get("image_url", "")
 
-            embed = discord.Embed(
-                title=f"🕹️ Special Match Room: **{room_name.upper()}**",
-                description=(
-                    f"**Course:** `{course_name}`\n"
-                    f"**Start Time:** `{timestamp}`\n"
-                    f"⏳ *Expires <t:{expire_ts}:R>*"
-                ),
-                color=discord.Color.gold()
-            )
-            if course_image:
-                embed.set_image(url=course_image)
+                # Generate unique room name
+                room_name = await room_name_generator.get_unique_word()
+                expire_ts = int((now + datetime.timedelta(minutes=15)).timestamp())
 
-            active_announcement = await lobby_channel.send(embed=embed)
+                embed = discord.Embed(
+                    title=f"🕹️ Special Match Room: **{room_name.upper()}**",
+                    description=(
+                        f"**Course:** `{course_name}`\n"
+                        f"**Start Time:** `{timestamp}`\n"
+                        f"⏳ *Expires <t:{expire_ts}:R>*\n"
+                        f"\n👍 React if you're interested!"
+                    ),
+                    color=discord.Color.gold()
+                )
 
-        # Handle expiration at :00 and :30
-        elif now.minute in (0, 30):
+                if course_image:
+                    embed.set_image(url=course_image)
+
+                active_announcement = await lobby_channel.send(embed=embed)
+                await active_announcement.add_reaction("👍")
+                print(f"[INFO] Hourly room posted at {timestamp} with course: {course_name}")
+
+            except Exception as e:
+                print(f"[ERROR] Failed to post hourly room: {e}")
+
+        # Expire game at HH:00 or HH:30
+        elif minute in (0, 30) and last_triggered_minute != minute:
+            last_triggered_minute = minute
+
             if active_announcement:
                 try:
                     await active_announcement.edit(content="⚠️ This room has now expired.", embed=None, view=None)
+                    print(f"[INFO] Hourly room expired at {now.strftime('%H:%M')}")
                 except Exception as e:
                     print(f"[ERROR] Failed to expire room message: {e}")
                 active_announcement = None
 
-        await asyncio.sleep(60)
-
-
+        await asyncio.sleep(10)  # Check every 10 seconds
 
 def is_admin(interaction: discord.Interaction) -> bool:
     return interaction.user.guild_permissions.administrator
@@ -2556,12 +2573,13 @@ class SelectedGameInitButton(discord.ui.View):
             embed = discord.Embed(
                 title=f"🕹️ Selected Match Room: **{room_name.upper()}**",
                 description=(
-                    f"**Course:** `{course_name}`\n"
-                    f"**Start Time:** `{timestamp}`\n"
-                    f"⏳ *Expires <t:{expire_ts}:R>*"
-                ),
-                color=discord.Color.green()
-            )
+                f"**Course:** `{course_name}`\n"
+                f"**Start Time:** `{timestamp}`\n"
+                f"⏳ *Expires <t:{expire_ts}:R>*\n"
+                f"\n👍 React if you're interested!"
+            ),
+            color=discord.Color.green()
+)
             if course_image:
                 embed.set_image(url=course_image)
 
