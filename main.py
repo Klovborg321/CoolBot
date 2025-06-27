@@ -133,25 +133,24 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
         await asyncio.sleep(seconds_until_next_hour)
 
         try:
-            # ✅ Use bot.user as the "creator"
-            creator = None
+            creator = guild.get_member(bot.user.id)
             view = GameView(
                 game_type="singles",
-                creator = creator,
+                creator=creator,
+                max_players=2,
                 channel=channel,
                 scheduled_note="💰 GOLDEN HOUR GAME — Winner gets 25 balls!"
             )
 
-            # ✅ Send the initial lobby message
             embed = await view.build_embed(guild)
             message = await channel.send(embed=embed, view=view)
             view.message = message
 
-            # ✅ Track pending game so others can join
             pending_games["singles"] = view
 
+            # ✅ Start 10-minute auto-abandon
             async def auto_abandon_task():
-                await asyncio.sleep(600)  # 10 minutes
+                await asyncio.sleep(600)
                 if not view.has_started:
                     await view.abandon_game("⏱️ Hourly match expired (no full lobby).")
                     print("[HOURLY] Abandoned hourly game due to inactivity.")
@@ -163,7 +162,8 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
         except Exception as e:
             print(f"[HOURLY ERROR] Failed to start hourly match: {e}")
 
-        await asyncio.sleep(60)
+        # ✅ Don't sleep here — loop will wait for top of next hour automatically
+
 
 
 
@@ -2156,7 +2156,8 @@ class GameView(discord.ui.View):
         room_view.message = thread_msg
 
         await save_game_state(self, self, room_view)
-        await start_new_game_button(self.channel, self.game_type, self.max_players)
+        if not self.scheduled_note:
+            await start_new_game_button(self.channel, self.game_type, self.max_players)
         await self.show_betting_phase()
 
     async def _handle_join(self, interaction: discord.Interaction, button: discord.ui.Button):
