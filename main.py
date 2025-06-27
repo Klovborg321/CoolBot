@@ -2557,7 +2557,7 @@ class SelectedGameInitButton(discord.ui.View):
             await interaction.response.send_message("⚠️ No courses found.", ephemeral=True)
             return
 
-        # Callback after course is selected
+        # ✅ Callback after a course is selected
         async def on_course_selected(inter, course_id):
             course = next((c for c in all_courses if str(c["id"]) == course_id), None)
             if not course:
@@ -2566,33 +2566,33 @@ class SelectedGameInitButton(discord.ui.View):
 
             course_name = course.get("name", "Unknown Course")
             course_image = course.get("image_url", "")
-            room_name = await get_unique_word()
+            room_name = await room_name_generator.get_unique_word()
             timestamp = datetime.datetime.now().strftime("%H:%M")
             expire_ts = int((datetime.datetime.now() + datetime.timedelta(minutes=15)).timestamp())
 
             embed = discord.Embed(
                 title=f"🕹️ Selected Match Room: **{room_name.upper()}**",
                 description=(
-                f"**Course:** `{course_name}`\n"
-                f"**Start Time:** `{timestamp}`\n"
-                f"⏳ *Expires <t:{expire_ts}:R>*\n"
-                f"\n👍 React if you're interested!"
-            ),
-            color=discord.Color.green()
-)
+                    f"**Course:** `{course_name}`\n"
+                    f"**Start Time:** `{timestamp}`\n"
+                    f"⏳ *Expires <t:{expire_ts}:R>*\n"
+                    f"\n👍 React if you're interested!"
+                ),
+                color=discord.Color.green()
+            )
             if course_image:
                 embed.set_image(url=course_image)
 
             lobby_channel = self.bot.get_channel(self.lobby_channel_id)
-            await lobby_channel.send(embed=embed)
+            msg = await lobby_channel.send(embed=embed)
+            await msg.add_reaction("👍")
             await inter.response.edit_message(content="✅ Game created!", view=None)
 
-        # Create paginated course picker
+        # ✅ Create paginated course picker
         view = PaginatedCourseView(all_courses, per_page=25)
         view.callback_fn = on_course_selected
-
         await interaction.response.send_message("🧭 Select a course:", view=view, ephemeral=True)
-
+        view.message = await interaction.original_response()  # ✅ prevent NoneType
 
 
 class PaginatedCourseView(discord.ui.View):
@@ -2602,12 +2602,8 @@ class PaginatedCourseView(discord.ui.View):
         self.per_page = per_page
         self.page = 0
         self.message = None
-        self.callback_fn = None  # ✅ Define before update_children
+        self.callback_fn = None  # ✅ define before update_children
         self.update_children()
-
-    def has_options(self):
-        """True if there is at least one course total"""
-        return len(self.courses) > 0
 
     def update_children(self):
         self.clear_items()
@@ -2629,7 +2625,8 @@ class PaginatedCourseView(discord.ui.View):
 
     async def update(self):
         self.update_children()
-        await self.message.edit(view=self)
+        if self.message:
+            await self.message.edit(view=self)
 
     class PrevButton(discord.ui.Button):
         def __init__(self, view):
