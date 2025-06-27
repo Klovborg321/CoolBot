@@ -2602,6 +2602,7 @@ class PaginatedCourseView(discord.ui.View):
         self.per_page = per_page
         self.page = 0
         self.message = None
+        self.callback_fn = None  # ✅ Define before update_children
         self.update_children()
 
     def has_options(self):
