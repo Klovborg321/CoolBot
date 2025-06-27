@@ -125,19 +125,28 @@ default_template = {
 
 async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChannel):
     await bot.wait_until_ready()
-    from views.game_start_view import GameJoinView  # adjust import if needed
 
     while True:
-        now = datetime.utcnow()
-        next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
-        seconds_until = int((next_hour - now).total_seconds())
+        now = datetime.now()
+        seconds_until_next_hour = 3600 - (now.minute * 60 + now.second)
+        print(f"[SCHEDULER] Waiting {seconds_until_next_hour} seconds until the next hour...")
+        await asyncio.sleep(seconds_until_next_hour)
 
-        # ✅ Create countdown UI
-        view = HourlyCountdownView(bot, guild, channel, seconds_until)
-        msg = await channel.send("🕒 Golden Hour countdown running...", view=view)
-        view.message = msg
+        # ✅ At top of the hour
+        try:
+            view = GameJoinView(
+                game_type="singles",
+                max_players=2,
+                scheduled_note="💰 GOLDEN HOUR GAME — Winner gets 25 balls!"
+            )
 
-        await asyncio.sleep(seconds_until + 60)  # wait past the top of the hour
+            await channel.send("🕒 It's game time! A new **hourly singles match** is starting now!", view=view)
+            print("[SCHEDULER] Posted hourly singles match.")
+        except Exception as e:
+            print(f"[SCHEDULER ERROR] Failed to post hourly match: {e}")
+        
+        await asyncio.sleep(60)  # ✅ Prevent double post within same minute
+
 
 class HourlyCountdownView(discord.ui.View):
     def __init__(self, bot, guild: discord.Guild, channel: discord.TextChannel, seconds_until_start: int):
@@ -170,8 +179,6 @@ class HourlyCountdownView(discord.ui.View):
                 pass
 
     async def post_hourly_game(self):
-        from views.game_start_view import GameJoinView  # Adjust path if needed
-
         view = GameJoinView(
             game_type="singles",
             max_players=2,
