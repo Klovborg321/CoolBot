@@ -2525,6 +2525,62 @@ class LeaderboardView(discord.ui.View):
             await self.view_obj.update(interaction)
 
 
+class SelectedGameInitButton(discord.ui.View):
+    def __init__(self, bot, lobby_channel_id):
+        super().__init__(timeout=None)
+        self.bot = bot
+        self.lobby_channel_id = lobby_channel_id
+
+        self.add_item(discord.ui.Button(
+            label="🎮 New Selected Game",
+            style=discord.ButtonStyle.primary,
+            custom_id="selected_game_button"
+        ))
+
+    @discord.ui.button(label="🎮 New Selected Game", style=discord.ButtonStyle.primary)
+    async def create_selected_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Fetch courses
+        res = await run_db(lambda: supabase.table("courses").select("*").order("name").execute())
+        all_courses = res.data or []
+
+        if not all_courses:
+            await interaction.response.send_message("⚠️ No courses available.", ephemeral=True)
+            return
+
+        # Callback for when user selects course
+        async def on_course_selected(inter: discord.Interaction, course_id: str):
+            course = next((c for c in all_courses if str(c["id"]) == str(course_id)), None)
+            if not course:
+                await inter.response.send_message("❌ Course not found.", ephemeral=True)
+                return
+
+            course_name = course.get("name", "Unknown Course")
+            course_image = course.get("image_url", "")
+            room_name = await get_unique_word()
+            timestamp = datetime.datetime.now().strftime("%H:%M")
+            expire_ts = int((datetime.datetime.now() + datetime.timedelta(minutes=15)).timestamp())
+
+            embed = discord.Embed(
+                title=f"🕹️ Selected Match Room: **{room_name.upper()}**",
+                description=(
+                    f"**Course:** `{course_name}`\n"
+                    f"**Start Time:** `{timestamp}`\n"
+                    f"⏳ *Expires <t:{expire_ts}:R>*"
+                ),
+                color=discord.Color.green()
+            )
+            if course_image:
+                embed.set_image(url=course_image)
+
+            lobby_channel = self.bot.get_channel(self.lobby_channel_id)
+            await lobby_channel.send(embed=embed)
+            await inter.response.edit_message(content="✅ Game created!", view=None)
+
+        view = PaginatedCourseView(all_courses)
+        select = CourseSelect(all_courses, on_course_selected)
+        view.add_item(select)
+
+        await interaction.response.send_message("🧭 Select a course:", view=view, ephemeral=True)
 
 
 
@@ -4472,7 +4528,11 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
         ephemeral=True  # Only the caller can see it
     )
 
-
+@tree.command(name="init_selected", description="Post a button to create a selected course game")
+async def init_selected(interaction: discord.Interaction):
+    """Posts a button for creating a selected-course game."""
+    view = SelectedGameInitButton(bot, interaction.channel.id)
+    await interaction.response.send_message("🎯 Click to start a **selected course** game:", view=view, ephemeral=True)
 
 
 @bot.event
