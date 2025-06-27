@@ -155,12 +155,13 @@ async def hourly_room_announcer(bot, lobby_channel_id):
                 expire_ts = int((now + datetime.timedelta(minutes=15)).timestamp())
 
                 embed = discord.Embed(
-                    title=f"🕹️ Special Match Room: **{room_name.upper()}**",
+                    title=f"🕹️ Match Room: **{room_name.upper()}**",
                     description=(
                         f"**Course:** `{course_name}`\n"
                         f"**Start Time:** `{timestamp}`\n"
                         f"⏳ *Expires <t:{expire_ts}:R>*\n"
                         f"\n👍 React if you're interested!"
+                        f"\n\n - 💰 25 BALLS GOES TO THE WINNER! - 💰"
                     ),
                     color=discord.Color.gold()
                 )
@@ -4549,6 +4550,36 @@ async def init_selected(interaction: discord.Interaction):
         ephemeral=True
     )
 
+@tree.command(name="schedule_singles_game", description="Start a singles game automatically at :55 every hour.")
+async def schedule_singles_game(interaction: discord.Interaction):
+    await interaction.response.send_message("✅ Singles game will auto-start at :55 every hour.", ephemeral=True)
+    bot.loop.create_task(run_hourly_singles(interaction.guild, interaction.channel))
+
+async def run_hourly_singles(guild: discord.Guild, channel: discord.TextChannel):
+    await bot.wait_until_ready()
+
+    while True:
+        now = datetime.now()
+        minutes = now.minute
+
+        # Wait until :55
+        if minutes != 55:
+            await asyncio.sleep(30)
+            continue
+
+        try:
+            from views.game_start_view import GameJoinView  # or import your StartView logic
+        except ImportError:
+            print("[ERROR] Could not import GameJoinView")
+            return
+
+        # Start singles game in the channel
+        view = GameJoinView(game_type="singles", max_players=2)
+        await channel.send("🎯 Auto-starting a **singles** game:", view=view)
+        print(f"[INFO] Auto-started singles game at {now.strftime('%H:%M')}")
+
+        # Sleep to avoid reposting within the same minute
+        await asyncio.sleep(60)
 
 @bot.event
 async def on_ready():
