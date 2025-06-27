@@ -3802,42 +3802,16 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@tree.command(
-    name="clear_active",
-    description="Admin: Clear all pending games, start buttons, or only a specific user's active state."
-)
-@app_commands.describe(
-    user="User to clear from active players (optional)"
-)
-@discord.app_commands.checks.has_permissions(administrator=True)
-async def clear_active(player_id: str):
-    """
-    Remove any active_games records where the player_id is part of the players JSONB.
-    """
-    # Step 1: Fetch games with this player
-    res = await run_db(lambda: supabase
-        .table("active_games")
-        .select("id, players")
-        .ilike("players", f'%{player_id}%')  # Uses LIKE to match player ID in JSONB
-        .execute()
-    )
-
-    if not res.data:
-        print(f"[clear_active] No active game found for player {player_id}")
-        return
-
-    for game in res.data:
-        game_id = game["id"]
-        player_list = game.get("players", [])
-        if player_id in player_list:
-            # Step 2: Delete the record if the player is confirmed in the list
-            await run_db(lambda: supabase
-                .table("active_games")
-                .delete()
-                .eq("id", game_id)
-                .execute()
-            )
-            print(f"[clear_active] Removed active game {game_id} for player {player_id}")
+@tree.command(name="clear_active", description="Clear active status for a user or everyone.")
+@app_commands.describe(user="(Optional) The user to clear. Leave blank to clear all.")
+@app_commands.checks.has_permissions(administrator=True)
+async def clear_active(interaction: discord.Interaction, user: discord.User = None):
+    if user:
+        await player_manager.deactivate(user.id)
+        await interaction.response.send_message(f"✅ Cleared active status for {user.mention}", ephemeral=True)
+    else:
+        await player_manager.clear()
+        await interaction.response.send_message("✅ Cleared active status for **all** players.", ephemeral=True)
 
 
 @tree.command(
