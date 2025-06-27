@@ -966,10 +966,11 @@ room_name_generator = RoomNameGenerator()
 
 
 class GameJoinView(discord.ui.View):
-    def __init__(self, game_type, max_players):
+    def __init__(self, game_type, max_players, scheduled_note=None):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.max_players = max_players
+        self.scheduled_note = scheduled_note 
 
         # ✅ Use dynamic label
         button = discord.ui.Button(
@@ -1009,7 +1010,8 @@ class GameJoinView(discord.ui.View):
             self.game_type,
             interaction.user.id,
             self.max_players,
-            interaction.channel
+            interaction.channel,
+            scheduled_note=self.scheduled_note
         )
 
         player_manager.activate(interaction.user.id)
@@ -1346,7 +1348,7 @@ class BetDropdown(discord.ui.Select):
 
 
 class RoomView(discord.ui.View):
-    def __init__(self, bot, guild, players, game_type, room_name, lobby_message=None, lobby_embed=None, game_view=None, course_name=None, course_id=None, max_players=2):
+    def __init__(self, bot, guild, players, game_type, room_name, lobby_message=None, lobby_embed=None, game_view=None, course_name=None, course_id=None, max_players=2, is_hourly=False):
         super().__init__(timeout=None)
         self.bot = bot             # ✅ store bot
         self.guild = guild     
@@ -1361,6 +1363,7 @@ class RoomView(discord.ui.View):
         self.max_players = max_players  # ✅ store it!
         self.betting_task = None
         self.betting_closed = False
+        self.is_hourly = is_hourly
 
         # ✅ Store course_name robustly:
         self.course_name = course_name or getattr(game_view, "course_name", None)
@@ -1712,6 +1715,10 @@ class RoomView(discord.ui.View):
         await self.channel.edit(archived=True)
         pending_games[self.game_type] = None
 
+        if self.is_hourly and winner and winner != "draw":
+            await add_credits_internal(winner, 25)
+            print(f"[💰] Hourly game: awarded 25 credits to {winner}")
+
         # ✅ Robust: delete active_game row with fallback ID
         target_game_id = (
             str(self.lobby_message.id)
@@ -1862,7 +1869,7 @@ class TournamentStartButtonView(discord.ui.View):
 
 
 class GameView(discord.ui.View):
-    def __init__(self, game_type, creator, max_players, channel):
+    def __init__(self, game_type, creator, max_players, channel, scheduled_note=None):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
@@ -1878,6 +1885,7 @@ class GameView(discord.ui.View):
         self.game_has_ended = False
         self.thread = None
         self.has_started = False  # ✅ add this
+        self.scheduled_note = scheduled_note
 
         # ✅ Unique ID per game for safe countdown
         self.instance_id = uuid.uuid4().hex
@@ -2030,7 +2038,8 @@ class GameView(discord.ui.View):
             game_view=self,
             course_name=self.course_name,
             course_id=self.course_id,
-            max_players=self.max_players
+            max_players=self.max_players,
+            is_hourly=bool(self.scheduled_note)
         )
         room_view.channel = thread
         room_view.original_embed = thread_embed.copy()
@@ -2101,6 +2110,9 @@ class GameView(discord.ui.View):
             name="LEAGUE OF EXTRAORDINARY MISFITS",
             icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
         )
+
+        if self.scheduled_note:
+            embed.description += f"\n\n🕒 {self.scheduled_note}"
 
         if not no_image and getattr(self, "course_image", None):
             embed.set_image(url=self.course_image)
@@ -4550,36 +4562,69 @@ async def init_selected(interaction: discord.Interaction):
         ephemeral=True
     )
 
+from datetime import datetime
+import asyncio
+
 @tree.command(name="schedule_singles_game", description="Start a singles game automatically at :55 every hour.")
 async def schedule_singles_game(interaction: discord.Interaction):
     await interaction.response.send_message("✅ Singles game will auto-start at :55 every hour.", ephemeral=True)
     bot.loop.create_task(run_hourly_singles(interaction.guild, interaction.channel))
+
 
 async def run_hourly_singles(guild: discord.Guild, channel: discord.TextChannel):
     await bot.wait_until_ready()
 
     while True:
         now = datetime.now()
-        minutes = now.minute
-
-        # Wait until :55
-        if minutes != 55:
+        if now.minute != 55:
             await asyncio.sleep(30)
             continue
 
         try:
-            from views.game_start_view import GameJoinView  # or import your StartView logic
+            # ✅ Import your actual GameJoinView
+            from views.game_start_view import GameJoinView
         except ImportError:
             print("[ERROR] Could not import GameJoinView")
             return
 
-        # Start singles game in the channel
-        view = GameJoinView(game_type="singles", max_players=2)
-        await channel.send("🎯 Auto-starting a **singles** game:", view=view)
+        # ✅ Create the view with the special note
+        view = GameJoinView(
+            game_type="singles",
+            max_players=2,
+            scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 25 BALLS!"
+        )
+
+        # ✅ Create a fake interaction to call start_game()
+        class FakeInteraction:
+            def __init__(self, channel, guild):
+                self.channel = channel
+                self.guild = guild
+                self.user = bot.user
+                self.message = None
+
+            async def response_defer(self, ephemeral=True): pass
+            async def followup_send(self, content, ephemeral=True): pass
+            async def response(self): pass
+
+            async def response_defer(self): pass
+
+            @property
+            def response(self):
+                class R:
+                    @staticmethod
+                    async def defer(ephemeral=True): pass
+                return R()
+
+        fake_interaction = FakeInteraction(channel, guild)
+
+        # ✅ Start the game directly
+        await view.start_game(fake_interaction)
+
         print(f"[INFO] Auto-started singles game at {now.strftime('%H:%M')}")
 
-        # Sleep to avoid reposting within the same minute
+        # ✅ Wait at least a minute to avoid double trigger
         await asyncio.sleep(60)
+
 
 @bot.event
 async def on_ready():
