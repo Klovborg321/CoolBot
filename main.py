@@ -122,26 +122,6 @@ default_template = {
 
 
 # Helpers
-async def _handle_join(self, interaction: discord.Interaction, button: discord.ui.Button):
-    if interaction.user.id in self.players:
-        await self.safe_send(interaction, "✅ You have already joined this game.", ephemeral=True)
-        return
-
-    if len(self.players) >= self.max_players:
-        await self.safe_send(interaction, "🚫 This game is already full.", ephemeral=True)
-        return
-
-    if player_manager.is_active(interaction.user.id):
-        await self.safe_send(interaction, "🚫 You are already in another active game or must finish voting first.", ephemeral=True)
-        return
-
-    player_manager.activate(interaction.user.id)
-    self.players.append(interaction.user.id)
-    await interaction.response.defer()
-    await self.update_message()
-
-    if len(self.players) == self.max_players:
-        await self.game_full(interaction)
 
 async def hourly_room_announcer(bot, lobby_channel_id):
     await bot.wait_until_ready()
@@ -1915,7 +1895,6 @@ class GameView(discord.ui.View):
     @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._handle_join(interaction, button)
-            return
 
         if len(self.players) >= self.max_players:
             await self.safe_send(interaction, "🚫 This game is already full.", ephemeral=True)
