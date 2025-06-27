@@ -906,23 +906,51 @@ def fixed_width_name(name: str, width: int = 20) -> str:
 
 class PlayerManager:
     def __init__(self):
-        self.active_players = set()
+        pass
 
-    def is_active(self, user_id):
-        return user_id in self.active_players
+    async def is_active(self, user_id: str | int) -> bool:
+        user_id = str(user_id)
+        res = await run_db(lambda: supabase
+            .table("active_players")
+            .select("player_id")
+            .eq("player_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        return res.data is not None
 
-    def activate(self, user_id):
-        self.active_players.add(user_id)
+    async def activate(self, user_id: str | int):
+        user_id = str(user_id)
+        await run_db(lambda: supabase
+            .table("active_players")
+            .upsert({"player_id": user_id})
+            .execute()
+        )
+        print(f"[Supabase] Activated player {user_id}")
 
-    def deactivate(self, user_id):
-        self.active_players.discard(user_id)
+    async def deactivate(self, user_id: str | int):
+        user_id = str(user_id)
+        await run_db(lambda: supabase
+            .table("active_players")
+            .delete()
+            .eq("player_id", user_id)
+            .execute()
+        )
+        print(f"[Supabase] Deactivated player {user_id}")
 
-    def deactivate_many(self, user_ids):
+    async def deactivate_many(self, user_ids: list[str | int]):
         for uid in user_ids:
-            self.deactivate(uid)
+            await self.deactivate(uid)
 
-    def clear(self):
-        self.active_players.clear()
+    async def clear(self):
+        await run_db(lambda: supabase
+            .table("active_players")
+            .delete()
+            .neq("player_id", "")  # crude catch-all
+            .execute()
+        )
+        print("[Supabase] Cleared all active players")
+
 
 player_manager = PlayerManager()
 
@@ -992,7 +1020,7 @@ class GameJoinView(discord.ui.View):
             return
 
         # ✅ Block ANY other active game (cross-lobby)
-        if player_manager.is_active(interaction.user.id):
+        if await player_manager.is_active(interaction.user.id):
             await interaction.followup.send(
                 "🚫 You are already in another game or must finish voting first.",
                 ephemeral=True
@@ -1014,14 +1042,14 @@ class GameJoinView(discord.ui.View):
             scheduled_note=self.scheduled_note
         )
 
-        player_manager.activate(interaction.user.id)
+        await player_manager.activate(interaction.user.id)
 
         # ✅ TEST MODE: auto-fill dummy players
         if IS_TEST_MODE:
             for pid in TEST_PLAYER_IDS:
                 if pid != interaction.user.id and pid not in view.players and len(view.players) < view.max_players:
                     view.players.append(pid)
-                    player_manager.activate(pid)
+                    await player_manager.activate(pid)
 
         # ✅ Post the lobby
         embed = await view.build_embed(interaction.guild, no_image=True)
@@ -1101,7 +1129,7 @@ class LeaveGameButton(discord.ui.Button):
             return
 
         self.game_view.players.remove(user_id)
-        player_manager.deactivate(user_id)
+        await player_manager.deactivate(user_id)
 
         await self.game_view.update_message()
         await interaction.response.send_message("✅ You have left the game.", ephemeral=True)
@@ -1834,7 +1862,7 @@ class VoteButton(discord.ui.Button):
         )
 
         # ✅ Mark this player as free to join other games again
-        player_manager.deactivate(interaction.user.id)
+        await player_manager.deactivate(interaction.user.id)
 
         # ✅ If everyone voted, finalize immediately
         if IS_TEST_MODE or len(self.view_obj.votes) == len(self.view_obj.players):
@@ -1912,7 +1940,7 @@ class GameView(discord.ui.View):
         pending_games[self.game_type] = None
 
         for p in self.players:
-            player_manager.deactivate(p)
+            await player_manager.deactivate(p)
 
         embed = discord.Embed(title="❌ Game Abandoned", description=reason, color=discord.Color.red())
         if self.message:
@@ -2043,11 +2071,11 @@ class GameView(discord.ui.View):
             await self.safe_send(interaction, "🚫 This game is already full.", ephemeral=True)
             return
 
-        if player_manager.is_active(interaction.user.id):
+        if await player_manager.is_active(interaction.user.id):
             await self.safe_send(interaction, "🚫 You are already in another active game or must finish voting first.", ephemeral=True)
             return
 
-        player_manager.activate(interaction.user.id)
+        await player_manager.activate(interaction.user.id)
         self.players.append(interaction.user.id)
         await self.update_message()
 
@@ -2925,14 +2953,14 @@ class TournamentManager:
 
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
 
-        player_manager.activate(creator) 
+        await player_manager.activate(creator) 
 
     async def add_player(self, user):
         uid = user.id if hasattr(user, "id") else user
         if uid in self.players or len(self.players) >= self.max_players:
             return False
         self.players.append(uid)
-        player_manager.activate(uid)
+        await player_manager.activate(uid)
         return True
 
     async def abandon_if_not_filled(self):
@@ -2947,7 +2975,7 @@ class TournamentManager:
                 await self.message.edit(embed=embed, view=None)
 
             for p in self.players:
-                player_manager.deactivate(p)
+                await player_manager.deactivate(p)
 
             await start_new_game_button(self.parent_channel, "tournament")
 
@@ -3067,7 +3095,7 @@ class TournamentManager:
 
         # ✅ Deactivate loser for tournament room tracking
         if loser_id:
-            player_manager.deactivate(loser_id)
+            await player_manager.deactivate(loser_id)
 
         # ✅ Refresh leaderboard
         await update_leaderboard(self.bot, "tournaments")
@@ -3077,7 +3105,7 @@ class TournamentManager:
             if len(self.next_round_players) == 1:
                 # ✅ Final champion found
                 champ = self.next_round_players[0]
-                player_manager.deactivate(champ)
+                await player_manager.deactivate(champ)
 
                 # ✅ Process bets for the whole tournament
                 for uid, uname, amount, choice in self.bets:
@@ -3178,7 +3206,7 @@ class TournamentLobbyView(discord.ui.View):
         pending_games[self.game_type] = None
 
         for p in self.players:
-            player_manager.deactivate(p)
+            await player_manager.deactivate(p)
 
         embed = discord.Embed(
             title="❌ Game Abandoned",
@@ -3210,14 +3238,14 @@ class TournamentLobbyView(discord.ui.View):
             await interaction.response.send_message("🚫 Tournament is full.", ephemeral=True)
             return
 
-        if player_manager.is_active(uid):
+        if await player_manager.is_active(uid):
             await interaction.response.send_message("🚫 You are already in another active match.", ephemeral=True)
             return
 
         # ✅ Append to both
         self.players.append(uid)
         self.manager.players.append(uid)
-        player_manager.activate(uid)
+        await player_manager.activate(uid)
 
         await self.update_message()
         await interaction.response.send_message("✅ You joined the tournament!", ephemeral=True)
@@ -3333,14 +3361,14 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
             )
             return
 
-        if player_manager.is_active(self.creator.id):
+        if await player_manager.is_active(self.creator.id):
             await interaction.response.send_message(
                 "🚫 You are already in a game or tournament. Finish it first.",
                 ephemeral=True
             )
             return
 
-        player_manager.activate(self.creator.id)
+        await player_manager.activate(self.creator.id)
 
         await interaction.response.defer(ephemeral=True)
 
@@ -3776,6 +3804,14 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
+@tree.command(
+    name="clear_active",
+    description="Admin: Clear all pending games, start buttons, or only a specific user's active state."
+)
+@app_commands.describe(
+    user="User to clear from active players (optional)"
+)
+@discord.app_commands.checks.has_permissions(administrator=True)
 async def clear_active(player_id: str):
     """
     Remove any active_games records where the player_id is part of the players JSONB.
@@ -3804,7 +3840,6 @@ async def clear_active(player_id: str):
                 .execute()
             )
             print(f"[clear_active] Removed active game {game_id} for player {player_id}")
-
 
 
 @tree.command(
