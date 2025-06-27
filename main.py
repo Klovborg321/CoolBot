@@ -2111,7 +2111,7 @@ class GameView(discord.ui.View):
             join_button.callback = join_callback
             self.add_item(join_button)
 
-            self.add_item(LeaveGameButton(self))
+        self.add_item(LeaveGameButton(self))
 
         # ✅ Betting button (still allowed until betting is closed)
         if not self.betting_closed and hasattr(self, "betting_button"):
