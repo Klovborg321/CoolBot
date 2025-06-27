@@ -1896,14 +1896,6 @@ class GameView(discord.ui.View):
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._handle_join(interaction, button)
 
-        if len(self.players) >= self.max_players:
-            await self.safe_send(interaction, "🚫 This game is already full.", ephemeral=True)
-            return
-
-        if player_manager.is_active(interaction.user.id):
-            await self.safe_send(interaction, "🚫 You are already in another active game or must finish voting first.", ephemeral=True)
-            return
-
         player_manager.activate(interaction.user.id)
         self.players.append(interaction.user.id)
         await interaction.response.defer()
