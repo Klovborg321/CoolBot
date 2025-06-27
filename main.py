@@ -2531,25 +2531,18 @@ class SelectedGameInitButton(discord.ui.View):
         self.bot = bot
         self.lobby_channel_id = lobby_channel_id
 
-        self.add_item(discord.ui.Button(
-            label="🎮 New Selected Game",
-            style=discord.ButtonStyle.primary,
-            custom_id="selected_game_button"
-        ))
-
     @discord.ui.button(label="🎮 New Selected Game", style=discord.ButtonStyle.primary)
     async def create_selected_game(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Fetch courses
         res = await run_db(lambda: supabase.table("courses").select("*").order("name").execute())
         all_courses = res.data or []
 
         if not all_courses:
-            await interaction.response.send_message("⚠️ No courses available.", ephemeral=True)
+            await interaction.response.send_message("⚠️ No courses found.", ephemeral=True)
             return
 
-        # Callback for when user selects course
-        async def on_course_selected(inter: discord.Interaction, course_id: str):
-            course = next((c for c in all_courses if str(c["id"]) == str(course_id)), None)
+        # Callback after course is selected
+        async def on_course_selected(inter, course_id):
+            course = next((c for c in all_courses if str(c["id"]) == course_id), None)
             if not course:
                 await inter.response.send_message("❌ Course not found.", ephemeral=True)
                 return
@@ -2576,9 +2569,9 @@ class SelectedGameInitButton(discord.ui.View):
             await lobby_channel.send(embed=embed)
             await inter.response.edit_message(content="✅ Game created!", view=None)
 
-        view = PaginatedCourseView(all_courses)
-        select = CourseSelect(all_courses, on_course_selected)
-        view.add_item(select)
+        # Create paginated course picker
+        view = PaginatedCourseView(all_courses, per_page=25)
+        view.callback_fn = on_course_selected
 
         await interaction.response.send_message("🧭 Select a course:", view=view, ephemeral=True)
 
@@ -2608,7 +2601,7 @@ class PaginatedCourseView(discord.ui.View):
                 discord.SelectOption(label=c["name"], value=str(c["id"]))
                 for c in page_courses
             ]
-            self.add_item(PaginatedCourseSelect(options, self))
+            self.add_item(PaginatedCourseSelect(options, self, self.callback_fn))
 
         if self.page > 0:
             self.add_item(self.PrevButton(self))
@@ -2718,9 +2711,10 @@ class CourseSelectView(discord.ui.View):
         self.add_item(CourseSelect(courses, callback_fn))
 
 class PaginatedCourseSelect(discord.ui.Select):
-    def __init__(self, options, parent_view):
+    def __init__(self, options, parent_view, callback_fn=None):
         super().__init__(placeholder="Select a course", options=options)
         self.view_obj = parent_view
+        self.callback_fn = callback_fn
 
     async def callback(self, interaction: discord.Interaction):
         course_id = self.values[0]
@@ -2729,9 +2723,13 @@ class PaginatedCourseSelect(discord.ui.Select):
             await interaction.response.send_message("❌ Course not found.", ephemeral=True)
             return
 
-        await interaction.response.send_modal(
-            SubmitScoreModal(course_name=selected["name"], course_id=course_id)
-        )
+        if self.callback_fn:
+            await self.callback_fn(interaction, course_id)
+        else:
+            # Default action (e.g. score submission)
+            await interaction.response.send_modal(
+                SubmitScoreModal(course_name=selected["name"], course_id=course_id)
+            )
 
 
 class AddCourseModal(discord.ui.Modal, title="Add New Course (Easy & Hard)"):
@@ -4530,9 +4528,12 @@ async def get_user_id(interaction: discord.Interaction, user: discord.User):
 
 @tree.command(name="init_selected", description="Post a button to create a selected course game")
 async def init_selected(interaction: discord.Interaction):
-    """Posts a button for creating a selected-course game."""
-    view = SelectedGameInitButton(bot, interaction.channel.id)
-    await interaction.response.send_message("🎯 Click to start a **selected course** game:", view=view, ephemeral=True)
+    """Post a button to start a selected course game."""
+    await interaction.response.send_message(
+        "🎯 Click below to start a **selected course** game:",
+        view=SelectedGameInitButton(bot, LOBBY_CHANNEL_ID),
+        ephemeral=True
+    )
 
 
 @bot.event
