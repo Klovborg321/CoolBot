@@ -4531,7 +4531,7 @@ async def init_selected(interaction: discord.Interaction):
     """Post a button to start a selected course game."""
     await interaction.response.send_message(
         "🎯 Click below to start a **selected course** game:",
-        view=SelectedGameInitButton(bot, LOBBY_CHANNEL_ID),
+        view=SelectedGameInitButton(bot, 1388048930503397506),
         ephemeral=True
     )
 
