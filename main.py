@@ -122,6 +122,27 @@ default_template = {
 
 
 # Helpers
+async def _handle_join(self, interaction: discord.Interaction, button: discord.ui.Button):
+    if interaction.user.id in self.players:
+        await self.safe_send(interaction, "✅ You have already joined this game.", ephemeral=True)
+        return
+
+    if len(self.players) >= self.max_players:
+        await self.safe_send(interaction, "🚫 This game is already full.", ephemeral=True)
+        return
+
+    if player_manager.is_active(interaction.user.id):
+        await self.safe_send(interaction, "🚫 You are already in another active game or must finish voting first.", ephemeral=True)
+        return
+
+    player_manager.activate(interaction.user.id)
+    self.players.append(interaction.user.id)
+    await interaction.response.defer()
+    await self.update_message()
+
+    if len(self.players) == self.max_players:
+        await self.game_full(interaction)
+
 async def hourly_room_announcer(bot, lobby_channel_id):
     await bot.wait_until_ready()
     lobby_channel = bot.get_channel(lobby_channel_id)
@@ -1893,8 +1914,7 @@ class GameView(discord.ui.View):
 
     @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id in self.players:
-            await self.safe_send(interaction, "✅ You have already joined this game.", ephemeral=True)
+        await self._handle_join(interaction, button)
             return
 
         if len(self.players) >= self.max_players:
@@ -2051,6 +2071,27 @@ class GameView(discord.ui.View):
         await start_new_game_button(self.channel, self.game_type, self.max_players)
         await self.show_betting_phase()
 
+    async def _handle_join(self, interaction: discord.Interaction):
+        if interaction.user.id in self.players:
+            await self.safe_send(interaction, "✅ You have already joined this game.", ephemeral=True)
+            return
+
+        if len(self.players) >= self.max_players:
+            await self.safe_send(interaction, "🚫 This game is already full.", ephemeral=True)
+            return
+
+        if player_manager.is_active(interaction.user.id):
+            await self.safe_send(interaction, "🚫 You are already in another active game or must finish voting first.", ephemeral=True)
+            return
+
+        player_manager.activate(interaction.user.id)
+        self.players.append(interaction.user.id)
+        await interaction.response.defer()
+        await self.update_message()
+
+        if len(self.players) == self.max_players:
+            await self.game_full(interaction)
+
     async def update_message(self, status=None):
         if not self.message:
             print("[update_message] SKIPPED: no message to update.")
@@ -2061,23 +2102,22 @@ class GameView(discord.ui.View):
 
         # ✅ Only show Join/Leave if game hasn't started or ended
         if not self.betting_closed and not self.has_started:
-            if len(self.players) < self.max_players:
-                join_button = discord.ui.Button(label="Join Game", style=discord.ButtonStyle.success)
+        if len(self.players) < self.max_players:
+            join_button = discord.ui.Button(label="Join Game", style=discord.ButtonStyle.success)
 
-                async def join_callback(interaction: discord.Interaction):
-                    await self.join_button(interaction, join_button)
+            async def join_callback(interaction: discord.Interaction):
+                await self._handle_join(interaction)
 
-                join_button.callback = join_callback
-                self.add_item(join_button)
+            join_button.callback = join_callback
+            self.add_item(join_button)
 
-            self.add_item(LeaveGameButton(self))
+        self.add_item(LeaveGameButton(self))
 
-        # ✅ Betting button (still allowed until betting is closed)
-        if not self.betting_closed and hasattr(self, "betting_button"):
-            self.add_item(self.betting_button)
+            # ✅ Betting button (still allowed until betting is closed)
+            if not self.betting_closed and hasattr(self, "betting_button"):
+                self.add_item(self.betting_button)
 
-        await self.message.edit(embed=embed, view=self)
-
+            await self.message.edit(embed=embed, view=self)
 
 
     async def build_embed(self, guild=None, winner=None, no_image=True, status=None, bets=None):
