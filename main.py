@@ -135,7 +135,7 @@ async def hourly_room_announcer(bot, lobby_channel_id):
     active_announcement = None
 
     while not bot.is_closed():
-        now = datetime.datetime.now(tz=local_tz)
+        now = datetime.now(tz=local_tz)
         minute = now.minute
 
         # Create game at HH:15 or HH:45
@@ -2595,8 +2595,7 @@ class SelectedGameInitButton(discord.ui.View):
             await inter.response.edit_message(content="✅ Game created!", view=None)
 
         # ✅ Create paginated course picker
-        view = PaginatedCourseView(all_courses, per_page=25)
-        view.callback_fn = on_course_selected
+        view = PaginatedCourseView(all_courses, per_page=25, callback_fn=on_course_selected)
         await interaction.response.send_message("🧭 Select a course:", view=view, ephemeral=True)
         view.message = await interaction.original_response()
 
