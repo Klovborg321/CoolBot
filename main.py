@@ -139,7 +139,7 @@ async def hourly_room_announcer(bot, lobby_channel_id):
             course_name = chosen.get("name", "Unknown Course")
             course_image = chosen.get("image_url", "")
             
-            room_name = await get_unique_word()
+            room_name = await room_name_generator.get_unique_word()
             expire_ts = int((datetime.datetime.now() + datetime.timedelta(minutes=15)).timestamp())
 
             embed = discord.Embed(
