@@ -15,7 +15,8 @@ from supabase import create_client, Client
 import os
 import uuid
 from collections import defaultdict
-import datetime
+from collections import Counter
+from datetime import datetime, timedelta
 import zoneinfo
 
 
@@ -1560,7 +1561,6 @@ class RoomView(discord.ui.View):
         await self.finalize_game()
 
     async def finalize_game(self):
-        from collections import Counter
 
         # ✅ Cancel timers
         self.cancel_abandon_task()
@@ -4001,7 +4001,6 @@ async def clear_bet_history(interaction: discord.Interaction, user: discord.User
             ephemeral=True
         )
 
-from discord import app_commands, Interaction, SelectOption, ui, Embed
 
 
 @tree.command(
@@ -4097,9 +4096,7 @@ async def handicap_leaderboard(interaction: discord.Interaction):
 
     if not res.data:
         await interaction.followup.send("❌ No handicap data found.", ephemeral=True)
-        return
-
-    from collections import defaultdict
+        return    
 
     grouped = defaultdict(list)
     for row in res.data:
@@ -4300,8 +4297,6 @@ class AdminSubmitScoreModal(discord.ui.Modal, title="Admin: Set Best Score"):
             ephemeral=True
         )
 
-import discord
-from discord import app_commands
 
 # ✅ Register directly on your bot instance (no separate Cog needed)
 @app_commands.command(
@@ -4369,8 +4364,6 @@ async def on_member_join(member):
 
 async def save_game_state(manager, view, room_view):
     """Store the current active game in Supabase for resilience."""
-
-    import json
 
     print("[save_game_state] Raw players:", view.players)
     print("[save_game_state] Raw bets:", view.bets)
