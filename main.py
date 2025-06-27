@@ -2050,7 +2050,7 @@ class GameView(discord.ui.View):
         await start_new_game_button(self.channel, self.game_type, self.max_players)
         await self.show_betting_phase()
 
-    async def _handle_join(self, interaction: discord.Interaction):
+    async def _handle_join(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id in self.players:
             await self.safe_send(interaction, "✅ You have already joined this game.", ephemeral=True)
             return
