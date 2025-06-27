@@ -2109,6 +2109,21 @@ class GameView(discord.ui.View):
             if len(self.players) < self.max_players:
                 join_button = discord.ui.Button(label="Join Game", style=discord.ButtonStyle.success)
 
+                async def join_callback(interaction: discord.Interaction):
+                    await self._handle_join(interaction, join_button)
+
+                join_button.callback = join_callback
+                self.add_item(join_button)
+
+            self.add_item(LeaveGameButton(self))
+
+        # ✅ Betting button (still allowed until betting is closed)
+        if not self.betting_closed and hasattr(self, "betting_button"):
+            self.add_item(self.betting_button)
+
+        await self.message.edit(embed=embed, view=self)
+
+
     async def join_callback(interaction: discord.Interaction):
         await self._handle_join(interaction)
 
