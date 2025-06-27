@@ -1892,7 +1892,7 @@ class GameView(discord.ui.View):
         self.add_item(LeaveGameButton(self))
 
     @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
-    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id in self.players:
             await self.safe_send(interaction, "✅ You have already joined this game.", ephemeral=True)
             return
