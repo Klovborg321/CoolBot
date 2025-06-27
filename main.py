@@ -132,20 +132,32 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
         print(f"[SCHEDULER] Waiting {seconds_until_next_hour} seconds until the next hour...")
         await asyncio.sleep(seconds_until_next_hour)
 
-        # ✅ At top of the hour
         try:
-            view = GameJoinView(
+            # ✅ Use bot.user as the "creator"
+            creator = guild.get_member(bot.user.id)
+            view = GameView(
                 game_type="singles",
+                creator=creator,
                 max_players=2,
+                channel=channel,
                 scheduled_note="💰 GOLDEN HOUR GAME — Winner gets 25 balls!"
             )
 
-            await channel.send("🕒 It's game time! A new **hourly singles match** is starting now!", view=view)
-            print("[SCHEDULER] Posted hourly singles match.")
+            # ✅ Send the initial lobby message
+            embed = await view.build_embed(guild)
+            message = await channel.send(embed=embed, view=view)
+            view.message = message
+
+            # ✅ Track pending game so others can join
+            pending_games["singles"] = view
+
+            print("[HOURLY] Hourly singles match started!")
+
         except Exception as e:
-            print(f"[SCHEDULER ERROR] Failed to post hourly match: {e}")
-        
-        await asyncio.sleep(60)  # ✅ Prevent double post within same minute
+            print(f"[HOURLY ERROR] Failed to start hourly match: {e}")
+
+        await asyncio.sleep(60)
+
 
 
 class HourlyCountdownView(discord.ui.View):
