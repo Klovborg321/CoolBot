@@ -1894,7 +1894,7 @@ class GameView(discord.ui.View):
 
     @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._handle_join(interaction, button)
+        await self._handle_join(interaction, button) 
 
         player_manager.activate(interaction.user.id)
         self.players.append(interaction.user.id)
@@ -3795,26 +3795,38 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
 @discord.app_commands.checks.has_permissions(administrator=True)
 async def clear_active(interaction: discord.Interaction, user: discord.User = None):
     try:
-        # ✅ Always defer immediately, no condition check needed
         await interaction.response.defer(ephemeral=True)
 
         if user:
-            # ✅ Deactivate only this user
             player_manager.deactivate(user.id)
+
+            # ✅ Also remove from DB
+            await run_db(lambda: supabase
+                .table("active_games")
+                .delete()
+                .eq("player_id", str(user.id))
+                .execute()
+            )
+
             await interaction.followup.send(
                 f"✅ Cleared active status for {user.display_name}.",
                 ephemeral=True
             )
             return
 
-        # ✅ Clear all pending games
         for key in pending_games:
             pending_games[key] = None
 
-        # ✅ Clear all active players
         player_manager.clear()
 
-        # ✅ Delete all start buttons safely
+        # ✅ Clear Supabase table
+        await run_db(lambda: supabase
+            .table("active_games")
+            .delete()
+            .neq("player_id", "")  # Delete all
+            .execute()
+        )
+
         for msg in list(start_buttons.values()):
             try:
                 await msg.delete()
@@ -3828,8 +3840,8 @@ async def clear_active(interaction: discord.Interaction, user: discord.User = No
         )
 
     except Exception as e:
-        # If something fails AFTER deferring, fallback to followup
         await interaction.followup.send(f"⚠️ Failed: {e}", ephemeral=True)
+
 
 
 @tree.command(
