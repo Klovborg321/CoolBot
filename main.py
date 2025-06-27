@@ -2111,13 +2111,13 @@ class GameView(discord.ui.View):
             join_button.callback = join_callback
             self.add_item(join_button)
 
-        self.add_item(LeaveGameButton(self))
+            self.add_item(LeaveGameButton(self))
 
-            # ✅ Betting button (still allowed until betting is closed)
-            if not self.betting_closed and hasattr(self, "betting_button"):
-                self.add_item(self.betting_button)
+        # ✅ Betting button (still allowed until betting is closed)
+        if not self.betting_closed and hasattr(self, "betting_button"):
+            self.add_item(self.betting_button)
 
-            await self.message.edit(embed=embed, view=self)
+        await self.message.edit(embed=embed, view=self)
 
 
     async def build_embed(self, guild=None, winner=None, no_image=True, status=None, bets=None):
