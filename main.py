@@ -16,6 +16,7 @@ import os
 import uuid
 from collections import defaultdict
 import datetime
+import zoneinfo
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -128,11 +129,12 @@ async def hourly_room_announcer(bot, lobby_channel_id):
         print(f"[ERROR] Lobby channel ID {lobby_channel_id} not found!")
         return
 
+    local_tz = zoneinfo.ZoneInfo("Europe/Copenhagen")  # ✅ your local time zone
     last_triggered_minute = None
     active_announcement = None
 
     while not bot.is_closed():
-        now = datetime.datetime.now()
+        now = datetime.datetime.now(tz=local_tz)
         minute = now.minute
 
         # Create game at HH:15 or HH:45
@@ -2567,8 +2569,12 @@ class SelectedGameInitButton(discord.ui.View):
             course_name = course.get("name", "Unknown Course")
             course_image = course.get("image_url", "")
             room_name = await room_name_generator.get_unique_word()
-            timestamp = datetime.datetime.now().strftime("%H:%M")
-            expire_ts = int((datetime.datetime.now() + datetime.timedelta(minutes=15)).timestamp())
+
+            # 🕒 Use local timezone
+            local_tz = zoneinfo.ZoneInfo("Europe/Copenhagen")
+            now = datetime.now(tz=local_tz)
+            timestamp = now.strftime("%H:%M")
+            expire_ts = int((now + timedelta(minutes=15)).timestamp())
 
             embed = discord.Embed(
                 title=f"🕹️ Selected Match Room: **{room_name.upper()}**",
@@ -2592,7 +2598,7 @@ class SelectedGameInitButton(discord.ui.View):
         view = PaginatedCourseView(all_courses, per_page=25)
         view.callback_fn = on_course_selected
         await interaction.response.send_message("🧭 Select a course:", view=view, ephemeral=True)
-        view.message = await interaction.original_response()  # ✅ prevent NoneType
+        view.message = await interaction.original_response()
 
 
 class PaginatedCourseView(discord.ui.View):
