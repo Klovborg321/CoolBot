@@ -2065,7 +2065,7 @@ class GameView(discord.ui.View):
                 join_button = discord.ui.Button(label="Join Game", style=discord.ButtonStyle.success)
 
                 async def join_callback(interaction: discord.Interaction):
-                    await self.join(interaction, join_button)
+                    await self.join_button(interaction, join_button)
 
                 join_button.callback = join_callback
                 self.add_item(join_button)
@@ -3197,7 +3197,7 @@ class TournamentLobbyView(discord.ui.View):
 
         print(f"[abandon_game] New start posted for {self.game_type} in #{self.parent_channel.name}")
 
-    async def join(self, interaction: discord.Interaction):
+    async def join_button(self, interaction: discord.Interaction):
         uid = interaction.user.id
 
         if uid in self.players:
