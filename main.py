@@ -2911,7 +2911,7 @@ class SetCourseRatingModal(discord.ui.Modal, title="Set Course Par"):
         except ValueError:
             await interaction.response.send_message(
                 "❌ Invalid numbers.", ephemeral=True
-            )
+        )
             return
 
         await run_db(lambda: supabase
@@ -2952,8 +2952,6 @@ class TournamentManager:
         self.bets = []  # ✅ NEW: store live bets (uid, uname, amount, choice)
 
         self.abandon_task = asyncio.create_task(self.abandon_if_not_filled())
-
-        await player_manager.activate(creator) 
 
     async def add_player(self, user):
         uid = user.id if hasattr(user, "id") else user
