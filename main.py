@@ -1894,7 +1894,8 @@ class GameView(discord.ui.View):
 
     @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self._handle_join(interaction, button) 
+        await interaction.response.defer(ephemeral=True)
+        await self._handle_join(interaction, button)
 
         player_manager.activate(interaction.user.id)
         self.players.append(interaction.user.id)
@@ -2057,7 +2058,6 @@ class GameView(discord.ui.View):
 
         player_manager.activate(interaction.user.id)
         self.players.append(interaction.user.id)
-        await interaction.response.defer()
         await self.update_message()
 
         if len(self.players) == self.max_players:
