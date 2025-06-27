@@ -134,11 +134,10 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
 
         try:
             # ✅ Use bot.user as the "creator"
-            creator = guild.get_member(bot.user.id)
+            creator = None
             view = GameView(
                 game_type="singles",
-                creator=creator,
-                max_players=2,
+                creator = creator,
                 channel=channel,
                 scheduled_note="💰 GOLDEN HOUR GAME — Winner gets 25 balls!"
             )
@@ -150,6 +149,14 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
 
             # ✅ Track pending game so others can join
             pending_games["singles"] = view
+
+            async def auto_abandon_task():
+                await asyncio.sleep(600)  # 10 minutes
+                if not view.has_started:
+                    await view.abandon_game("⏱️ Hourly match expired (no full lobby).")
+                    print("[HOURLY] Abandoned hourly game due to inactivity.")
+
+            view.abandon_task = asyncio.create_task(auto_abandon_task())
 
             print("[HOURLY] Hourly singles match started!")
 
@@ -1991,7 +1998,7 @@ class GameView(discord.ui.View):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
-        self.players = [creator]
+        self.players = [creator] if creator else []
         self.max_players = max_players
         self.channel = channel
         self.message = None
