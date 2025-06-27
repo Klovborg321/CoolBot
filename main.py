@@ -152,7 +152,7 @@ async def hourly_room_announcer(bot, lobby_channel_id):
 
                 # Generate unique room name
                 room_name = await room_name_generator.get_unique_word()
-                expire_ts = int((now + datetime.timedelta(minutes=15)).timestamp())
+                expire_ts = int((now + timedelta(minutes=15)).timestamp())
 
                 embed = discord.Embed(
                     title=f"🕹️ Match Room: **{room_name.upper()}**",
@@ -161,7 +161,6 @@ async def hourly_room_announcer(bot, lobby_channel_id):
                         f"**Start Time:** `{timestamp}`\n"
                         f"⏳ *Expires <t:{expire_ts}:R>*\n"
                         f"\n👍 React if you're interested!"
-                        f"\n\n - 💰 25 BALLS GOES TO THE WINNER! - 💰"
                     ),
                     color=discord.Color.gold()
                 )
@@ -4562,8 +4561,6 @@ async def init_selected(interaction: discord.Interaction):
         ephemeral=True
     )
 
-from datetime import datetime
-import asyncio
 
 @tree.command(name="schedule_singles_game", description="Start a singles game automatically at :55 every hour.")
 async def schedule_singles_game(interaction: discord.Interaction):
@@ -4631,7 +4628,7 @@ async def on_ready():
     await tree.sync()
     print(f"✅ Logged in as {bot.user}")
     #await restore_active_games(bot)
-    bot.loop.create_task(hourly_room_announcer(bot, 1388042320061927434))
+    #bot.loop.create_task(hourly_room_announcer(bot, 1388042320061927434))
 
     rows = await load_pending_games()
     for row in rows:
