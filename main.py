@@ -2090,7 +2090,7 @@ class GameView(discord.ui.View):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
-        self.players = [creator.id] if creator else []
+        self.players = [creator.id if hasattr(creator, "id") else creator] if creator else []
         self.max_players = max_players
         self.channel = channel
         self.message = None
