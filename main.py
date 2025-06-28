@@ -206,13 +206,13 @@ class HourlyCountdownView(discord.ui.View):
                 pass
 
     async def post_hourly_game(self):
-        creator = guild.get_member(bot.user.id)
+        creator = self.guild.get_member(self.bot.user.id)
         if not creator:
             try:
-                creator = await guild.fetch_member(bot.user.id)
+                creator = await self.guild.fetch_member(self.bot.user.id)
             except Exception as e:
-                print(f"[HOURLY ERROR] Could not fetch bot member: {e}")
-                continue  # ✅ Skip this hour if bot user not found
+                print(f"[COUNTDOWN ERROR] Could not fetch bot member: {e}")
+                return  # ✅ OK: exits the function
 
         view = GameView(
             game_type="singles",
