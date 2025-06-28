@@ -1228,11 +1228,17 @@ class LeaveGameButton(discord.ui.Button):
         self.game_view.players.remove(user_id)
         await player_manager.deactivate(user_id)
 
+        # ✅ Cancel hourly countdown if it was running
+        if self.game_view.scheduled_note and self.game_view.hourly_start_task:
+            self.game_view.hourly_start_task.cancel()
+            self.game_view.hourly_start_task = None
+            print("[HOURLY] Countdown cancelled due to player leaving.")
+
         await self.game_view.update_message()
         await interaction.response.send_message("✅ You have left the game.", ephemeral=True)
 
-        # ✅ Abandon only if lobby is empty
-        if len(self.game_view.players) == 0:
+        # ✅ Only abandon if it's NOT scheduled and now empty
+        if not self.game_view.scheduled_note and len(self.game_view.players) == 0:
             await self.game_view.abandon_game("❌ Game abandoned because all players left.")
 
 
@@ -1653,6 +1659,16 @@ class RoomView(discord.ui.View):
 
         return embed
 
+    async def reward_match_winner(game_type, players, winner, amount):
+        if isinstance(winner, int):
+            await add_credits_internal(winner, amount)
+        elif game_type == "doubles" and winner == "Team A":
+            for pid in players[:2]:
+                await add_credits_internal(pid, amount)
+        elif game_type == "doubles" and winner == "Team B":
+            for pid in players[2:]:
+                await add_credits_internal(pid, amount)
+
     async def start_voting(self):
         if not self.game_has_ended:
             return
@@ -1700,6 +1716,9 @@ class RoomView(discord.ui.View):
             self.game_view.cancel_betting_task()
 
         self.game_has_ended = True
+        if not self.players:
+            print("[finalize_game] ⚠️ No players found — aborting.")
+            return
 
         # ✅ Count votes
         self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
@@ -1834,11 +1853,11 @@ class RoomView(discord.ui.View):
                     self.game_view.remove_item(item)
             await target_message.edit(embed=lobby_embed, view=self.game_view)
 
-        self.players = []
         await self.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
         await asyncio.sleep(3)
         await self.channel.edit(archived=True)
         pending_games[self.game_type] = None
+        self.players = []
 
         if self.is_hourly and winner and winner != "draw":
             await add_credits_internal(winner, 25)
@@ -1872,7 +1891,7 @@ class RoomView(discord.ui.View):
                 await self.on_tournament_complete(fallback)
 
         await update_leaderboard(self.bot, self.game_type)
-
+        
 
 
 class GameEndedButton(discord.ui.Button):
@@ -1965,6 +1984,45 @@ class VoteButton(discord.ui.Button):
         if IS_TEST_MODE or len(self.view_obj.votes) == len(self.view_obj.players):
             await self.view_obj.finalize_game()
 
+async def _void_if_not_started(self):
+    void_time = self.scheduled_hour + timedelta(minutes=30)
+    seconds_until_void = (void_time - datetime.now()).total_seconds()
+
+    print(f"[HOURLY] Game will be voided in {int(seconds_until_void)}s at {void_time.time()} if not started.")
+
+    try:
+        await asyncio.sleep(seconds_until_void)
+
+        if self.has_started:
+            print("[HOURLY] Game started, not voiding.")
+            return
+
+        # ✅ Remove buttons, update embed
+        self.clear_items()
+        embed = await self.build_embed(
+            self.channel.guild,
+            status="❌ Game voided — not enough players by HH:30."
+        )
+        embed.title = "❌ Hourly Game Voided"
+
+        if self.message:
+            await self.message.edit(embed=embed, view=None)
+
+        print("[HOURLY] Game voided after 30 min.")
+        pending_games[self.game_type] = None
+        self.message = None
+
+        # Cleanup
+        self.cancel_abandon_task()
+        self.cancel_betting_task()
+        self.hourly_void_task = None
+        self.hourly_start_task = None
+
+        for p in self.players:
+            await player_manager.deactivate(p)
+
+    except asyncio.CancelledError:
+        print("[HOURLY] Void countdown cancelled.")
 
 
 class TournamentStartButtonView(discord.ui.View):
@@ -2047,8 +2105,14 @@ class GameView(discord.ui.View):
                 pass
 
         self.message = None
-        await start_new_game_button(self.channel, self.game_type, self.max_players)
-        print(f"[abandon_game] New start posted for {self.game_type} in #{self.channel.name}")
+
+        # ✅ Only post start button if NOT an hourly game
+        if not self.scheduled_note:
+            await start_new_game_button(self.channel, self.game_type, self.max_players)
+            print(f"[abandon_game] New start posted for {self.game_type} in #{self.channel.name}")
+        else:
+            print(f"[abandon_game] Hourly game abandoned — no new start posted.")
+
 
     async def _betting_countdown(self, instance_id):
         print(f"[BET] Betting countdown started for instance {instance_id}")
@@ -2259,6 +2323,12 @@ class GameView(discord.ui.View):
         if self.scheduled_note:
             embed.description += f"\n\n🕒 {self.scheduled_note}"
 
+            # ✅ Show void time in both absolute and relative formats
+            if self.scheduled_hour:
+                void_time = self.scheduled_hour + timedelta(minutes=30)
+                ts = int(void_time.timestamp())
+                embed.description += f"\n🛑 Game will be voided if not full by <t:{ts}:t> (<t:{ts}:R>)"
+
         if not no_image and getattr(self, "course_image", None):
             embed.set_image(url=self.course_image)
 
@@ -2366,9 +2436,10 @@ class GameView(discord.ui.View):
         elif isinstance(winner, int):
             member = guild.get_member(winner) if guild else None
             winner_name = member.display_name if member else f"User {winner}"
-            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}")
+            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name} — 🏆 +25 credits!")
         elif winner in ("Team A", "Team B"):
-            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}")
+            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner} — 🏆 +25 credits!")
+
 
         return embed
 
