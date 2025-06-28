@@ -139,7 +139,8 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
                 creator=creator,
                 max_players=2,
                 channel=channel,
-                scheduled_note="💰 GOLDEN HOUR GAME — Winner gets 25 balls!"
+                scheduled_note="💰 GOLDEN HOUR GAME — Winner gets 25 balls!",
+                scheduled_hour=datetime.now().hour 
             )
 
             embed = await view.build_embed(guild)
@@ -1091,11 +1092,12 @@ room_name_generator = RoomNameGenerator()
 
 
 class GameJoinView(discord.ui.View):
-    def __init__(self, game_type, max_players, scheduled_note=None):
+    def __init__(self, game_type, max_players, scheduled_note=None, scheduled_hour=None):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.max_players = max_players
         self.scheduled_note = scheduled_note 
+        self.scheduled_hour = scheduled_hour 
 
         # ✅ Use dynamic label
         button = discord.ui.Button(
@@ -1136,7 +1138,8 @@ class GameJoinView(discord.ui.View):
             interaction.user.id,
             self.max_players,
             interaction.channel,
-            scheduled_note=self.scheduled_note
+            scheduled_note=self.scheduled_note,
+            scheduled_hour = self.scheduled_hour 
         )
 
         await player_manager.activate(interaction.user.id)
@@ -2052,7 +2055,7 @@ class TournamentStartButtonView(discord.ui.View):
 
 
 class GameView(discord.ui.View):
-    def __init__(self, game_type, creator, max_players, channel, scheduled_note=None):
+    def __init__(self, game_type, creator, max_players, channel, scheduled_note=None, scheduled_hour=None):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
@@ -2069,6 +2072,7 @@ class GameView(discord.ui.View):
         self.thread = None
         self.has_started = False  # ✅ add this
         self.scheduled_note = scheduled_note
+        self.scheduled_hour = scheduled_hour  
 
         # ✅ Unique ID per game for safe countdown
         self.instance_id = uuid.uuid4().hex
@@ -2320,14 +2324,12 @@ class GameView(discord.ui.View):
             icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
         )
 
-        if self.scheduled_note:
-            embed.description += f"\n\n🕒 {self.scheduled_note}"
-
-            # ✅ Show void time in both absolute and relative formats
-            if self.scheduled_hour:
-                void_time = self.scheduled_hour + timedelta(minutes=30)
-                ts = int(void_time.timestamp())
-                embed.description += f"\n🛑 Game will be voided if not full by <t:{ts}:t> (<t:{ts}:R>)"
+        if self.scheduled_hour is not None:
+            now = datetime.now().replace(minute=0, second=0, microsecond=0)
+            scheduled_dt = now.replace(hour=self.scheduled_hour)
+            void_time = scheduled_dt + timedelta(minutes=30)
+            ts = int(void_time.timestamp())
+            embed.description += f"\n🛑 Game will be voided if not full by <t:{ts}:t> (<t:{ts}:R>)"
 
         if not no_image and getattr(self, "course_image", None):
             embed.set_image(url=self.course_image)
@@ -4768,7 +4770,8 @@ async def run_hourly_singles(guild: discord.Guild, channel: discord.TextChannel)
         view = GameJoinView(
             game_type="singles",
             max_players=2,
-            scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 25 BALLS!"
+            scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 25 BALLS!",
+            scheduled_hour=now
         )
 
         # ✅ Create a fake interaction to call start_game()
