@@ -133,7 +133,14 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
         await asyncio.sleep(seconds_until_next_hour)
 
         try:
-            creator = guild.get_member(bot.user.id)
+            creator = self.guild.get_member(self.bot.user.id)
+            if not creator:
+                try:
+                    creator = await self.guild.fetch_member(self.bot.user.id)
+                except Exception as e:
+                    print(f"[COUNTDOWN ERROR] Could not fetch bot member: {e}")
+                    return
+
             view = GameView(
                 game_type="singles",
                 creator=creator,
@@ -199,7 +206,14 @@ class HourlyCountdownView(discord.ui.View):
                 pass
 
     async def post_hourly_game(self):
-        creator = self.guild.get_member(self.bot.user.id)
+        creator = guild.get_member(bot.user.id)
+        if not creator:
+            try:
+                creator = await guild.fetch_member(bot.user.id)
+            except Exception as e:
+                print(f"[HOURLY ERROR] Could not fetch bot member: {e}")
+                continue  # ✅ Skip this hour if bot user not found
+
         view = GameView(
             game_type="singles",
             creator=creator,
@@ -2076,7 +2090,7 @@ class GameView(discord.ui.View):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
-        self.players = [creator] if creator else []
+        self.players = [creator.id] if creator else []
         self.max_players = max_players
         self.channel = channel
         self.message = None
