@@ -127,53 +127,17 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
     await bot.wait_until_ready()
 
     while True:
-        now = datetime.now()
-        seconds_until_next_hour = 3600 - (now.minute * 60 + now.second)
-        print(f"[SCHEDULER] Waiting {seconds_until_next_hour} seconds until the next hour...")
-        await asyncio.sleep(seconds_until_next_hour)
+        now = datetime.utcnow()
+        next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+        seconds_until = int((next_hour - now).total_seconds())
 
-        try:
-            creator = self.guild.get_member(self.bot.user.id)
-            if not creator:
-                try:
-                    creator = await self.guild.fetch_member(self.bot.user.id)
-                except Exception as e:
-                    print(f"[COUNTDOWN ERROR] Could not fetch bot member: {e}")
-                    return
+        print(f"[SCHEDULER] Next Golden Hour in {seconds_until} seconds")
 
-            view = GameView(
-                game_type="singles",
-                creator=creator,
-                max_players=2,
-                channel=channel,
-                scheduled_note="💰 GOLDEN HOUR GAME — Winner gets 25 balls!",
-                scheduled_hour=datetime.now().hour,
-                is_hourly=True
-            )
+        # Start the countdown view
+        countdown_view = HourlyCountdownView(bot, guild, channel, seconds_until)
+        countdown_view.message = await channel.send("⏳ Countdown starting...", view=countdown_view)
 
-            embed = await view.build_embed(guild)
-            message = await channel.send(embed=embed, view=view)
-            view.message = message
-
-            pending_games["singles"] = view
-
-            # ✅ Start 10-minute auto-abandon
-            async def auto_abandon_task():
-                await asyncio.sleep(600)
-                if not view.has_started:
-                    await view.abandon_game("⏱️ Hourly match expired (no full lobby).")
-                    print("[HOURLY] Abandoned hourly game due to inactivity.")
-
-            view.abandon_task = asyncio.create_task(auto_abandon_task())
-
-            print("[HOURLY] Hourly singles match started!")
-
-        except Exception as e:
-            print(f"[HOURLY ERROR] Failed to start hourly match: {e}")
-
-        # ✅ Don't sleep here — loop will wait for top of next hour automatically
-
-
+        await asyncio.sleep(seconds_until + 10)  # Give it time to finish posting game
 
 
 class HourlyCountdownView(discord.ui.View):
@@ -189,14 +153,12 @@ class HourlyCountdownView(discord.ui.View):
     async def run_countdown(self):
         while self.seconds_until_start > 0:
             mins, secs = divmod(self.seconds_until_start, 60)
-            content = f"⏳ Starting **Golden Hour Singles Game** in `{mins:02}:{secs:02}`..."
+            content = f"⏳ Golden Hour Game starts in `{mins:02}:{secs:02}`..."
             await self.update_message(content)
             await asyncio.sleep(5)
             self.seconds_until_start -= 5
 
         await self.update_message("🏁 Posting Golden Hour Game...")
-
-        # ✅ Start the hourly singles game
         await self.post_hourly_game()
 
     async def update_message(self, content):
@@ -207,104 +169,29 @@ class HourlyCountdownView(discord.ui.View):
                 pass
 
     async def post_hourly_game(self):
-        creator = self.guild.get_member(self.bot.user.id)
-        if not creator:
-            try:
-                creator = await self.guild.fetch_member(self.bot.user.id)
-            except Exception as e:
-                print(f"[COUNTDOWN ERROR] Could not fetch bot member: {e}")
-                return  # ✅ OK: exits the function
-
+        creator = self.guild.get_member(self.bot.user.id) or await self.guild.fetch_member(self.bot.user.id)
         view = GameView(
             game_type="singles",
             creator=creator,
             max_players=2,
             channel=self.channel,
-            scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 25 BALLS!",
+            scheduled_note="💰 GOLDEN HOUR GAME — Winner gets 25 balls!",
             scheduled_hour=datetime.now().hour,
             is_hourly=True
         )
-
         embed = await view.build_embed(self.guild)
         msg = await self.channel.send(embed=embed, view=view)
         view.message = msg
         pending_games["singles"] = view
 
-    # Optional: auto-abandon after 10 min
-    async def auto_abandon_task():
-        await asyncio.sleep(600)
-        if not view.has_started:
-            await view.abandon_game("⏱️ Hourly match expired (no full lobby).")
-            print("[HOURLY] Abandoned countdown match.")
+        # Optional auto-abandon
+        async def auto_abandon():
+            await asyncio.sleep(600)
+            if not view.has_started:
+                await view.abandon_game("⏱️ Hourly match expired.")
+        view.abandon_task = asyncio.create_task(auto_abandon())
 
-        view.abandon_task = asyncio.create_task(auto_abandon_task())
 
-    async def hourly_room_announcer(bot, lobby_channel_id):
-        await bot.wait_until_ready()
-        lobby_channel = bot.get_channel(lobby_channel_id)
-
-        if not lobby_channel:
-            print(f"[ERROR] Lobby channel ID {lobby_channel_id} not found!")
-            return
-
-        local_tz = zoneinfo.ZoneInfo("Europe/Copenhagen")  # ✅ your local time zone
-        last_triggered_minute = None
-        active_announcement = None
-
-        while not bot.is_closed():
-            now = datetime.now(tz=local_tz)
-            minute = now.minute
-
-            # Create game at HH:15 or HH:45
-            if minute in (15, 45) and last_triggered_minute != minute:
-                last_triggered_minute = minute
-                timestamp = now.strftime("%H:%M")
-
-                try:
-                    # Fetch random course
-                    res = await run_db(lambda: supabase.table("courses").select("id", "name", "image_url").execute())
-                    chosen = random.choice(res.data or [{}])
-                    course_name = chosen.get("name", "Unknown Course")
-                    course_image = chosen.get("image_url", "")
-
-                    # Generate unique room name
-                    room_name = await room_name_generator.get_unique_word()
-                    expire_ts = int((now + timedelta(minutes=15)).timestamp())
-
-                    embed = discord.Embed(
-                        title=f"🕹️ Match Room: **{room_name.upper()}**",
-                        description=(
-                            f"**Course:** `{course_name}`\n"
-                            f"**Start Time:** `{timestamp}`\n"
-                            f"⏳ *Expires <t:{expire_ts}:R>*\n"
-                            f"\n👍 React if you're interested!"
-                        ),
-                        color=discord.Color.gold()
-                    )
-
-                    if course_image:
-                        embed.set_image(url=course_image)
-
-                    active_announcement = await lobby_channel.send(embed=embed)
-                    await active_announcement.add_reaction("👍")
-                    print(f"[INFO] Hourly room posted at {timestamp} with course: {course_name}")
-
-                except Exception as e:
-                    print(f"[ERROR] Failed to post hourly room: {e}")
-
-            # Expire game at HH:00 or HH:30
-            elif minute in (0, 30) and last_triggered_minute != minute:
-                last_triggered_minute = minute
-
-                if active_announcement:
-                    try:
-                        await active_announcement.edit(content="⚠️ This room has now expired.", embed=None, view=None)
-                        print(f"[INFO] Hourly room expired at {now.strftime('%H:%M')}")
-                    except Exception as e:
-                        print(f"[ERROR] Failed to expire room message: {e}")
-                    active_announcement = None
-
-            await asyncio.sleep(10)  # Check every 10 seconds
 
 def is_admin(interaction: discord.Interaction) -> bool:
     return interaction.user.guild_permissions.administrator
@@ -3420,7 +3307,7 @@ class TournamentLobbyView(discord.ui.View):
 
         # Join button
         self.join_button = discord.ui.Button(label="Join Tournament", style=discord.ButtonStyle.success)
-        self.join_button.callback = self.join
+        self.join_button.callback = self.join_button
         self.add_item(self.join_button)
 
         # ✅ static Leave button:
