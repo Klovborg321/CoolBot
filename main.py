@@ -136,7 +136,7 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
             max_players=2,
             channel=channel,
             scheduled_note="💰 GOLDEN HOUR GAME — Winner gets 25 balls!",
-            scheduled_hour=datetime.now().hour,
+            scheduled_hour=datetime.utcnow().hour,
             is_hourly=True,
         )
         embed = await view.build_embed(guild)
