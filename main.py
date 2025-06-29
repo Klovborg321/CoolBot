@@ -136,7 +136,7 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
             max_players=2,
             channel=channel,
             scheduled_note="💰 GOLDEN HOUR GAME — Winner gets 25 balls!",
-            scheduled_hour=datetime.utcnow().hour,
+            scheduled_time=datetime.utcnow().replace(minute=0, second=0, microsecond=0),
             is_hourly=True,
         )
         embed = await view.build_embed(guild)
@@ -2300,10 +2300,8 @@ class GameView(discord.ui.View):
             icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
         )
 
-        if self.scheduled_hour is not None:
-            now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
-            scheduled_dt = now.replace(hour=self.scheduled_hour)
-            void_time = scheduled_dt + timedelta(minutes=30)
+        if self.scheduled_time:
+            void_time = self.scheduled_time + timedelta(minutes=30)
             ts = int(void_time.timestamp())
             embed.description += f"\n🛑 Game will be voided if not full by <t:{ts}:t> (<t:{ts}:R>)"
 
