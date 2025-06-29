@@ -127,48 +127,62 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
     await bot.wait_until_ready()
 
     while True:
-        print("[SCHEDULER] Posting Golden Hour Game...")
+        now = datetime.utcnow()
+        at_top_of_hour = now.minute == 0
 
-        creator = guild.get_member(bot.user.id) or await guild.fetch_member(bot.user.id)
-        view = GameView(
-            game_type="singles",
-            creator=creator,
-            max_players=2,
-            channel=channel,
-            scheduled_note="💰 GOLDEN HOUR GAME — Winner gets 25 balls!",
-            scheduled_time=datetime.utcnow().replace(minute=0, second=0, microsecond=0),
-            is_hourly=True,
-        )
-        embed = await view.build_embed(guild)
-        msg = await channel.send(embed=embed, view=view)
-        view.message = msg
-        pending_games["singles"] = view
+        if at_top_of_hour:
+            print("[HOURLY] Posting Golden Hour game immediately.")
 
-        async def auto_expire():
-            await asyncio.sleep(1800)
-            if not view.has_started:
-                print("[HOURLY] Game expired — disabling buttons and starting countdown.")
+            creator = guild.get_member(bot.user.id) or await guild.fetch_member(bot.user.id)
+            scheduled_time = now.replace(minute=0, second=0, microsecond=0)
 
-                view.clear_items()
-                if view.message:
-                    embed = view.message.embeds[0] if view.message.embeds else None
-                    if embed:
-                        embed.set_footer(text="⏱️ This Golden Hour lobby has expired.")
-                        embed.color = discord.Color.dark_gray()
-                        try:
-                            await view.message.edit(embed=embed, view=view)
-                        except discord.NotFound:
-                            pass
+            view = GameView(
+                game_type="singles",
+                creator=creator,
+                max_players=2,
+                channel=channel,
+                scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 25 BALLS!",
+                scheduled_time=scheduled_time,
+                is_hourly=True
+            )
 
-                # ✅ Start 30-min countdown to next game
-                countdown_view = HourlyCountdownView(bot, guild, channel, seconds_until_start=1800)
-                countdown_view.message = await channel.send("⏳ Next Golden Hour in 30:00...", view=countdown_view)
-                await countdown_view.task  # Wait for countdown to finish
+            embed = await view.build_embed(guild)
+            msg = await channel.send(embed=embed, view=view)
+            view.message = msg
+            pending_games["singles"] = view
 
-        view.abandon_task = asyncio.create_task(auto_expire())
+            async def expire_and_countdown():
+                await asyncio.sleep(1800)
+                if not view.has_started:
+                    view.clear_items()
+                    embed = msg.embeds[0]
+                    embed.set_footer(text="⏱️ This Golden Hour lobby has expired.")
+                    embed.color = discord.Color.dark_gray()
+                    await msg.edit(embed=embed, view=view)
 
-        # 💤 Wait for current cycle (60 min total)
-        await asyncio.sleep(3600)
+                    # ⏳ Start 30-minute countdown
+                    countdown_view = HourlyCountdownView(bot, guild, channel, seconds_until_start=1800)
+                    countdown_view.message = await channel.send("⏳ Next Golden Hour in 30:00...", view=countdown_view)
+                    await countdown_view.task
+
+            view.abandon_task = asyncio.create_task(expire_and_countdown())
+
+            # Wait 60 minutes before checking again
+            await asyncio.sleep(3600)
+
+        else:
+            # 🕒 Not top of the hour — show countdown to next hour
+            next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+            seconds_until = int((next_hour - now).total_seconds())
+
+            print(f"[HOURLY] Not top of hour, posting countdown ({seconds_until}s).")
+            countdown_view = HourlyCountdownView(bot, guild, channel, seconds_until_start=seconds_until)
+            countdown_view.message = await channel.send("⏳ Golden Hour starts soon...", view=countdown_view)
+            await countdown_view.task
+
+            # Then immediately post the game at the top of the hour
+            # (task will reach here when countdown finishes)
+
 
 
 
@@ -1040,12 +1054,12 @@ room_name_generator = RoomNameGenerator()
 
 
 class GameJoinView(discord.ui.View):
-    def __init__(self, game_type, max_players, scheduled_note=None, scheduled_hour=None):
+    def __init__(self, game_type, max_players, scheduled_note=None, scheduled_time=None):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.max_players = max_players
         self.scheduled_note = scheduled_note 
-        self.scheduled_hour = scheduled_hour 
+        self.scheduled_time = scheduled_time 
 
         # ✅ Use dynamic label
         button = discord.ui.Button(
@@ -1087,7 +1101,7 @@ class GameJoinView(discord.ui.View):
             self.max_players,
             interaction.channel,
             scheduled_note=self.scheduled_note,
-            scheduled_hour = self.scheduled_hour 
+            scheduled_time = self.scheduled_time 
         )
 
         await player_manager.activate(interaction.user.id)
@@ -1951,7 +1965,7 @@ class VoteButton(discord.ui.Button):
             await self.view_obj.finalize_game()
 
 async def _void_if_not_started(self):
-    void_time = self.scheduled_hour + timedelta(minutes=30)
+    void_time = self.scheduled_time + timedelta(minutes=30)
     seconds_until_void = (void_time - datetime.now()).total_seconds()
 
     print(f"[HOURLY] Game will be voided in {int(seconds_until_void)}s at {void_time.time()} if not started.")
@@ -2018,7 +2032,7 @@ class TournamentStartButtonView(discord.ui.View):
 
 
 class GameView(discord.ui.View):
-    def __init__(self, game_type, creator, max_players, channel, scheduled_note=None, scheduled_hour=None, is_hourly=False):
+    def __init__(self, game_type, creator, max_players, channel, scheduled_note=None, scheduled_time=None, is_hourly=False):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
@@ -2038,7 +2052,7 @@ class GameView(discord.ui.View):
         self.thread = None
         self.has_started = False  # ✅ add this
         self.scheduled_note = scheduled_note
-        self.scheduled_hour = scheduled_hour  
+        self.scheduled_time = scheduled_time  
         self.is_hourly=is_hourly
         self.hourly_start_task = None
         self.hourly_void_task = None
@@ -4718,66 +4732,6 @@ async def init_selected(interaction: discord.Interaction):
     )
 
 
-@tree.command(name="schedule_singles_game", description="Start a singles game automatically at :55 every hour.")
-async def schedule_singles_game(interaction: discord.Interaction):
-    await interaction.response.send_message("✅ Singles game will auto-start at :55 every hour.", ephemeral=True)
-    bot.loop.create_task(run_hourly_singles(interaction.guild, interaction.channel))
-
-
-async def run_hourly_singles(guild: discord.Guild, channel: discord.TextChannel):
-    await bot.wait_until_ready()
-
-    while True:
-        now = datetime.now()
-        if now.minute != 55:
-            await asyncio.sleep(30)
-            continue
-
-        try:
-            # ✅ Import your actual GameJoinView
-            from views.game_start_view import GameJoinView
-        except ImportError:
-            print("[ERROR] Could not import GameJoinView")
-            return
-
-        # ✅ Create the view with the special note
-        view = GameJoinView(
-            game_type="singles",
-            max_players=2,
-            scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 25 BALLS!",
-            scheduled_hour=now
-        )
-
-        # ✅ Create a fake interaction to call start_game()
-        class FakeInteraction:
-            def __init__(self, channel, guild):
-                self.channel = channel
-                self.guild = guild
-                self.user = bot.user
-                self.message = None
-
-            async def response_defer(self, ephemeral=True): pass
-            async def followup_send(self, content, ephemeral=True): pass
-            async def response(self): pass
-
-            async def response_defer(self): pass
-
-            @property
-            def response(self):
-                class R:
-                    @staticmethod
-                    async def defer(ephemeral=True): pass
-                return R()
-
-        fake_interaction = FakeInteraction(channel, guild)
-
-        # ✅ Start the game directly
-        await view.start_game(fake_interaction)
-
-        print(f"[INFO] Auto-started singles game at {now.strftime('%H:%M')}")
-
-        # ✅ Wait at least a minute to avoid double trigger
-        await asyncio.sleep(60)
 
 @tree.command(name="golden_hour")
 async def golden_hour(interaction: discord.Interaction):
