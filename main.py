@@ -1670,13 +1670,24 @@ class RoomView(discord.ui.View):
         most_common = vote_counts.most_common()
 
         if not most_common:
-            winner = None
+            print("[Voting] ⚠️ No votes cast — declaring draw.")
+            winner = "draw"
         elif len(most_common) > 1 and most_common[0][1] == most_common[1][1]:
+            print("[Voting] ⚠️ Tie in votes — declaring draw.")
             winner = "draw"
         else:
             winner = most_common[0][0]
 
+        # Fallback: if winner is not a valid choice, treat as draw
+        valid_options = self.get_vote_options()
+        if winner not in valid_options and winner != "draw":
+            print(f"[Voting] ⚠️ Invalid winner value: {winner} — forcing draw.")
+            winner = "draw"
+
         self.voting_closed = True
+
+        if winner is None:
+            winner = "draw"
 
         # ✅ DRAW CASE — refund bets, update stats
         if winner == "draw":
