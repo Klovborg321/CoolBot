@@ -2029,6 +2029,8 @@ class GameView(discord.ui.View):
         self.scheduled_note = scheduled_note
         self.scheduled_hour = scheduled_hour  
         self.is_hourly=is_hourly
+        self.hourly_start_task = None
+        self.hourly_void_task = None
 
 
         # ✅ Unique ID per game for safe countdown
