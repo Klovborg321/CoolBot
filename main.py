@@ -147,7 +147,8 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
                 max_players=2,
                 channel=channel,
                 scheduled_note="💰 GOLDEN HOUR GAME — Winner gets 25 balls!",
-                scheduled_hour=datetime.now().hour 
+                scheduled_hour=datetime.now().hour,
+                is_hourly=True
             )
 
             embed = await view.build_embed(guild)
@@ -400,7 +401,19 @@ async def send_global_notification(game_type: str, lobby_link: str, guild: disco
 
     print(f"[INFO] Global alert sent for '{game_type}' to #{channel.name}")
 
-
+def ensure_full_stats(stats: dict):
+    defaults = {
+        "rank": 1000,
+        "wins": 0,
+        "losses": 0,
+        "draws": 0,
+        "games_played": 0,
+        "current_streak": 0,
+        "best_streak": 0,
+        "trophies": 0
+    }
+    for k, v in defaults.items():
+        stats.setdefault(k, v)
 
 async def expected_score(rating_a, rating_b):
     """Expected score for player/team A vs B"""
@@ -431,6 +444,9 @@ async def update_elo_pair_and_save(player1_id, player2_id, winner, k=32, game_ty
 
     s1 = p1["stats"][game_type]
     s2 = p2["stats"][game_type]
+
+    ensure_full_stats(s1)
+    ensure_full_stats(s2)
 
     r1 = s1["rank"]
     r2 = s2["rank"]
@@ -513,6 +529,7 @@ async def update_elo_doubles_and_save(teamA_ids, teamB_ids, winner, k=32, game_t
 
     for idx, p in enumerate(teamA):
         s = p["stats"][game_type]
+        ensure_full_stats(s)
         old = s["rank"]
         s["rank"] += delta
         s["games_played"] += 1
@@ -534,6 +551,7 @@ async def update_elo_doubles_and_save(teamA_ids, teamB_ids, winner, k=32, game_t
 
     for idx, p in enumerate(teamB):
         s = p["stats"][game_type]
+        ensure_full_stats(s)
         old = s["rank"]
         s["rank"] -= delta
         s["games_played"] += 1
@@ -577,7 +595,9 @@ async def update_elo_triples_and_save(player_ids, winner, k=32, game_type="tripl
 
     for p in players:
         p.setdefault("stats", {})
-        p["stats"].setdefault(game_type, default_stats.copy())
+        p["stats"].setdefault(game_type, {})
+        stats = p["stats"][game_type]
+        ensure_full_stats(stats)
         stats_list.append(p["stats"][game_type])
 
     # Compute current ranks
@@ -637,6 +657,9 @@ async def update_elo_series_and_save(player1_id, player2_id, results, k=32, game
 
     p1.setdefault("stats", {}).setdefault(game_type, default_stats.copy())
     p2.setdefault("stats", {}).setdefault(game_type, default_stats.copy())
+
+    ensure_full_stats(p1["stats"][game_type])
+    ensure_full_stats(p2["stats"][game_type])
 
     s1 = p1["stats"][game_type]
     s2 = p2["stats"][game_type]
@@ -2086,7 +2109,7 @@ class TournamentStartButtonView(discord.ui.View):
 
 
 class GameView(discord.ui.View):
-    def __init__(self, game_type, creator, max_players, channel, scheduled_note=None, scheduled_hour=None):
+    def __init__(self, game_type, creator, max_players, channel, scheduled_note=None, scheduled_hour=None, is_hourly=False):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
@@ -2104,6 +2127,7 @@ class GameView(discord.ui.View):
         self.has_started = False  # ✅ add this
         self.scheduled_note = scheduled_note
         self.scheduled_hour = scheduled_hour  
+        self.is_hourly=is_hourly
 
         # ✅ Unique ID per game for safe countdown
         self.instance_id = uuid.uuid4().hex
@@ -2142,7 +2166,7 @@ class GameView(discord.ui.View):
         self.message = None
 
         # ✅ Only post start button if NOT an hourly game
-        if not self.scheduled_note:
+        if not getattr(self, "is_hourly", False):
             await start_new_game_button(self.channel, self.game_type, self.max_players)
             print(f"[abandon_game] New start posted for {self.game_type} in #{self.channel.name}")
         else:
