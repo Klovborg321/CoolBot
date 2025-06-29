@@ -127,17 +127,49 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
     await bot.wait_until_ready()
 
     while True:
-        now = datetime.utcnow()
-        next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
-        seconds_until = int((next_hour - now).total_seconds())
+        print("[SCHEDULER] Posting Golden Hour Game...")
 
-        print(f"[SCHEDULER] Next Golden Hour in {seconds_until} seconds")
+        creator = guild.get_member(bot.user.id) or await guild.fetch_member(bot.user.id)
+        view = GameView(
+            game_type="singles",
+            creator=creator,
+            max_players=2,
+            channel=channel,
+            scheduled_note="💰 GOLDEN HOUR GAME — Winner gets 25 balls!",
+            scheduled_hour=datetime.now().hour,
+            is_hourly=True,
+        )
+        embed = await view.build_embed(guild)
+        msg = await channel.send(embed=embed, view=view)
+        view.message = msg
+        pending_games["singles"] = view
 
-        # Start the countdown view
-        countdown_view = HourlyCountdownView(bot, guild, channel, seconds_until)
-        countdown_view.message = await channel.send("⏳ Countdown starting...", view=countdown_view)
+        async def auto_expire():
+            await asyncio.sleep(1800)
+            if not view.has_started:
+                print("[HOURLY] Game expired — disabling buttons and starting countdown.")
 
-        await asyncio.sleep(seconds_until + 10)  # Give it time to finish posting game
+                view.clear_items()
+                if view.message:
+                    embed = view.message.embeds[0] if view.message.embeds else None
+                    if embed:
+                        embed.set_footer(text="⏱️ This Golden Hour lobby has expired.")
+                        embed.color = discord.Color.dark_gray()
+                        try:
+                            await view.message.edit(embed=embed, view=view)
+                        except discord.NotFound:
+                            pass
+
+                # ✅ Start 30-min countdown to next game
+                countdown_view = HourlyCountdownView(bot, guild, channel, seconds_until_start=1800)
+                countdown_view.message = await channel.send("⏳ Next Golden Hour in 30:00...", view=countdown_view)
+                await countdown_view.task  # Wait for countdown to finish
+
+        view.abandon_task = asyncio.create_task(auto_expire())
+
+        # 💤 Wait for current cycle (60 min total)
+        await asyncio.sleep(3600)
+
 
 
 class HourlyCountdownView(discord.ui.View):
@@ -153,13 +185,12 @@ class HourlyCountdownView(discord.ui.View):
     async def run_countdown(self):
         while self.seconds_until_start > 0:
             mins, secs = divmod(self.seconds_until_start, 60)
-            content = f"⏳ Golden Hour Game starts in `{mins:02}:{secs:02}`..."
+            content = f"⏳ Next Golden Hour starts in `{mins:02}:{secs:02}`..."
             await self.update_message(content)
-            await asyncio.sleep(5)
-            self.seconds_until_start -= 5
+            await asyncio.sleep(10)
+            self.seconds_until_start -= 10
 
-        await self.update_message("🏁 Posting Golden Hour Game...")
-        await self.post_hourly_game()
+        await self.update_message("🏁 Posting Golden Hour Game soon...")
 
     async def update_message(self, content):
         if self.message:
@@ -167,30 +198,6 @@ class HourlyCountdownView(discord.ui.View):
                 await self.message.edit(content=content, view=self)
             except discord.NotFound:
                 pass
-
-    async def post_hourly_game(self):
-        creator = self.guild.get_member(self.bot.user.id) or await self.guild.fetch_member(self.bot.user.id)
-        view = GameView(
-            game_type="singles",
-            creator=creator,
-            max_players=2,
-            channel=self.channel,
-            scheduled_note="💰 GOLDEN HOUR GAME — Winner gets 25 balls!",
-            scheduled_hour=datetime.now().hour,
-            is_hourly=True
-        )
-        embed = await view.build_embed(self.guild)
-        msg = await self.channel.send(embed=embed, view=view)
-        view.message = msg
-        pending_games["singles"] = view
-
-        # Optional auto-abandon
-        async def auto_abandon():
-            await asyncio.sleep(600)
-            if not view.has_started:
-                await view.abandon_game("⏱️ Hourly match expired.")
-        view.abandon_task = asyncio.create_task(auto_abandon())
-
 
 
 def is_admin(interaction: discord.Interaction) -> bool:
@@ -1172,18 +1179,22 @@ class LeaveGameButton(discord.ui.Button):
         self.game_view.players.remove(user_id)
         await player_manager.deactivate(user_id)
 
-        # ✅ Cancel hourly countdown if it was running
-        if self.game_view.scheduled_note and self.game_view.hourly_start_task:
+        # ✅ Cancel hourly countdown if it was running (optional)
+        if getattr(self.game_view, "hourly_start_task", None):
             self.game_view.hourly_start_task.cancel()
             self.game_view.hourly_start_task = None
-            print("[HOURLY] Countdown cancelled due to player leaving.")
+            print("[HOURLY] Countdown task cancelled.")
 
         await self.game_view.update_message()
         await interaction.response.send_message("✅ You have left the game.", ephemeral=True)
 
-        # ✅ Only abandon if it's NOT scheduled and now empty
-        if not self.game_view.scheduled_note and len(self.game_view.players) == 0:
+        # ✅ Only abandon if:
+        # - It's NOT an hourly game
+        # - AND no players left
+        if not getattr(self.game_view, "is_hourly", False) and len(self.game_view.players) == 0:
             await self.game_view.abandon_game("❌ Game abandoned because all players left.")
+        elif getattr(self.game_view, "is_hourly", False) and len(self.game_view.players) == 0:
+            print("[HOURLY] Last player left, but keeping lobby alive for full 30 min timeout.")
 
 
 class BettingButtonDropdown(discord.ui.Button):
@@ -2186,6 +2197,11 @@ class GameView(discord.ui.View):
         await save_game_state(self, self, room_view)
         if not self.scheduled_note:
             await start_new_game_button(self.channel, self.game_type, self.max_players)
+
+        if self.is_hourly:
+            countdown_view = HourlyCountdownView(bot, interaction.guild, self.channel, seconds_until_start=120)
+            countdown_view.message = await self.channel.send("⏳ Golden Hour Game starts soon...", view=countdown_view)
+        
         await self.show_betting_phase()
 
     async def _handle_join(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -4795,7 +4811,7 @@ async def on_ready():
         return
 
     # ✅ Start hourly countdown loop
-    bot.loop.create_task(start_hourly_scheduler(guild, channel))
+    asyncio.create_task(start_hourly_scheduler(guild, channel))
 
     # ✅ Load any leftover pending games into memory
     rows = await load_pending_games()
