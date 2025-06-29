@@ -2301,7 +2301,7 @@ class GameView(discord.ui.View):
         )
 
         if self.scheduled_hour is not None:
-            now = datetime.now().replace(minute=0, second=0, microsecond=0)
+            now = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
             scheduled_dt = now.replace(hour=self.scheduled_hour)
             void_time = scheduled_dt + timedelta(minutes=30)
             ts = int(void_time.timestamp())
