@@ -3348,7 +3348,7 @@ class TournamentLobbyView(discord.ui.View):
 
         # Join button
         self.join_button = discord.ui.Button(label="Join Tournament", style=discord.ButtonStyle.success)
-        self.join_button.callback = self.join_button
+        self.join_button.callback = self.join_button_callback  # ✅ Fix here
         self.add_item(self.join_button)
 
         # ✅ static Leave button:
@@ -3402,7 +3402,7 @@ class TournamentLobbyView(discord.ui.View):
 
         print(f"[abandon_game] New start posted for {self.game_type} in #{self.parent_channel.name}")
 
-    async def join_button(self, interaction: discord.Interaction):
+    async def join_button_callback(self, interaction: discord.Interaction):
         uid = interaction.user.id
 
         if uid in self.players:
