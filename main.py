@@ -2113,7 +2113,10 @@ class GameView(discord.ui.View):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
-        self.players = [creator.id if hasattr(creator, "id") else creator] if creator else []
+        if(is_hourly):
+             self.players = []
+        else:
+            self.players = [creator.id if hasattr(creator, "id") else creator] if creator else []
         self.max_players = max_players
         self.channel = channel
         self.message = None
@@ -2129,11 +2132,13 @@ class GameView(discord.ui.View):
         self.scheduled_hour = scheduled_hour  
         self.is_hourly=is_hourly
 
+
         # ✅ Unique ID per game for safe countdown
         self.instance_id = uuid.uuid4().hex
 
         self.add_item(LeaveGameButton(self))
 
+    
     @discord.ui.button(label="Join Game", style=discord.ButtonStyle.success)
     async def join_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self._handle_join(interaction, button)
