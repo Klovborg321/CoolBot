@@ -1676,6 +1676,7 @@ class RoomView(discord.ui.View):
 
     async def finalize_game(self):
 
+        print("[DEBUG] Finalizing game...")
         # ✅ Cancel timers
         self.cancel_abandon_task()
         self.cancel_vote_timeout()
@@ -1685,13 +1686,12 @@ class RoomView(discord.ui.View):
             self.game_view.cancel_betting_task()
 
         self.game_has_ended = True
-        if not self.players:
-            print("[finalize_game] ⚠️ No players found — aborting.")
-            return
 
         # ✅ Count votes
+        print(f"[VOTE] Collected votes: {self.votes}")
         self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
         vote_counts = Counter(self.votes.values())
+        print(f"[VOTE] Vote counts: {vote_counts}")
         most_common = vote_counts.most_common()
 
         if not most_common:
@@ -1871,7 +1871,7 @@ class RoomView(discord.ui.View):
                 await self.on_tournament_complete(fallback)
 
         await update_leaderboard(self.bot, self.game_type)
-        
+        print(f"[DEBUG] Finalized winner = {winner}")
 
 
 class GameEndedButton(discord.ui.Button):
