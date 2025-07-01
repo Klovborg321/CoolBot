@@ -19,10 +19,67 @@ from collections import Counter
 from datetime import datetime, timedelta
 import zoneinfo
 import aiohttp
+from discord.ext import tasks
+from discord import TextChannel, utils
+from types import SimpleNamespace
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+# Channel ID → Game type
+CHANNEL_GAME_MAP = {
+    1383488263146438788: "singles",     # replace with your actual channel IDs
+    1383488331672850503: "doubles",
+    1383488387952021555: "triples",
+    1383869104599072908: "tournaments"
+}
+
+# Your global start_buttons dict
+# Format: {(channel_id, game_type): button_object}
+# Assume this already exists in your bot
+# start_buttons = {}
+
+async def ensure_start_buttons(bot):
+    """
+    For each game type, make sure a Start New Game button is posted.
+    """
+    for channel_id, game_type in CHANNEL_GAME_MAP.items():
+        if any(k[0] == channel_id and k[1] == game_type for k in start_buttons):
+            print(f"[AutoInit] Button already exists for {game_type} in channel {channel_id}")
+            continue  # Already has a button
+
+        channel = bot.get_channel(channel_id)
+        if not isinstance(channel, TextChannel):
+            print(f"[AutoInit] Invalid channel ID: {channel_id}")
+            continue
+
+        print(f"[AutoInit] Posting new '{game_type}' button in {channel.name}...")
+
+        # Simulate an interaction object
+        fake_interaction = SimpleNamespace()
+        fake_interaction.user = bot.user  # you may override this
+        fake_interaction.channel = channel
+        fake_interaction.guild = channel.guild
+        fake_interaction.client = bot
+        fake_interaction.response = SimpleNamespace()
+        fake_interaction.followup = SimpleNamespace()
+        fake_interaction.response.defer = lambda ephemeral: None
+        fake_interaction.followup.send = lambda content, ephemeral: print(f"[AutoInit] {content}")
+
+        # Call correct init command
+        if game_type == "singles":
+            await init_singles(fake_interaction)
+        elif game_type == "doubles":
+            await init_doubles(fake_interaction)
+        elif game_type == "triples":
+            await init_triples(fake_interaction)
+        elif game_type == "tournaments":
+            await init_tournament(fake_interaction)
+        else:
+            print(f"[AutoInit] Unknown game_type: {game_type}")
+
+
 
 MAX_RETRIES = 5
 
@@ -4758,6 +4815,7 @@ async def on_ready():
 
     # ✅ Optional: restore active games if needed
     # await restore_active_games(bot)
+    auto_post_start_buttons.start()
 
     # ✅ Get your main guild and channel
     guild = bot.get_guild(1368622436454633633)
@@ -4779,7 +4837,9 @@ async def on_ready():
 
     print(f"✅ Loaded pending games into RAM for checks: {pending_games}")
 
-
+@tasks.loop(minutes=1)
+async def auto_post_start_buttons():
+    await ensure_start_buttons(bot)
 
 async def main():
     for attempt in range(5):
