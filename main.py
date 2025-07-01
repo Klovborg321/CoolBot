@@ -144,6 +144,25 @@ default_template = {
 
 # Helpers
 
+async def ensure_start_buttons(bot):
+    for channel_id, (game_type, max_players) in CHANNEL_GAME_MAP.items():
+        # Skip if there's already a button posted for this channel and game type
+        if any(k[0] == channel_id and k[1] == game_type for k in start_buttons):
+            print(f"[AutoInit] ✅ Button already exists for {game_type} in channel {channel_id}")
+            continue
+
+        channel = bot.get_channel(channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            print(f"[AutoInit] ❌ Channel {channel_id} not found or invalid")
+            continue
+
+        print(f"[AutoInit] ⏺️ Posting start button for {game_type} in {channel.name}...")
+
+        try:
+            await start_new_game_button(channel, game_type, max_players=max_players)
+        except Exception as e:
+            print(f"[AutoInit] ❌ Failed to post button in {channel.name}: {e}")
+
 async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChannel):
     await bot.wait_until_ready()
 
