@@ -40,44 +40,34 @@ CHANNEL_GAME_MAP = {
 # Assume this already exists in your bot
 # start_buttons = {}
 
-async def ensure_start_buttons(bot):
-    """
-    For each game type, make sure a Start New Game button is posted.
-    """
-    for channel_id, game_type in CHANNEL_GAME_MAP.items():
-        if any(k[0] == channel_id and k[1] == game_type for k in start_buttons):
-            print(f"[AutoInit] Button already exists for {game_type} in channel {channel_id}")
-            continue  # Already has a button
+@bot.event
+async def on_ready():
+    await tree.sync()
+    print(f"✅ Logged in as {bot.user}")
 
-        channel = bot.get_channel(channel_id)
-        if not isinstance(channel, TextChannel):
-            print(f"[AutoInit] Invalid channel ID: {channel_id}")
-            continue
+    # ✅ Optional: restore active games if needed
+    # await restore_active_games(bot)
+    auto_post_start_buttons.start()
 
-        print(f"[AutoInit] Posting new '{game_type}' button in {channel.name}...")
+    # ✅ Get your main guild and channel
+    guild = bot.get_guild(1368622436454633633)
+    channel = guild.get_channel(1388042320061927434)
 
-        # Simulate an interaction object
-        fake_interaction = SimpleNamespace()
-        fake_interaction.user = bot.user  # you may override this
-        fake_interaction.channel = channel
-        fake_interaction.guild = channel.guild
-        fake_interaction.client = bot
-        fake_interaction.response = SimpleNamespace()
-        fake_interaction.followup = SimpleNamespace()
-        fake_interaction.response.defer = lambda ephemeral: None
-        fake_interaction.followup.send = lambda content, ephemeral: print(f"[AutoInit] {content}")
+    if not guild or not channel:
+        print("❌ Guild or channel not found.")
+        return
 
-        # Call correct init command
-        if game_type == "singles":
-            await init_singles(fake_interaction)
-        elif game_type == "doubles":
-            await init_doubles(fake_interaction)
-        elif game_type == "triples":
-            await init_triples(fake_interaction)
-        elif game_type == "tournaments":
-            await init_tournament(fake_interaction)
-        else:
-            print(f"[AutoInit] Unknown game_type: {game_type}")
+    # ✅ Start hourly countdown loop
+    asyncio.create_task(start_hourly_scheduler(guild, channel))
+
+    # ✅ Load any leftover pending games into memory
+    rows = await load_pending_games()
+    for row in rows:
+        game_type = row["game_type"]
+        players = row["players"]
+        pending_games[game_type] = {"players": players}
+
+    print(f"✅ Loaded pending games into RAM for checks: {pending_games}")
 
 
 
