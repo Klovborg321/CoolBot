@@ -29,10 +29,10 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 # Channel ID → Game type
 CHANNEL_GAME_MAP = {
-    1383488263146438788: "singles",     # replace with your actual channel IDs
-    1383488331672850503: "doubles",
-    1383488387952021555: "triples",
-    1383869104599072908: "tournaments"
+    1383488263146438788: ("singles", 2),
+    1383488331672850503: ("doubles", 4),
+    1383488387952021555: ("triples", 3),
+    1383869104599072908: ("tournaments", 4)
 }
 
 # Your global start_buttons dict
@@ -146,23 +146,28 @@ default_template = {
 
 async def ensure_start_buttons(bot):
     print("[AutoInit] ensure_start_buttons() triggered")
+
     for channel_id, (game_type, max_players) in CHANNEL_GAME_MAP.items():
-        # Skip if there's already a button posted for this channel and game type
+        print(f"[AutoInit] 🔍 Checking {channel_id} for {game_type}")
+
         if any(k[0] == channel_id and k[1] == game_type for k in start_buttons):
-            print(f"[AutoInit] ✅ Button already exists for {game_type} in channel {channel_id}")
+            print(f"[AutoInit] ✅ Already has start button for {game_type} in {channel_id}")
             continue
 
         channel = bot.get_channel(channel_id)
-        if not isinstance(channel, discord.TextChannel):
-            print(f"[AutoInit] ❌ Channel {channel_id} not found or invalid")
+        if channel is None:
+            print(f"[AutoInit] ❌ Channel ID {channel_id} not found!")
             continue
 
-        print(f"[AutoInit] ⏺️ Posting start button for {game_type} in {channel.name}...")
+        print(f"[AutoInit] ✅ Found channel {channel.name} ({channel_id})")
 
         try:
+            print(f"[AutoInit] 🟢 Calling start_new_game_button for {game_type}")
             await start_new_game_button(channel, game_type, max_players=max_players)
+            print(f"[AutoInit] ✅ Successfully posted button for {game_type} in {channel.name}")
         except Exception as e:
             print(f"[AutoInit] ❌ Failed to post button in {channel.name}: {e}")
+
 
 async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChannel):
     await bot.wait_until_ready()
