@@ -40,35 +40,6 @@ CHANNEL_GAME_MAP = {
 # Assume this already exists in your bot
 # start_buttons = {}
 
-@bot.event
-async def on_ready():
-    await tree.sync()
-    print(f"✅ Logged in as {bot.user}")
-
-    # ✅ Optional: restore active games if needed
-    # await restore_active_games(bot)
-    auto_post_start_buttons.start()
-
-    # ✅ Get your main guild and channel
-    guild = bot.get_guild(1368622436454633633)
-    channel = guild.get_channel(1388042320061927434)
-
-    if not guild or not channel:
-        print("❌ Guild or channel not found.")
-        return
-
-    # ✅ Start hourly countdown loop
-    asyncio.create_task(start_hourly_scheduler(guild, channel))
-
-    # ✅ Load any leftover pending games into memory
-    rows = await load_pending_games()
-    for row in rows:
-        game_type = row["game_type"]
-        players = row["players"]
-        pending_games[game_type] = {"players": players}
-
-    print(f"✅ Loaded pending games into RAM for checks: {pending_games}")
-
 
 
 MAX_RETRIES = 5
@@ -4826,6 +4797,36 @@ async def on_ready():
         pending_games[game_type] = {"players": players}
 
     print(f"✅ Loaded pending games into RAM for checks: {pending_games}")
+
+@bot.event
+async def on_ready():
+    await tree.sync()
+    print(f"✅ Logged in as {bot.user}")
+
+    # ✅ Optional: restore active games if needed
+    # await restore_active_games(bot)
+    auto_post_start_buttons.start()
+
+    # ✅ Get your main guild and channel
+    guild = bot.get_guild(1368622436454633633)
+    channel = guild.get_channel(1388042320061927434)
+
+    if not guild or not channel:
+        print("❌ Guild or channel not found.")
+        return
+
+    # ✅ Start hourly countdown loop
+    asyncio.create_task(start_hourly_scheduler(guild, channel))
+
+    # ✅ Load any leftover pending games into memory
+    rows = await load_pending_games()
+    for row in rows:
+        game_type = row["game_type"]
+        players = row["players"]
+        pending_games[game_type] = {"players": players}
+
+    print(f"✅ Loaded pending games into RAM for checks: {pending_games}")
+
 
 @tasks.loop(minutes=1)
 async def auto_post_start_buttons():
