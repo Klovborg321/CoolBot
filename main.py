@@ -1645,6 +1645,8 @@ class RoomView(discord.ui.View):
         if not self.game_has_ended:
             return
 
+        pending_games[self.game_type] = None
+
         self.clear_items()
         options = self.get_vote_options()
         for option in options:
