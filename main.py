@@ -18,10 +18,13 @@ from collections import defaultdict
 from collections import Counter
 from datetime import datetime, timedelta
 import zoneinfo
+import aiohttp
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+MAX_RETRIES = 5
 
 supabase: Client = None
 
@@ -4776,4 +4779,16 @@ async def on_ready():
 
 
 
-bot.run(os.getenv("DISCORD_BOT_TOKEN"))
+async def main():
+    for attempt in range(5):
+        try:
+            await bot.start(os.getenv("DISCORD_BOT_TOKEN"))
+            break
+        except aiohttp.ClientConnectorError as e:
+            print(f"[Startup Error] Attempt {attempt+1}: {e}")
+            await asyncio.sleep(5 * (attempt + 1))  # Backoff: 5s, 10s, 15s...
+        except Exception as e:
+            print(f"[Fatal Error] {e}")
+            raise
+
+asyncio.run(main())
