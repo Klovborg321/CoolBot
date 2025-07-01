@@ -145,6 +145,7 @@ default_template = {
 # Helpers
 
 async def ensure_start_buttons(bot):
+    print("[AutoInit] ensure_start_buttons() triggered")
     for channel_id, (game_type, max_players) in CHANNEL_GAME_MAP.items():
         # Skip if there's already a button posted for this channel and game type
         if any(k[0] == channel_id and k[1] == game_type for k in start_buttons):
