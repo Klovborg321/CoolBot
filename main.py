@@ -150,10 +150,9 @@ async def ensure_start_buttons(bot):
     for channel_id, (game_type, max_players) in CHANNEL_GAME_MAP.items():
         print(f"[AutoInit] 🔍 Checking {channel_id} for {game_type}")
 
-        # 1️⃣ Check if a game is already pending
         is_pending = pending_games.get(game_type)
-        if is_pending and isinstance(is_pending, dict) and is_pending.get("players"):
-            print(f"[AutoInit] ⏸️ Game of type '{game_type}' is already pending, skipping...")
+        if is_pending and not getattr(is_pending, "game_has_ended", True):
+            print(f"[AutoInit] ⏸️ Game of type '{game_type}' is still pending, skipping...")
             continue
 
         # 2️⃣ Check if a start button already exists
