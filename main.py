@@ -224,19 +224,29 @@ async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
     async def expire_and_countdown():
         await asyncio.sleep(1800)
         if not view.has_started:
+            print("[HOURLY] ⏱️ Lobby expired after 30 min, voiding...")
+
+            # ✅ Update message visually
             view.clear_items()
             embed = msg.embeds[0]
             embed.set_footer(text="⏱️ This Golden Hour lobby has expired.")
             embed.color = discord.Color.dark_gray()
-            await msg.edit(embed=embed, view=view)
+            await msg.edit(embed=embed, view=None)
 
-            # Start new countdown
+            # ✅ Deactivate players
+            for p in view.players:
+                await player_manager.deactivate(p)
+
+            # ✅ Clean up state
+            pending_games.pop("singles", None)
+            view.message = None
+            view.has_started = False  # Just for clarity
+            view.abandon_task = None
+
+            # ✅ Start new countdown to next game
             countdown_view = HourlyCountdownView(bot, guild, channel, seconds_until_start=1800)
             countdown_view.message = await channel.send("⏳ Next Golden Hour in 30:00...", view=countdown_view)
             await countdown_view.task
-
-    view.abandon_task = asyncio.create_task(expire_and_countdown())
-
 
 
 class HourlyCountdownView(discord.ui.View):
@@ -1826,23 +1836,28 @@ class RoomView(discord.ui.View):
         # ✅ WIN CASE — normalize
         normalized_winner = normalize_team(winner) if self.game_type == "doubles" else winner
 
-        if self.game_type == "singles":
-            await update_elo_pair_and_save(
-                self.players[0],
-                self.players[1],
-                winner=1 if self.players[0] == winner else 2
-            )
-        elif self.game_type == "doubles":
-            await update_elo_doubles_and_save(
-                self.players[:2],
-                self.players[2:],
-                winner=normalized_winner
-            )
-        elif self.game_type == "triples":
-            await update_elo_triples_and_save(
-                self.players,
-                winner
-            )
+        try:
+            if self.game_type == "singles":
+                await update_elo_pair_and_save(
+                    self.players[0],
+                    self.players[1],
+                    winner=1 if self.players[0] == winner else 2
+                )
+            elif self.game_type == "doubles":
+                await update_elo_doubles_and_save(
+                    self.players[:2],
+                    self.players[2:],
+                    winner=normalized_winner
+                )
+            elif self.game_type == "triples":
+                await update_elo_triples_and_save(
+                    self.players,
+                    winner
+                )
+        except Exception as e:
+            print(f"[finalize_game] ❌ Failed ELO update: {e}")
+            return
+
 
         # ✅ Process bets
         if self.game_view:
@@ -3350,13 +3365,17 @@ class TournamentManager:
         if loser_id is None:
             print(f"[ELO ERROR] Could not determine loser for winner {winner_id}. Skipping ELO update.")
         else:
-            # Only update ELO if both players are known
-            await update_elo_pair_and_save(
-                winner_id,
-                loser_id,
-                winner=1,
-                game_type="tournaments"
-            )
+            try:
+                # Only update ELO if both players are known
+                await update_elo_pair_and_save(
+                    winner_id,
+                    loser_id,
+                    winner=1,
+                    game_type="tournaments"
+                )
+            except Exception as e:
+                print(f"[finalize_game] ❌ Failed ELO update: {e}")
+                return
 
         # ✅ Deactivate loser for tournament room tracking
         if loser_id:
