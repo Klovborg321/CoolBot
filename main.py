@@ -184,58 +184,59 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
         at_top_of_hour = now.minute == 0
 
         if at_top_of_hour:
-            print("[HOURLY] Posting Golden Hour game immediately.")
-
-            creator = guild.get_member(bot.user.id) or await guild.fetch_member(bot.user.id)
-            scheduled_time = now.replace(minute=0, second=0, microsecond=0)
-
-            view = GameView(
-                game_type="singles",
-                creator=creator,
-                max_players=2,
-                channel=channel,
-                scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 25 BALLS!",
-                scheduled_time=scheduled_time,
-                is_hourly=True
-            )
-
-            embed = await view.build_embed(guild)
-            msg = await channel.send(embed=embed, view=view)
-            view.message = msg
-            pending_games["singles"] = view
-
-            async def expire_and_countdown():
-                await asyncio.sleep(1800)
-                if not view.has_started:
-                    view.clear_items()
-                    embed = msg.embeds[0]
-                    embed.set_footer(text="⏱️ This Golden Hour lobby has expired.")
-                    embed.color = discord.Color.dark_gray()
-                    await msg.edit(embed=embed, view=view)
-
-                    # ⏳ Start 30-minute countdown
-                    countdown_view = HourlyCountdownView(bot, guild, channel, seconds_until_start=1800)
-                    countdown_view.message = await channel.send("⏳ Next Golden Hour in 30:00...", view=countdown_view)
-                    await countdown_view.task
-
-            view.abandon_task = asyncio.create_task(expire_and_countdown())
-
-            # Wait 60 minutes before checking again
+            await post_hourly_game(guild, channel)
             await asyncio.sleep(3600)
-
         else:
-            # 🕒 Not top of the hour — show countdown to next hour
+            # Countdown until next hour
             next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
             seconds_until = int((next_hour - now).total_seconds())
-
             print(f"[HOURLY] Not top of hour, posting countdown ({seconds_until}s).")
+
             countdown_view = HourlyCountdownView(bot, guild, channel, seconds_until_start=seconds_until)
             countdown_view.message = await channel.send("⏳ Golden Hour starts soon...", view=countdown_view)
             await countdown_view.task
 
-            # Then immediately post the game at the top of the hour
-            # (task will reach here when countdown finishes)
+            # ✅ Now that countdown has ended, post the game
+            await post_hourly_game(guild, channel)
+            await asyncio.sleep(3600)
 
+
+async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
+    print("[HOURLY] Posting Golden Hour game now.")
+
+    creator = guild.get_member(bot.user.id) or await guild.fetch_member(bot.user.id)
+    scheduled_time = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+
+    view = GameView(
+        game_type="singles",
+        creator=creator,
+        max_players=2,
+        channel=channel,
+        scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 25 BALLS!",
+        scheduled_time=scheduled_time,
+        is_hourly=True
+    )
+
+    embed = await view.build_embed(guild)
+    msg = await channel.send(embed=embed, view=view)
+    view.message = msg
+    pending_games["singles"] = view
+
+    async def expire_and_countdown():
+        await asyncio.sleep(1800)
+        if not view.has_started:
+            view.clear_items()
+            embed = msg.embeds[0]
+            embed.set_footer(text="⏱️ This Golden Hour lobby has expired.")
+            embed.color = discord.Color.dark_gray()
+            await msg.edit(embed=embed, view=view)
+
+            # Start new countdown
+            countdown_view = HourlyCountdownView(bot, guild, channel, seconds_until_start=1800)
+            countdown_view.message = await channel.send("⏳ Next Golden Hour in 30:00...", view=countdown_view)
+            await countdown_view.task
+
+    view.abandon_task = asyncio.create_task(expire_and_countdown())
 
 
 
@@ -1705,20 +1706,30 @@ class RoomView(discord.ui.View):
                 label = member.display_name if member else f"User {option}"
             else:
                 label = option
-                if label.lower().startswith("vote "):
-                    label = label
-                else:
+                if not label.lower().startswith("vote "):
                     label = f"Vote {label}"
             self.add_item(VoteButton(option, self, label))
 
-        # ✅ 1️⃣ REBUILD embed for voting
+        # ✅ Rebuild embed for voting
         embed = await self.build_lobby_end_embed(winner=None)
-
-        # ✅ 2️⃣ Edit with fresh embed + fresh voting view
         await self.message.edit(embed=embed, view=self)
 
-        # ✅ 3️⃣ Start timeout
-        self.vote_timeout = asyncio.create_task(self.end_voting_after_timeout())
+        # ✅ Optional: post 1-minute warning at 9 minutes
+        async def warn_before_finalizing():
+            await asyncio.sleep(540)
+            if not self.voting_closed:
+                await self.channel.send("⚠️ 1 minute remaining to vote! Game will auto-finalize with current votes.")
+
+        asyncio.create_task(warn_before_finalizing())
+
+        # ✅ Finalize after 10 minutes
+        async def end_after_timeout():
+            await asyncio.sleep(600)
+            if not self.voting_closed:
+                print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
+                await self.finalize_game()
+
+        self.vote_timeout = asyncio.create_task(end_after_timeout())
 
     def cancel_vote_timeout(self):
         if hasattr(self, "vote_timeout") and self.vote_timeout:
@@ -1727,11 +1738,23 @@ class RoomView(discord.ui.View):
 
     async def end_voting_after_timeout(self):
         await asyncio.sleep(600)
+
+        if self.voting_closed:
+            print("[Voting] Skipped finalize: voting already closed.")
+            return
+
+        print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
         await self.finalize_game()
 
     async def finalize_game(self):
+        if self.voting_closed:
+            print("[Voting] ⏭️ Already finalized. Skipping.")
+            return
 
         print("[DEBUG] Finalizing game...")
+
+        self.voting_closed = True  # ✅ Immediately lock voting to avoid double entry
+
         # ✅ Cancel timers
         self.cancel_abandon_task()
         self.cancel_vote_timeout()
@@ -1742,7 +1765,7 @@ class RoomView(discord.ui.View):
 
         self.game_has_ended = True
 
-        # ✅ Count votes
+        # ✅ Count only valid votes from active players
         print(f"[VOTE] Collected votes: {self.votes}")
         self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
         vote_counts = Counter(self.votes.values())
@@ -1758,13 +1781,11 @@ class RoomView(discord.ui.View):
         else:
             winner = most_common[0][0]
 
-        # Fallback: if winner is not a valid choice, treat as draw
+        # ✅ Validate the vote result
         valid_options = self.get_vote_options()
         if winner not in valid_options and winner != "draw":
             print(f"[Voting] ⚠️ Invalid winner value: {winner} — forcing draw.")
             winner = "draw"
-
-        self.voting_closed = True
 
         if winner is None:
             winner = "draw"
@@ -2481,9 +2502,11 @@ class GameView(discord.ui.View):
         elif isinstance(winner, int):
             member = guild.get_member(winner) if guild else None
             winner_name = member.display_name if member else f"User {winner}"
-            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name} — 🏆 +25 credits!")
+            credit_note = " — 🏆 +25 credits!" if self.is_hourly else ""
+            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}{credit_note}")
         elif winner in ("Team A", "Team B"):
-            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner} — 🏆 +25 credits!")
+            credit_note = " — 🏆 +25 credits!" if self.is_hourly else ""
+            embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}{credit_note}")
 
 
         return embed
