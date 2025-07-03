@@ -1511,7 +1511,7 @@ class RoomView(discord.ui.View):
         self.room_name = room_name
         self.message = None  # thread message
         self.lobby_message = lobby_message
-        self.channel = self.message.channel if self.message else None
+        #self.channel = self.message.channel if self.message else None
         self.lobby_embed = lobby_embed
         self.game_view = game_view
         self.max_players = max_players  # ✅ store it!
@@ -2166,6 +2166,18 @@ class GameView(discord.ui.View):
         if self.message:
             try:
                 await self.message.edit(embed=embed, view=None)
+
+                # ✅ Schedule message deletion after 10 seconds
+                msg = self.message  # Save a reference to the message
+                async def delete_after_delay():
+                    await asyncio.sleep(10)
+                    try:
+                        await msg.delete()
+                    except discord.NotFound:
+                        pass  # Message already deleted
+
+                asyncio.create_task(delete_after_delay())
+
             except:
                 pass
 
@@ -2283,6 +2295,7 @@ class GameView(discord.ui.View):
         mentions = " ".join(f"<@{p}>" for p in self.players)
         thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=thread_embed, view=room_view)
         room_view.message = thread_msg
+        room_view.channel = thread 
 
         await save_game_state(self, self, room_view)
         if not self.scheduled_note:
