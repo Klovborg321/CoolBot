@@ -144,35 +144,36 @@ default_template = {
 
 # Helpers
 
+CHANNEL_GAME_MAP = {
+    1383488263146438788: ("singles", 2),
+    1383488331672850503: ("doubles", 4),
+    1383488387952021555: ("triples", 3),
+    1383869104599072908: ("tournaments", 4)
+}
+
 async def ensure_start_buttons(bot):
     print("[AutoInit] ensure_start_buttons() triggered")
 
     for channel_id, (game_type, max_players) in CHANNEL_GAME_MAP.items():
-        print(f"[AutoInit] 🔍 Checking {channel_id} for {game_type}")
-
-        is_pending = pending_games.get(game_type)
-        if is_pending and not getattr(is_pending, "game_has_ended", True):
-            print(f"[AutoInit] ⏸️ Game of type '{game_type}' is still pending, skipping...")
-            continue
-
-        # 2️⃣ Check if a start button already exists
-        if any(k[0] == channel_id and k[1] == game_type for k in start_buttons):
-            print(f"[AutoInit] ✅ Start button already exists for {game_type} in channel {channel_id}, skipping...")
-            continue
-
-        # 3️⃣ Fetch channel
         channel = bot.get_channel(channel_id)
         if not isinstance(channel, discord.TextChannel):
-            print(f"[AutoInit] ❌ Invalid or missing channel for ID {channel_id}")
+            print(f"[AutoInit] ❌ Channel {channel_id} not found — skipping.")
             continue
 
-        # 4️⃣ Post the start button
+        if pending_games.get(game_type):
+            print(f"[AutoInit] ⏸️ Skipping '{game_type}' — a game is already pending.")
+            continue
+
+        if any(k[0] == channel_id and k[1] == game_type for k in start_buttons):
+            print(f"[AutoInit] ✅ Button already exists in {channel.name} for '{game_type}' — skipping.")
+            continue
+
         try:
-            print(f"[AutoInit] 🟢 Posting new button for '{game_type}' in {channel.name}")
+            print(f"[AutoInit] 🟢 Posting button for '{game_type}' in {channel.name}")
             await start_new_game_button(channel, game_type, max_players=max_players)
-            print(f"[AutoInit] ✅ Posted button for '{game_type}' in {channel.name}")
+            print(f"[AutoInit] ✅ Button posted in {channel.name}")
         except Exception as e:
-            print(f"[AutoInit] ❌ Failed to post for '{game_type}' in {channel.name}: {e}")
+            print(f"[AutoInit] ❌ Failed to post button in {channel.name}: {e}")
 
 
 async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChannel):
