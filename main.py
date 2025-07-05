@@ -27,13 +27,6 @@ from types import SimpleNamespace
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# Channel ID → Game type
-CHANNEL_GAME_MAP = {
-    1383488263146438788: ("singles", 2),
-    1383488331672850503: ("doubles", 4),
-    1383488387952021555: ("triples", 3)
-}
-
 # Your global start_buttons dict
 # Format: {(channel_id, game_type): button_object}
 # Assume this already exists in your bot
@@ -146,8 +139,7 @@ default_template = {
 CHANNEL_GAME_MAP = {
     1383488263146438788: ("singles", 2),
     1383488331672850503: ("doubles", 4),
-    1383488387952021555: ("triples", 3),
-    1383869104599072908: ("tournaments", 4)
+    1383488387952021555: ("triples", 3)
 }
 
 async def ensure_start_buttons(bot):
@@ -171,7 +163,7 @@ async def ensure_start_buttons(bot):
             print(f"[AutoInit] 🟢 Posting button for '{game_type}' in {channel.name}")
             if game_type == "tournament":
                 creator = channel.guild.get_member(bot.user.id)
-                await start_new_game_button(channel, game_type, max_players=None, creator=creator)
+                await start_new_game_button(channel, game_type)
             else:
                 await start_new_game_button(channel, game_type, max_players=max_players)
             print(f"[AutoInit] ✅ Button posted in {channel.name}")
