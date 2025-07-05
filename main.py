@@ -31,8 +31,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 CHANNEL_GAME_MAP = {
     1383488263146438788: ("singles", 2),
     1383488331672850503: ("doubles", 4),
-    1383488387952021555: ("triples", 3),
-    1383869104599072908: ("tournaments", 4)
+    1383488387952021555: ("triples", 3)
 }
 
 # Your global start_buttons dict
