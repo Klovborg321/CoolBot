@@ -140,7 +140,7 @@ CHANNEL_GAME_MAP = {
     1383488263146438788: ("singles", 2),
     1383488331672850503: ("doubles", 4),
     1383488387952021555: ("triples", 3),
-    1383869104599072908: ("tournaments", 4)
+    1383869104599072908: ("tournament", 4)
 }
 
 async def ensure_start_buttons(bot):
