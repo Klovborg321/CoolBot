@@ -2099,23 +2099,38 @@ class TournamentStartButtonView(discord.ui.View):
 
     @discord.ui.button(label="Start Tournament", style=discord.ButtonStyle.primary)
     async def start_tournament(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Remove previous start button message, if any
         key = (interaction.channel.id, "tournament")
+
+        # ✅ 1. Delete the old start button
         old = start_buttons.get(key)
         if old:
             try:
                 await old.delete()
             except Exception:
                 pass
-            start_buttons[key] = None
+            start_buttons.pop(key, None)  # ✅ Remove from registry
 
-        # ✅ ALWAYS pass parent_channel and creator — no more missing args!
+        # ✅ 2. Create the modal with a flag
         modal = PlayerCountModal(
             parent_channel=interaction.channel,
             creator=interaction.user,
             view=self
         )
+        modal.was_submitted = False  # Track if modal was completed
+
+        # ✅ 3. Send modal
         await interaction.response.send_modal(modal)
+
+        # ✅ 4. Start watchdog: if modal wasn't submitted, restore the button
+        async def restore_button_if_canceled():
+            await asyncio.sleep(30)
+            if not modal.was_submitted:
+                print("[MODAL] Player canceled modal — reposting Start Tournament button.")
+                view = TournamentStartButtonView()
+                msg = await interaction.channel.send("🏆 Click to start a **Tournament**:", view=view)
+                start_buttons[key] = msg
+
+        asyncio.create_task(restore_button_if_canceled())
 
 
 
@@ -3630,6 +3645,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         self.parent_channel = parent_channel
         self.creator = creator
         self.view = view
+        self.was_submitted = False
 
         self.player_count = discord.ui.TextInput(
             label="Number of players (even number)",
@@ -3642,6 +3658,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         return await self._embed_helper.build_embed(*args, **kwargs)
 
     async def on_submit(self, interaction: discord.Interaction):
+        self.was_submitted = True  # ✅ Mark as completed
         try:
             count = int(self.player_count.value.strip())
             if count % 2 != 0 or count < 2:
