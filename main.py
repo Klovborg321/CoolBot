@@ -1243,32 +1243,40 @@ class LeaveGameButton(discord.ui.Button):
         self.game_view = game_view
 
     async def callback(self, interaction: discord.Interaction):
-        user_id = interaction.user.id
+        uid = interaction.user.id
 
-        if user_id not in self.game_view.players:
-            await interaction.response.send_message("You are not in this game.", ephemeral=True)
+        if uid not in self.game_view.players:
+            await interaction.response.send_message("❌ You are not in this game.", ephemeral=True)
             return
 
-        self.players.remove(uid)
-        self.manager.players.remove(uid)
+        try:
+            self.game_view.players.remove(uid)
+            if hasattr(self.game_view, "manager") and uid in self.game_view.manager.players:
+                self.game_view.manager.players.remove(uid)
+        except ValueError:
+            pass  # Already removed
+
         await player_manager.deactivate(uid)
 
-        # ✅ Cancel hourly countdown if it was running (optional)
+        # ✅ Cancel hourly countdown if applicable
         if getattr(self.game_view, "hourly_start_task", None):
             self.game_view.hourly_start_task.cancel()
             self.game_view.hourly_start_task = None
             print("[HOURLY] Countdown task cancelled.")
 
-        await self.game_view.update_message()
+        try:
+            await self.game_view.update_message()
+        except Exception as e:
+            print(f"[LeaveGameButton] ⚠️ Failed to update message: {e}")
+
         await interaction.response.send_message("✅ You have left the game.", ephemeral=True)
 
-        # ✅ Only abandon if:
-        # - It's NOT an hourly game
-        # - AND no players left
+        # ✅ Auto-abandon logic
         if not getattr(self.game_view, "is_hourly", False) and len(self.game_view.players) == 0:
             await self.game_view.abandon_game("❌ Game abandoned because all players left.")
         elif getattr(self.game_view, "is_hourly", False) and len(self.game_view.players) == 0:
             print("[HOURLY] Last player left, but keeping lobby alive for full 30 min timeout.")
+
 
 
 class BettingButtonDropdown(discord.ui.Button):
