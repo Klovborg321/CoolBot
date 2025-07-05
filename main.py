@@ -170,7 +170,11 @@ async def ensure_start_buttons(bot):
 
         try:
             print(f"[AutoInit] 🟢 Posting button for '{game_type}' in {channel.name}")
-            await start_new_game_button(channel, game_type, max_players=max_players)
+            if game_type == "tournament":
+                creator = channel.guild.get_member(bot.user.id)
+                await start_new_game_button(channel, game_type, max_players=None, creator=creator)
+            else:
+                await start_new_game_button(channel, game_type, max_players=max_players)
             print(f"[AutoInit] ✅ Button posted in {channel.name}")
         except Exception as e:
             print(f"[AutoInit] ❌ Failed to post button in {channel.name}: {e}")
@@ -187,19 +191,22 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
             await post_hourly_game(guild, channel)
             await asyncio.sleep(3600)
         else:
-            # Countdown until next hour
             next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
             seconds_until = int((next_hour - now).total_seconds())
             print(f"[HOURLY] Not top of hour, posting countdown ({seconds_until}s).")
 
             countdown_view = HourlyCountdownView(bot, guild, channel, seconds_until_start=seconds_until)
             countdown_view.message = await channel.send("⏳ Golden Hour starts soon...", view=countdown_view)
-            await countdown_view.task
+
+            try:
+                await countdown_view.task
+                print("[Countdown] Task completed. Posting hourly game.")
+            except Exception as e:
+                print(f"[Countdown] Task failed: {e}")
 
             # ✅ Now that countdown has ended, post the game
             await post_hourly_game(guild, channel)
             await asyncio.sleep(3600)
-
 
     async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
         print("[HOURLY] Posting Golden Hour game now.")
@@ -257,6 +264,7 @@ class HourlyCountdownView(discord.ui.View):
             self.seconds_until_start -= 10
 
         await self.update_message("🏁 Posting Golden Hour Game soon...")
+        print("[Countdown] Countdown complete.")
 
     async def update_message(self, content):
         if self.message:
@@ -1242,8 +1250,9 @@ class LeaveGameButton(discord.ui.Button):
             await interaction.response.send_message("You are not in this game.", ephemeral=True)
             return
 
-        self.game_view.players.remove(user_id)
-        await player_manager.deactivate(user_id)
+        self.players.remove(uid)
+        self.manager.players.remove(uid)
+        await player_manager.deactivate(uid)
 
         # ✅ Cancel hourly countdown if it was running (optional)
         if getattr(self.game_view, "hourly_start_task", None):
@@ -3254,7 +3263,10 @@ class TournamentManager:
             await start_new_game_button(self.parent_channel, "tournament")
 
     async def start_bracket(self, interaction):
-        self.parent_channel = interaction.channel
+        # ✅ Fix here: ensure actual players are synced
+        self.players = self.players[:self.max_players]  # Trim extra if any
+        self.players = [p for p in self.players if await player_manager.is_active(p)]
+    
         self.round_players = self.players.copy()
         random.shuffle(self.round_players)
         await self.run_round(interaction.guild)
@@ -3532,6 +3544,8 @@ class TournamentLobbyView(discord.ui.View):
         print(f"📦 Manager players: {self.manager.players}")
 
         if len(self.players) == self.max_players and not getattr(self.manager, "started", False):
+            # ✅ Sync the manager player list before tournament starts
+            self.manager.players = self.players.copy()
             self.manager.started = True
             pending_games["tournament"] = None
 
@@ -3722,7 +3736,7 @@ async def init_tournament(interaction: discord.Interaction):
 
     print("[init_tournament] Calling start_new_game_button...")
     # ✅ Ensure this never takes 3+ seconds; if it might, break it up:
-    await start_new_game_button(interaction.channel, "tournament", max_players=max_players)
+    await start_new_game_button(interaction.channel, "tournament", max_players=None)
 
     print("[init_tournament] Sending success followup...")
     await interaction.followup.send(
