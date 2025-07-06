@@ -3845,6 +3845,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
             for pid in TEST_PLAYER_IDS:
                 if pid not in manager.players and len(manager.players) < manager.max_players:
                     manager.players.append(pid)
+                    await player_manager.activate(pid)  # 
 
         # ✅ Sync manager and view
         view = TournamentLobbyView(
