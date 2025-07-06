@@ -2176,12 +2176,12 @@ class VoteButton(discord.ui.Button):
         # ✅ TEST MODE: finalize early with one vote
         if IS_TEST_MODE and len(self.view_obj.votes) == 1 and not self.view_obj.voting_closed:
             print("[TEST_MODE] One vote received — finalizing game immediately.")
-            await self.view_obj.finalize_game()
+            await self.view_obj.finalize_game(winner=self.value)
             return
 
         # ✅ If all players voted (normal mode), finalize
         if len(self.view_obj.votes) == len(self.view_obj.players):
-            await self.view_obj.finalize_game(winner=self.value)
+            await self.view_obj.finalize_game()
 
 
 
