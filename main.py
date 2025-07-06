@@ -2586,9 +2586,9 @@ class GameView(discord.ui.View):
                    .execute()
                 )
 
-# Safely extract the value if available
-hval = res.data[0]["handicap"] if res.data else None
-hcp = round(hval, 1) if hval is not None else "-"
+                # Safely extract the value if available
+                hval = res.data[0]["handicap"] if res.data else None
+                hcp = round(hval, 1) if hval is not None else "-"
             else:
                 hcp = 10
             handicaps.append(hcp)
