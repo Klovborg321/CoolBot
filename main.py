@@ -2749,74 +2749,91 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
         self.add_item(self.bet_amount)
 
     async def on_submit(self, interaction: discord.Interaction):
-        user_id = interaction.user.id
-
-        # ✅ Validate amount
         try:
-            amount = int(self.bet_amount.value.strip())
-            if amount <= 0:
-                raise ValueError()
-        except ValueError:
-            await self.safe_send(interaction, "❌ Invalid amount.", ephemeral=True)
-            return
+            user_id = interaction.user.id
 
-        # ✅ Get odds & payout
-        odds_provider = getattr(self.game_view, "_embed_helper", self.game_view)
-        odds = await odds_provider.get_odds(self.choice)
-        payout = int(amount * (1 / odds)) if odds > 0 else amount
-
-        # ✅ Deduct credits
-        success = await deduct_credits_atomic(user_id, amount)
-        if not success:
-            await self.safe_send(interaction, "❌ Not enough credits.", ephemeral=True)
-            return
-
-        # ✅ Check if bet is allowed
-        accepted = await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice, interaction)
-        if not accepted:
-            await add_credits_internal(user_id, amount)
-            return
-
-        # ✅ Log bet in DB
-        await run_db(lambda: supabase.table("bets").insert({
-            "player_id": str(user_id),
-            "game_id": self.game_view.message.id,
-            "choice": self.choice,
-            "amount": amount,
-            "payout": payout,
-            "won": None
-        }).execute())
-
-        # ✅ Update embed
-        await self.game_view.update_message()
-
-        # ✅ Resolve choice name
-        guild = self.game_view.message.guild if self.game_view.message else None
-        players = getattr(self.game_view, "players", [])
-        choice_name = str(self.choice)
-
-        if self.choice.upper() in ["A", "B"]:
-            choice_name = f"Team {self.choice.upper()}"
-        else:
+            # ✅ Validate amount
             try:
-                idx = int(self.choice) - 1
-                if 0 <= idx < len(players):
-                    pid = players[idx]
-                    member = guild.get_member(pid) if guild else None
-                    choice_name = member.display_name if member else f"Player {self.choice}"
-                else:
-                    member = guild.get_member(int(self.choice)) if guild else None
-                    choice_name = member.display_name if member else f"User {self.choice}"
-            except:
-                pass  # fallback
+                amount = int(self.bet_amount.value.strip())
+                if amount <= 0:
+                    raise ValueError()
+            except ValueError:
+                await self.safe_send(interaction, "❌ Invalid amount.", ephemeral=True)
+                return
 
-        # ✅ Final confirmation
-        await self.safe_send(
-            interaction,
-            f"✅ Bet of **{amount}** on **{choice_name}** placed!\n"
-            f"📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
-            ephemeral=True
-        )
+            # ✅ Get odds & payout
+            odds_provider = getattr(self.game_view, "_embed_helper", self.game_view)
+            odds = await odds_provider.get_odds(self.choice)
+            payout = int(amount * (1 / odds)) if odds > 0 else amount
+
+            # ✅ Deduct credits
+            success = await deduct_credits_atomic(user_id, amount)
+            if not success:
+                await self.safe_send(interaction, "❌ Not enough credits.", ephemeral=True)
+                return
+
+            # ✅ Check if bet is allowed (via game_view.add_bet)
+            accepted = await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice, interaction)
+            if not accepted:
+                await add_credits_internal(user_id, amount)  # refund
+                return
+
+            # ✅ Insert into Supabase DB
+            game_id = str(self.game_view.message.id)
+            bet_data = {
+                "player_id": str(user_id),
+                "game_id": game_id,
+                "choice": self.choice,
+                "amount": amount,
+                "payout": payout,
+                "won": None
+            }
+            print("[DEBUG] Inserting bet:", bet_data)
+
+            res = await run_db(lambda: supabase.table("bets").insert(bet_data).execute())
+
+            if getattr(res, "error", None):
+                print(f"[BET] ❌ Failed to insert bet for {user_id}: {res.error}")
+                await add_credits_internal(user_id, amount)  # refund
+                await self.safe_send(interaction, "❌ Failed to log your bet. You have been refunded.", ephemeral=True)
+                return
+
+            print(f"[BET] ✅ Bet placed: {user_id} on {self.choice} for {amount}")
+
+            # ✅ Update game message
+            await self.game_view.update_message()
+
+            # ✅ Resolve choice name
+            guild = self.game_view.message.guild if self.game_view.message else None
+            players = getattr(self.game_view, "players", [])
+            choice_name = str(self.choice)
+
+            if self.choice.upper() in ["A", "B"]:
+                choice_name = f"Team {self.choice.upper()}"
+            else:
+                try:
+                    idx = int(self.choice) - 1
+                    if 0 <= idx < len(players):
+                        pid = players[idx]
+                        member = guild.get_member(pid) if guild else None
+                        choice_name = member.display_name if member else f"Player {self.choice}"
+                    else:
+                        member = guild.get_member(int(self.choice)) if guild else None
+                        choice_name = member.display_name if member else f"User {self.choice}"
+                except:
+                    pass
+
+            # ✅ Confirm to user
+            await self.safe_send(
+                interaction,
+                f"✅ Bet of **{amount}** on **{choice_name}** placed!\n"
+                f"📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            print(f"[BetAmountModal] ❌ Unexpected error: {e}")
+            await self.safe_send(interaction, "❌ Something went wrong. Please try again.", ephemeral=True)
 
 
     async def safe_send(self, interaction: discord.Interaction, content: str, **kwargs):
