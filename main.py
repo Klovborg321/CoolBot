@@ -1870,7 +1870,7 @@ class RoomView(discord.ui.View):
         await self.finalize_game()
 
 
-    async def finalize_game(self):
+    async def finalize_game(self, winner=None):
         if self.voting_closed:
             print("[Voting] ⏭️ Already finalized. Skipping.")
             return
@@ -1884,11 +1884,12 @@ class RoomView(discord.ui.View):
 
         self.game_has_ended = True
 
-        # ✅ TEST MODE: finalize early with 1 vote
-        if TEST_MODE and len(self.votes) == 1:
-            print("[Voting] 🧪 Test mode: finalizing early with single vote.")
-            winner = list(self.votes.values())[0]
+       if TEST_MODE and winner is not None:
+            print("[Voting] 🧪 Test mode: finalizing with forced winner.")
             self.voting_closed = True
+            self.game_has_ended = True
+            if self.game_view:
+                self.game_view.game_has_ended = True
 
             valid_options = self.get_vote_options()
             if winner not in valid_options:
