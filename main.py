@@ -3527,21 +3527,6 @@ class TournamentManager:
                 loser_id = next((p for p in match.players if p != winner_id), None)
                 break
 
-        # ✅ SAFEGUARD
-        if loser_id is None:
-            print(f"[ELO ERROR] Could not determine loser for winner {winner_id}. Skipping ELO update.")
-        else:
-            try:
-                await update_elo_pair_and_save(
-                    winner_id,
-                    loser_id,
-                    winner=1,
-                    game_type="tournaments"
-                )
-            except Exception as e:
-                print(f"[finalize_game] ❌ Failed ELO update: {e}")
-                return
-
         if loser_id:
             await player_manager.deactivate(loser_id)
 
