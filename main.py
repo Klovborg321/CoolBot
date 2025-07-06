@@ -2177,7 +2177,6 @@ class VoteButton(discord.ui.Button):
             await interaction.response.send_message("❌ Voting has ended.", ephemeral=True)
             return
 
-        # ✅ NEW: Only allow actual match players to vote!
         if not IS_TEST_MODE and interaction.user.id not in self.view_obj.players:
             await interaction.response.send_message(
                 "🚫 You are not a player in this match — you cannot vote.",
@@ -2185,10 +2184,9 @@ class VoteButton(discord.ui.Button):
             )
             return
 
-        # ✅ Save the vote in the RoomView memory
         self.view_obj.votes[interaction.user.id] = self.value
+        print(f"[VOTE BUTTON] {interaction.user.id} voted for {self.value}")
 
-        # ✅ Prepare feedback text
         voter = interaction.guild.get_member(interaction.user.id)
         if isinstance(self.value, int):
             voted_for = interaction.guild.get_member(self.value)
@@ -2201,11 +2199,16 @@ class VoteButton(discord.ui.Button):
             ephemeral=False
         )
 
-        # ✅ Mark this player as free to join other games again
-        await player_manager.deactivate(interaction.user.id)  # ✅ correct
+        await player_manager.deactivate(interaction.user.id)
 
-        # ✅ If everyone voted, finalize immediately
-        if IS_TEST_MODE or len(self.view_obj.votes) == len(self.view_obj.players):
+        # ✅ TEST MODE: finalize early with one vote
+        if IS_TEST_MODE and len(self.view_obj.votes) == 1 and not self.view_obj.voting_closed:
+            print("[TEST_MODE] One vote received — finalizing game immediately.")
+            await self.view_obj.finalize_game()
+            return
+
+        # ✅ If all players voted (normal mode), finalize
+        if len(self.view_obj.votes) == len(self.view_obj.players):
             await self.view_obj.finalize_game()
 
 
