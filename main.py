@@ -2034,23 +2034,13 @@ class RoomView(discord.ui.View):
         else:
             print("[finalize_game] ⚠️ No valid game_id found to delete active_game row.")
 
-        # ✅ Normalize winner to real user ID if needed
-        if isinstance(winner, str) and winner.isdigit():
-            idx = int(winner) - 1
-            if 0 <= idx < len(self.players):
-                winner = self.players[idx]
-
-        # ✅ Proceed to call the tournament callback with a valid user ID
         if self.on_tournament_complete:
             if isinstance(winner, int):
-                await self.on_tournament_complete(int(winner))
-            elif isinstance(winner, str) and winner.isdigit():
-                await self.on_tournament_complete(int(winner))  # extra fallback
+                await self.on_tournament_complete(winner)
             else:
                 print(f"[Tournament] No clear winner — randomly picking from: {self.players}")
                 fallback = random.choice(self.players)
                 await self.on_tournament_complete(fallback)
-
 
         await update_leaderboard(self.bot, self.game_type)
         print(f"[DEBUG] Finalized winner = {winner}")
@@ -2160,10 +2150,7 @@ class VoteButton(discord.ui.Button):
 
         # ✅ TEST MODE: finalize early with one vote
         if IS_TEST_MODE and len(self.view_obj.votes) == 1 and not self.view_obj.voting_closed:
-            print(f"[TEST_MODE] One vote received — finalizing game immediately. {self.value}")
-            # ✅ Deactivate all players in test mode
-            for pid in self.players:
-                await player_manager.deactivate(pid)
+            print("[TEST_MODE] One vote received — finalizing game immediately.")
             await self.view_obj.finalize_game(winner=self.value)
             return
 
@@ -3536,9 +3523,8 @@ class TournamentManager:
         # ✅ Find the loser in the current match pair
         loser_id = None
         for match in self.current_matches:
-            match_player_ids = [int(p) for p in match.players]  # force int
-            if int(winner_id) in match_player_ids:
-                loser_id = next((p for p in match_player_ids if int(p) != int(winner_id)), None)
+            if winner_id in match.players:
+                loser_id = next((p for p in match.players if p != winner_id), None)
                 break
 
         # ✅ SAFEGUARD
