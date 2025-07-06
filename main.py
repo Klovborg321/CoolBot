@@ -3858,9 +3858,9 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
 
         if IS_TEST_MODE:
             for pid in TEST_PLAYER_IDS:
-            if pid not in manager.players and len(manager.players) < manager.max_players:
-                manager.players.append(pid)
-                view.players.append(pid)
+                if pid not in manager.players and len(manager.players) < manager.max_players:
+                    manager.players.append(pid)
+                    view.players.append(pid)
 
         view.status = "✅ Tournament full! Matches running — place your bets!" if IS_TEST_MODE else None
 
