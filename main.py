@@ -836,40 +836,55 @@ async def add_credits_internal(user_id: int, amount: int):
 
 async def save_player(user_id: int, player_data: dict):
     player_data["id"] = str(user_id)
-    await run_db(lambda: supabase
+
+    res = await run_db(lambda: supabase
         .table("players")
         .upsert(player_data)
-        .execute())
+        .execute()
+    )
+
+    if res.error:
+        print(f"[DB ERROR] ❌ save_player({user_id}) failed: {res.error}")
+    else:
+        print(f"[DB] ✅ Player {user_id} saved.")
 
 
 async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
-    # ✅ Try atomic deduction
     success = await deduct_credits_atomic(user_id, amount)
     if not success:
         await interaction.response.send_message("❌ Not enough credits.", ephemeral=True)
         return
 
-    # ✅ Log the bet
     payout = int(amount / odds) if odds > 0 else amount
 
-    await run_db(lambda: supabase.table("bets").insert({
+    res = await run_db(lambda: supabase.table("bets").insert({
         "player_id": str(user_id),
-        "game_id": game_id,
+        "game_id": str(game_id),
         "choice": choice,
         "amount": amount,
         "payout": payout,
         "won": None
     }).execute())
 
-    target_id = int(choice)  # or however you're storing it
-    member = interaction.guild.get_member(target_id)
-    target_name = member.display_name if member else f"User {target_id}"
+    if res.error:
+        print(f"[BET] ❌ Failed to insert bet for {user_id}: {res.error}")
+        await interaction.response.send_message("❌ Failed to place bet.", ephemeral=True)
+        return
+    else:
+        print(f"[BET] ✅ Bet placed: {user_id} on {choice} for {amount}")
+
+    # Show confirmation
+    try:
+        target_id = int(choice)
+        member = interaction.guild.get_member(target_id)
+        target_name = member.display_name if member else f"User {target_id}"
+    except:
+        target_name = str(choice)
 
     await interaction.response.send_message(
-        f"✅ Bet of {amount} placed on {target_name}. Potential payout: {payout}",
+        f"✅ Bet of {amount} placed on **{target_name}**. Potential payout: **{payout}**",
         ephemeral=True
     )
-
 
 
 async def get_complete_user_data(user_id):
@@ -1735,23 +1750,16 @@ class RoomView(discord.ui.View):
             if not self.voting_closed:
                 print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
                 await self.finalize_game()
+            else:
+                print("[Voting] Voting already closed — skipping finalize.")
 
-        self.vote_timeout = asyncio.create_task(end_after_timeout())
+                self.vote_timeout = asyncio.create_task(end_after_timeout())
 
     def cancel_vote_timeout(self):
         if hasattr(self, "vote_timeout") and self.vote_timeout:
             self.vote_timeout.cancel()
             self.vote_timeout = None
 
-    async def end_voting_after_timeout(self):
-        await asyncio.sleep(600)
-
-        if self.voting_closed:
-            print("[Voting] Skipped finalize: voting already closed.")
-            return
-
-        print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
-        await self.finalize_game()
 
     async def finalize_game(self):
         if self.voting_closed:
@@ -1978,6 +1986,9 @@ class GameEndedButton(discord.ui.Button):
         thread_embed = self.view_obj.lobby_embed.copy()
         thread_embed.set_footer(text="🎮 Game has ended.")
         await self.view_obj.message.edit(embed=thread_embed, view=None)
+
+        if not self.game_has_ended:
+            return
 
         # ✅ 2️⃣ Start voting
         await self.view_obj.start_voting()
@@ -2269,9 +2280,9 @@ class GameView(discord.ui.View):
         lobby_embed.title = f"{self.game_type.title()} Game Lobby"
         lobby_embed.color = discord.Color.orange()
 
-        self.clear_items()
-        self.betting_button = BettingButtonDropdown(self)
-        self.add_item(self.betting_button)
+        #self.clear_items()
+        #self.betting_button = BettingButtonDropdown(self)
+        #self.add_item(self.betting_button)
 
         if not self.channel:
             self.channel = interaction.channel
@@ -2370,20 +2381,20 @@ class GameView(discord.ui.View):
         embed = await self.build_embed(self.message.guild, bets=self.bets, status=status)
         self.clear_items()
 
-        # ✅ Only show Join/Leave if game hasn't started or ended
-        if not self.betting_closed and not self.has_started:
-            if len(self.players) < self.max_players:
-                join_button = discord.ui.Button(label="Join Game", style=discord.ButtonStyle.success)
-
-                async def join_callback(interaction: discord.Interaction):
-                    await self._handle_join(interaction, join_button)
-
-                join_button.callback = join_callback
-                self.add_item(join_button)
-
+        # ✅ Only show Join/Leave if game hasn't started or ended AND not full
+        if not self.betting_closed and not self.has_started and len(self.players) < self.max_players:
+            # Reuse the original join button (if possible) instead of re-creating it
             self.add_item(LeaveGameButton(self))
 
-        # ✅ Betting button (still allowed until betting is closed)
+            join_button = discord.ui.Button(label="Join Game", style=discord.ButtonStyle.success)
+
+            async def join_callback(interaction: discord.Interaction):
+                await self._handle_join(interaction, join_button)
+
+            join_button.callback = join_callback
+            self.add_item(join_button)
+
+        # ✅ Betting button is still allowed until betting is closed
         if not self.betting_closed and hasattr(self, "betting_button"):
             self.add_item(self.betting_button)
 
@@ -2440,7 +2451,7 @@ class GameView(discord.ui.View):
             ts = int(void_time.timestamp())
             embed.description += f"\n🛑 Game will be voided if not full by <t:{ts}:t> (<t:{ts}:R>)"
 
-        if not no_image and getattr(self, "course_image", None):
+        if not no_image and self.course_image:
             embed.set_image(url=self.course_image)
 
         # Gather player data
@@ -2634,18 +2645,21 @@ class GameView(discord.ui.View):
             status="✅ Tournament full! Matches running — place your bets!" if not self.betting_closed else "🕐 Betting closed. Good luck!",
             bets=self.bets
         )
-        await target_message.edit(embed=embed, view=self if not self.betting_closed else None)
+        if target_message.view:
+            await target_message.edit(embed=embed)
+        else:
+            await target_message.edit(embed=embed, view=self))
 
         return True
 
     def get_bet_summary(self):
-        if not bets:
+        if not self.bets:
             return "No bets placed yet."
 
         guild = self.message.guild if self.message else None
         lines = []
 
-        for _, uname, amt, ch in bets:
+        for _, uname, amt, ch in self.bets:
             # Default
             label = str(ch)
 
