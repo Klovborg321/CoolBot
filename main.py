@@ -3412,6 +3412,12 @@ class TournamentManager:
             await start_new_game_button(self.parent_channel, "tournament")
 
     async def start_bracket(self, interaction):
+        guild = interaction.guild
+        print(f"[TOURNAMENT] Starting bracket for {len(self.players)} players.")
+        self.round_players = self.players.copy()
+        self.round = 1
+
+    await self.run_round(guild)
         # ✅ Fix here: ensure actual players are synced
         self.players = self.players[:self.max_players]  # Trim extra if any
         self.players = [p for p in self.players if await player_manager.is_active(p)]
@@ -3421,6 +3427,7 @@ class TournamentManager:
         await self.run_round(interaction.guild)
 
     async def run_round(self, guild):
+        print(f"[TOURNAMENT] Running Round {self.round} for {len(self.round_players)} players")
         self.matches_completed_this_round = 0
         players = self.round_players.copy()
         random.shuffle(players)
@@ -3479,6 +3486,8 @@ class TournamentManager:
 
                 mentions = f"<@{p1}> <@{p2}>"
 
+                print(f"[THREAD] Created thread {match_thread.name} with {p1} vs {p2}")
+
                 try:
                     # TEMP message to attach message object to the view
                     temp_msg = await match_thread.send(
@@ -3498,6 +3507,7 @@ class TournamentManager:
                     embed.description = f"Course: {course_name}"
                     room_view.lobby_embed = embed
 
+                    print(f"[ROOM] Sent embed for match {room_name}")
                     await temp_msg.edit(content=f"{mentions}\n🏆 This match is part of the tournament!", embed=embed, view=room_view)
 
                 except Exception as e:
