@@ -3952,7 +3952,6 @@ async def admin_leaderboard(
     await set_parameter(f"{game_type}_leaderboard_message_id", str(view.message.id))
 
 
-import copy
 
 @tree.command(name="stats_reset", description="Admin: Reset a user's stats")
 @app_commands.describe(user="The user to reset")
@@ -3967,19 +3966,12 @@ async def stats_reset(interaction: discord.Interaction, user: discord.User):
         new_stats = copy.deepcopy(default_template)
         new_stats["id"] = str(user.id)
 
+        # ✅ Exception will be raised on failure
         res = await run_db(lambda: supabase
             .table("players")
             .upsert(new_stats)
             .execute()
         )
-
-        if res.error:
-            await interaction.followup.send(
-                f"❌ Failed to reset stats: {res.error.message}",
-                ephemeral=True
-            )
-            print(f"[DB ERROR] {res.error}")
-            return
 
         await interaction.followup.send(
             f"✅ Stats for **{user.display_name}** have been reset (bet history untouched).",
@@ -3987,6 +3979,7 @@ async def stats_reset(interaction: discord.Interaction, user: discord.User):
         )
 
     except Exception as e:
+        print(f"[DB ERROR] stats_reset failed: {e}")
         await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
 
 
