@@ -1850,6 +1850,8 @@ class RoomView(discord.ui.View):
             return
 
         print("[DEBUG] Finalizing game...")
+        if winner is not None:
+            print(f"[TEST_MODE] Winner override received: {winner}")
         self.cancel_abandon_task()
         self.cancel_vote_timeout()
 
