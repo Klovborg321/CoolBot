@@ -22,6 +22,7 @@ import aiohttp
 from discord.ext import tasks
 from discord import TextChannel, utils
 from types import SimpleNamespace
+import copy
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -3951,43 +3952,38 @@ async def admin_leaderboard(
     await set_parameter(f"{game_type}_leaderboard_message_id", str(view.message.id))
 
 
-@tree.command(
-    name="stats_reset",
-    description="Admin: Reset a user's stats"
-)
+@tree.command(name="stats_reset", description="Admin: Reset a user's stats")
 @app_commands.describe(user="The user to reset")
-@discord.app_commands.checks.has_permissions(administrator=True)
 async def stats_reset(interaction: discord.Interaction, user: discord.User):
-    if not interaction.response.is_done():
-        await interaction.response.defer(ephemeral=True)
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("🚫 You must be an administrator to use this.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
 
     try:
         # ✅ Create fresh default stats
-        new_stats = default_template.copy()
-        new_stats["id"] = str(user.id)  # Make sure ID type matches your table
+        new_stats = copy.deepcopy(default_template)
+        new_stats["id"] = str(user.id)
 
-        # ✅ Upsert: insert or overwrite in `players` table
+        # ✅ Upsert to Supabase
         res = await run_db(lambda: supabase
             .table("players")
             .upsert(new_stats)
             .execute()
         )
 
-        if getattr(res, "status_code", 200) != 200:
-            await interaction.followup.send(
-                f"❌ Failed to reset stats: {getattr(res, 'data', res)}",
-                ephemeral=True
-            )
+        if res.error:
+            await interaction.followup.send(f"❌ Failed to reset stats: {res.error}", ephemeral=True)
             return
 
         await interaction.followup.send(
-            f"✅ Stats for {user.display_name} have been reset (bet history untouched).",
+            f"✅ Stats for **{user.display_name}** have been reset (bet history untouched).",
             ephemeral=True
         )
 
     except Exception as e:
         await interaction.followup.send(f"❌ Error: {e}", ephemeral=True)
-
 
 
 @tree.command(
