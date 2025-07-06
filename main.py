@@ -2648,7 +2648,7 @@ class GameView(discord.ui.View):
         if target_message.view:
             await target_message.edit(embed=embed)
         else:
-            await target_message.edit(embed=embed, view=self))
+            await target_message.edit(embed=embed, view=self)
 
         return True
 
