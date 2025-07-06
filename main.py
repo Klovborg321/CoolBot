@@ -3952,6 +3952,8 @@ async def admin_leaderboard(
     await set_parameter(f"{game_type}_leaderboard_message_id", str(view.message.id))
 
 
+import copy
+
 @tree.command(name="stats_reset", description="Admin: Reset a user's stats")
 @app_commands.describe(user="The user to reset")
 async def stats_reset(interaction: discord.Interaction, user: discord.User):
@@ -3966,15 +3968,19 @@ async def stats_reset(interaction: discord.Interaction, user: discord.User):
         new_stats = copy.deepcopy(default_template)
         new_stats["id"] = str(user.id)
 
-        # ✅ Upsert to Supabase
+        # ✅ Supabase upsert
         res = await run_db(lambda: supabase
             .table("players")
             .upsert(new_stats)
             .execute()
         )
 
-        if res.error:
-            await interaction.followup.send(f"❌ Failed to reset stats: {res.error}", ephemeral=True)
+        # ✅ Proper Supabase result check
+        if not hasattr(res, "data") or res.status_code >= 400:
+            await interaction.followup.send(
+                f"❌ Failed to reset stats. Status: {res.status_code}, Response: {getattr(res, 'data', None)}",
+                ephemeral=True
+            )
             return
 
         await interaction.followup.send(
