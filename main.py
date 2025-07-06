@@ -1093,13 +1093,14 @@ class PlayerManager:
         user_id = str(user_id)
         try:
             res = await run_db(lambda: supabase
-                .table("active_players")
-                .select("player_id")
-                .eq("player_id", user_id)
-                .maybe_single()
-                .execute()
+               .table("active_players")
+               .select("player_id")
+               .eq("player_id", user_id)
+               .limit(1)
+               .execute()
             )
-            return res is not None and res.data is not None
+
+            return res is not None and res.data and len(res.data) > 0
         except Exception as e:
             print(f"[PlayerManager.is_active] Error checking active for {user_id}: {e}")
             return False
