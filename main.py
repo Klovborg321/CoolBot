@@ -1899,12 +1899,17 @@ class RoomView(discord.ui.View):
         if TEST_MODE and not self.voting_closed and len(self.votes) == 1:
             print("[Voting] 🧪 Test mode: finalizing early with single vote.")
             winner = list(self.votes.values())[0]
+            self.voting_closed = True
+            self.game_has_ended = True
+            if self.game_view:
+                self.game_view.game_has_ended = True
         else:
             if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
                 print("[Voting] ⚠️ No votes or tie — declaring draw.")
                 winner = "draw"
             else:
                 winner = most_common[0][0]
+
 
         valid_options = self.get_vote_options()
         if winner not in valid_options and winner != "draw":
