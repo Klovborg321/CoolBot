@@ -3446,6 +3446,7 @@ class TournamentManager:
             if i + 1 < len(players):
                 p1 = players[i]
                 p2 = players[i + 1]
+                print(f"[PAIR] Attempting to create room for: {p1} vs {p2}")
 
                 room_name = await room_name_generator.get_unique_word()
 
@@ -3455,6 +3456,7 @@ class TournamentManager:
                         type=discord.ChannelType.private_thread,
                         invitable=False
                     )
+                    print(f"[THREAD] ✅ Created thread {match_thread.name}")
                 except discord.Forbidden:
                     print(f"❌ Missing permission to create thread in #{self.parent_channel}")
                     continue
@@ -3466,60 +3468,32 @@ class TournamentManager:
                     try:
                         member = guild.get_member(pid) or await guild.fetch_member(pid)
                         await match_thread.add_user(member)
+                        print(f"[THREAD] ✅ Added user {pid} to thread {match_thread.name}")
                     except discord.NotFound:
-                        print(f"[warn] Could not fetch or add user {pid}")
-
-                room_view = RoomView(
-                    bot=bot,
-                    guild=guild,
-                    players=[p1, p2],
-                    game_type="singles",
-                    room_name=room_name,
-                    course_name=course_name,
-                    course_id=course_id,
-                    max_players=2
-                )
-                room_view.course_image = course_image
-                room_view.guild = guild
-                room_view.channel = match_thread
-                room_view.on_tournament_complete = self.match_complete
-
-                mentions = f"<@{p1}> <@{p2}>"
-
-                print(f"[THREAD] Created thread {match_thread.name} with {p1} vs {p2}")
+                        print(f"[THREAD] ⚠️ Could not find user {pid}")
+                    except discord.Forbidden:
+                        print(f"[THREAD] ❌ Forbidden to add user {pid}")
+                    except Exception as e:
+                        print(f"[THREAD] ⚠️ Failed to add user {pid}: {e}")
 
                 try:
-                    # TEMP message to attach message object to the view
                     temp_msg = await match_thread.send(
-                        content=f"{mentions}\n⏳ Setting up match room...",
+                        content=f"<@{p1}> <@{p2}>\n⏳ Setting up match room...",
                         embed=discord.Embed(title="Loading room..."),
                         view=None
                     )
+                    print(f"[THREAD] ✅ Sent initial message in thread {match_thread.name}")
                 except Exception as e:
                     print(f"❌ Failed to post initial message in match thread: {e}")
                     continue
 
-                room_view.message = temp_msg
+                # room_view logic here...
 
-                try:
-                    embed = await room_view.build_room_embed()
-                    embed.title = f"Room: {room_name}"
-                    embed.description = f"Course: {course_name}"
-                    room_view.lobby_embed = embed
-
-                    print(f"[ROOM] Sent embed for match {room_name}")
-                    await temp_msg.edit(content=f"{mentions}\n🏆 This match is part of the tournament!", embed=embed, view=room_view)
-
-                except Exception as e:
-                    print(f"❌ Failed to build or edit room embed: {e}")
-                    await temp_msg.edit(content="❌ Failed to set up match room.")
-                    continue
-
-                await room_view.update_message()
-                self.current_matches.append(room_view)
-
+                print(f"[ROOM] ✅ Match ready: {p1} vs {p2} in thread {match_thread.name}")
             else:
+                print(f"[ROUND] ➕ {players[i]} added to next_round_players (odd count)")
                 self.next_round_players.append(players[i])
+
 
 
     async def match_complete(self, winner_id):
