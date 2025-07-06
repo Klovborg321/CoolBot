@@ -1724,7 +1724,6 @@ class RoomView(discord.ui.View):
 
         pending_games[self.game_type] = None
 
-        # ✅ Make sure self.message is available so we can edit
         if not self.message:
             print("[Voting] ❌ self.message is missing — cannot show voting buttons")
             return
@@ -1744,9 +1743,6 @@ class RoomView(discord.ui.View):
                     label = f"Vote {label}"
             self.add_item(VoteButton(option, self, label))
 
-        print(f"[Voting] ➕ Added {len(self.children)} VoteButtons to view")
-
-        # ✅ Rebuild embed for voting
         embed = await self.build_lobby_end_embed(winner=None)
         try:
             await self.message.edit(embed=embed, view=self)
@@ -1755,24 +1751,35 @@ class RoomView(discord.ui.View):
             print(f"[Voting] ❌ Failed to edit message: {e}")
             return
 
-        # ✅ Optional: post 1-minute warning at 9 minutes
+        # ✅ Schedule timeout warning and finalize only inside coroutine
         async def warn_before_finalizing():
             await asyncio.sleep(540)
             if not self.voting_closed:
                 await self.channel.send("⚠️ 1 minute remaining to vote! Game will auto-finalize with current votes.")
 
+        async def end_after_timeout():
+            await asyncio.sleep(600)
+            if not self.voting_closed:
+                print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
+                await self.finalize_game()
+            else:
+                print("[Voting] Voting already closed — skipping finalize.")
+
+        # ✅ Schedule them now that we're safely inside an event loop
         asyncio.create_task(warn_before_finalizing())
+        self.vote_timeout = asyncio.create_task(end_after_timeout())
 
-    # ✅ Finalize after 10 minutes
-    async def end_after_timeout():
-        await asyncio.sleep(600)
-        if not self.voting_closed:
-            print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
-            await self.finalize_game()
-        else:
-            print("[Voting] Voting already closed — skipping finalize.")
 
-    self.vote_timeout = asyncio.create_task(end_after_timeout())
+        # ✅ Finalize after 10 minutes
+        async def end_after_timeout():
+            await asyncio.sleep(600)
+            if not self.voting_closed:
+                print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
+                await self.finalize_game()
+            else:
+                print("[Voting] Voting already closed — skipping finalize.")
+
+        self.vote_timeout = asyncio.create_task(end_after_timeout())
 
 
     def cancel_vote_timeout(self):
