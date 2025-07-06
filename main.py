@@ -1884,7 +1884,7 @@ class RoomView(discord.ui.View):
 
         self.game_has_ended = True
 
-       if TEST_MODE and winner is not None:
+        if TEST_MODE and winner is not None:
             print("[Voting] 🧪 Test mode: finalizing with forced winner.")
             self.voting_closed = True
             self.game_has_ended = True
