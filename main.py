@@ -1721,7 +1721,11 @@ class RoomView(discord.ui.View):
 
         pending_games[self.game_type] = None
 
+        # ✅ Build a fresh view with vote buttons
+        voting_view = discord.ui.View(timeout=None)
         self.clear_items()
+        self.votes = {}  # Optional: reset votes if needed
+
         options = self.get_vote_options()
         for option in options:
             if isinstance(option, int):
@@ -1731,11 +1735,11 @@ class RoomView(discord.ui.View):
                 label = option
                 if not label.lower().startswith("vote "):
                     label = f"Vote {label}"
-            self.add_item(VoteButton(option, self, label))
+            voting_view.add_item(VoteButton(option, self, label))  # still pass self as logic holder
 
         # ✅ Rebuild embed for voting
         embed = await self.build_lobby_end_embed(winner=None)
-        await self.message.edit(embed=embed, view=self)
+        await self.message.edit(embed=embed, view=voting_view)
 
         # ✅ Optional: post 1-minute warning at 9 minutes
         async def warn_before_finalizing():
@@ -1751,6 +1755,8 @@ class RoomView(discord.ui.View):
             if not self.voting_closed:
                 print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
                 await self.finalize_game()
+            else:
+                print("[Voting] Voting already closed — skipping finalize.")
 
         self.vote_timeout = asyncio.create_task(end_after_timeout())
 
