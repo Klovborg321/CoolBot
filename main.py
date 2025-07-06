@@ -144,6 +144,17 @@ CHANNEL_GAME_MAP = {
     1383869104599072908: ("tournament", 4)
 }
 
+
+def get_elo_odds(rank1, rank2):
+    """Return win probabilities for both players based on ELO."""
+    expected1 = 1 / (1 + 10 ** ((rank2 - rank1) / 400))
+    expected2 = 1 - expected1
+    return expected1, expected2
+
+def probability_to_odds(probability: float) -> float:
+    return round(1 / probability, 2) if probability > 0 else 99.99
+
+
 async def ensure_start_buttons(bot):
     print("[AutoInit] ensure_start_buttons() triggered")
 
@@ -841,23 +852,17 @@ async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
     return bool(res.data)
 
 
-async def add_credits_internal(user_id: int, amount: int):
-    # ✅ Fetch current player
-    user = await get_player(user_id)
-    current_credits = user.get("credits", 0)
+async def add_credits_atomic(user_id: int, amount: int):
+    res = await run_db(lambda: supabase.rpc("add_credits_atomic", {
+        "user_id": user_id,
+        "amount": amount
+    }).execute())
 
-    # ✅ Compute new balance
-    new_credits = current_credits + amount
+    if getattr(res, "error", None):
+        print(f"[add_credits_atomic] ❌ RPC Error: {res.error}")
+        return None
 
-    # ✅ Update back to Supabase
-    await run_db(lambda: supabase
-        .table("players")
-        .update({"credits": new_credits})
-        .eq("id", str(user_id))
-        .execute()
-    )
-
-    return new_credits
+    return res.data
 
 
 async def save_player(user_id: int, player_data: dict):
@@ -876,29 +881,35 @@ async def save_player(user_id: int, player_data: dict):
 
 
 async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
+    # ✅ Deduct credits first
     success = await deduct_credits_atomic(user_id, amount)
     if not success:
         await interaction.response.send_message("❌ Not enough credits.", ephemeral=True)
         return
 
-    payout = int(amount / odds) if odds > 0 else amount
+    # ✅ Calculate payout (default to decimal odds logic)
+    payout = int(amount * odds) if odds > 0 else amount
 
+    # ✅ Insert bet in DB with odds
     res = await run_db(lambda: supabase.table("bets").insert({
         "player_id": str(user_id),
         "game_id": str(game_id),
         "choice": choice,
         "amount": amount,
         "payout": payout,
+        "odds": odds,          # ✅ store odds!
         "won": None
     }).execute())
 
+    # ✅ Check for DB errors
     if getattr(res, "error", None):
         print(f"[BET] ❌ Failed to insert bet for {user_id}: {res.error}")
         await interaction.response.send_message("❌ Failed to place bet.", ephemeral=True)
         return
 
-    print(f"[BET] ✅ Bet placed: {user_id} on {choice} for {amount}")
+    print(f"[BET] ✅ Bet placed: {user_id} on {choice} for {amount} @ odds {odds} → payout {payout}")
 
+    # ✅ Resolve readable name
     try:
         target_id = int(choice)
         member = interaction.guild.get_member(target_id)
@@ -906,11 +917,12 @@ async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
     except:
         target_name = str(choice)
 
+    # ✅ Confirmation message
     await interaction.response.send_message(
-        f"✅ Bet of {amount} placed on **{target_name}**. Potential payout: **{payout}**",
+        f"✅ Bet of **{amount}** placed on **{target_name}**.\n"
+        f"📊 Odds: {odds:.2f} | 💰 Payout if win: **{payout}**",
         ephemeral=True
     )
-
 
 
 async def get_complete_user_data(user_id):
@@ -1600,27 +1612,35 @@ class RoomView(discord.ui.View):
         # ✅ 2️⃣ Build detailed player lines
         player_lines = []
 
-        # Optional: prepare ranks, odds, handicaps as needed:
         ranks = []
         for p in self.players:
             pdata = await get_player(p)
             ranks.append(pdata.get("rank", 1000))
 
-        # Compute odds if needed:
+        # --- Compute odds ---
         odds = []
-        if self.game_type == "doubles" and len(self.players) >= 4:
+        odds_a = odds_b = 0.5  # Defaults for safety
+
+        if self.game_type == "singles" and len(ranks) == 2:
+            prob1 = 1 / (1 + 10 ** ((ranks[1] - ranks[0]) / 400))
+            prob2 = 1 - prob1
+            odds = [prob1, prob2]
+
+        elif self.game_type == "doubles" and len(ranks) == 4:
             e1 = sum(ranks[:2]) / 2
             e2 = sum(ranks[2:]) / 2
             odds_a = 1 / (1 + 10 ** ((e2 - e1) / 400))
             odds_b = 1 - odds_a
-        elif self.game_type == "triples" and len(self.players) >= 3:
-            exp = [10 ** (r / 400) for r in ranks]
-            total = sum(exp)
-            odds = [v / total for v in exp]
+
+        elif self.game_type == "triples" and len(ranks) == 3:
+            exp_scores = [10 ** (r / 400) for r in ranks]
+            total = sum(exp_scores)
+            odds = [v / total for v in exp_scores]
 
         game_full = len(self.players) == self.max_players
 
         # Team A label for doubles:
+        # --- Optional: Add Team A header for doubles ---
         if self.game_type == "doubles":
             player_lines.append("\u200b")
             label = "__**🅰️ Team A**__"
@@ -1636,17 +1656,18 @@ class RoomView(discord.ui.View):
                 name = f"**{fixed_width_name(raw_name, 20)}**"
 
                 rank = ranks[idx]
+                hcp_txt = ""  # You can insert actual HCP if available
 
-                # For RoomView you may skip HCP unless you have course_id handy:
-                hcp_txt = ""
-
-                if self.game_type == "singles" and game_full:
-                    e1, e2 = ranks
-                    o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
-                    player_odds = o1 if idx == 0 else 1 - o1
+                # --- Odds display ---
+                if self.game_type == "singles" and game_full and len(ranks) == 2:
+                    prob1 = 1 / (1 + 10 ** ((ranks[1] - ranks[0]) / 400))
+                    prob2 = 1 - prob1
+                    player_odds = prob1 if idx == 0 else prob2
                     line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%{hcp_txt}"
-                elif self.game_type == "triples" and game_full:
+
+                elif self.game_type == "triples" and game_full and len(odds) == 3:
                     line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%{hcp_txt}"
+
                 else:
                     line = f"● Player {idx + 1}: {name} 🏆 ({rank}){hcp_txt}"
             else:
@@ -1654,6 +1675,7 @@ class RoomView(discord.ui.View):
 
             player_lines.append(line)
 
+            # --- Optional: Add Team B label for doubles ---
             if self.game_type == "doubles" and idx == 1:
                 player_lines.append("\u200b")
                 label = "__**🅱️ Team B**__"
@@ -1732,13 +1754,13 @@ class RoomView(discord.ui.View):
 
     async def reward_match_winner(game_type, players, winner, amount):
         if isinstance(winner, int):
-            await add_credits_internal(winner, amount)
+            await add_credits_atomic(winner, amount)
         elif game_type == "doubles" and winner == "Team A":
             for pid in players[:2]:
-                await add_credits_internal(pid, amount)
+                await add_credits_atomic(pid, amount)
         elif game_type == "doubles" and winner == "Team B":
             for pid in players[2:]:
-                await add_credits_internal(pid, amount)
+                await add_credits_atomic(pid, amount)
 
     async def start_voting(self):
         if not self.game_has_ended:
@@ -1844,7 +1866,7 @@ class RoomView(discord.ui.View):
 
             if self.game_view:
                 for uid, uname, amount, choice in self.game_view.bets:
-                    await add_credits_internal(uid, amount)
+                    await add_credits_atomic(uid, amount)
                     await run_db(lambda: supabase
                         .table("bets")
                         .update({"won": None})
@@ -1918,7 +1940,7 @@ class RoomView(discord.ui.View):
                 if won:
                     odds = await self.game_view.get_odds(choice)
                     payout = int(amount * (1 / odds)) if odds > 0 else amount
-                    await add_credits_internal(uid, payout)
+                    await add_credits_atomic(uid, payout)
                     print(f"💰 {uname} won! Payout: {payout}")
                 else:
                     print(f"❌ {uname} lost {amount}")
@@ -1964,7 +1986,7 @@ class RoomView(discord.ui.View):
         self.players = []
 
         if self.is_hourly and winner != "draw":
-            await add_credits_internal(winner, 25)
+            await add_credits_atomic(winner, 25)
             print(f"[💰] Hourly game: awarded 25 credits to {winner}")
 
         # ✅ Cleanup: active_games row
@@ -2772,7 +2794,7 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
             # ✅ Check if bet is allowed (via game_view.add_bet)
             accepted = await self.game_view.add_bet(user_id, interaction.user.display_name, amount, self.choice, interaction)
             if not accepted:
-                await add_credits_internal(user_id, amount)  # refund
+                await add_credits_atomic(user_id, amount)  # refund
                 return
 
             # ✅ Insert into Supabase DB
@@ -2791,7 +2813,7 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
 
             if getattr(res, "error", None):
                 print(f"[BET] ❌ Failed to insert bet for {user_id}: {res.error}")
-                await add_credits_internal(user_id, amount)  # refund
+                await add_credits_atomic(user_id, amount)  # refund
                 await self.safe_send(interaction, "❌ Failed to log your bet. You have been refunded.", ephemeral=True)
                 return
 
@@ -3497,7 +3519,7 @@ class TournamentManager:
                     if won:
                         odds = 0.5  # Optional: store real odds per bet
                         payout = int(amount / odds)
-                        await add_credits_internal(uid, payout)
+                        await add_credits_atomic(uid, payout)
                         print(f"💰 {uname} won! Payout: {payout}")
                     else:
                         print(f"❌ {uname} lost {amount}")
