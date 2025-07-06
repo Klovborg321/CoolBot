@@ -1880,10 +1880,10 @@ class RoomView(discord.ui.View):
         # ✅ Mark voting closed now that we have a winner
         self.voting_closed = True
 
-            valid_options = self.get_vote_options()
-            if winner not in valid_options and winner != "draw":
-                print(f"[Voting] ⚠️ Invalid winner value: {winner} — forcing draw.")
-                winner = "draw"
+        valid_options = self.get_vote_options()
+        if winner not in valid_options and winner != "draw":
+            print(f"[Voting] ⚠️ Invalid winner value: {winner} — forcing draw.")
+            winner = "draw"
 
         # ✅ handle draw and exit
         if winner == "draw":
