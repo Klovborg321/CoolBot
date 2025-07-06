@@ -3964,23 +3964,21 @@ async def stats_reset(interaction: discord.Interaction, user: discord.User):
     await interaction.response.defer(ephemeral=True)
 
     try:
-        # ✅ Create fresh default stats
         new_stats = copy.deepcopy(default_template)
         new_stats["id"] = str(user.id)
 
-        # ✅ Supabase upsert
         res = await run_db(lambda: supabase
             .table("players")
             .upsert(new_stats)
             .execute()
         )
 
-        # ✅ Proper Supabase result check
-        if not hasattr(res, "data") or res.status_code >= 400:
+        if res.error:
             await interaction.followup.send(
-                f"❌ Failed to reset stats. Status: {res.status_code}, Response: {getattr(res, 'data', None)}",
+                f"❌ Failed to reset stats: {res.error.message}",
                 ephemeral=True
             )
+            print(f"[DB ERROR] {res.error}")
             return
 
         await interaction.followup.send(
