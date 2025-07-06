@@ -1876,7 +1876,6 @@ class RoomView(discord.ui.View):
             return
 
         print("[DEBUG] Finalizing game...")
-        self.voting_closed = True
         self.cancel_abandon_task()
         self.cancel_vote_timeout()
 
@@ -1915,6 +1914,8 @@ class RoomView(discord.ui.View):
             await update_leaderboard(self.bot, self.game_type)
             print(f"[DEBUG] Finalized winner = {winner}")
             return
+
+        self.voting_closed = True
 
         # ✅ Collect and process votes
         print(f"[VOTE] Collected votes: {self.votes}")
