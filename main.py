@@ -1877,8 +1877,6 @@ class RoomView(discord.ui.View):
 
         print("[DEBUG] Finalizing game...")
         self.voting_closed = True
-
-        # ✅ Cancel timers
         self.cancel_abandon_task()
         self.cancel_vote_timeout()
 
@@ -1888,28 +1886,48 @@ class RoomView(discord.ui.View):
 
         self.game_has_ended = True
 
+        # ✅ TEST MODE: finalize early with 1 vote
+        if TEST_MODE and len(self.votes) == 1:
+            print("[Voting] 🧪 Test mode: finalizing early with single vote.")
+            winner = list(self.votes.values())[0]
+
+            valid_options = self.get_vote_options()
+            if winner not in valid_options:
+                print(f"[Voting] ⚠️ Invalid winner in test mode: {winner} — forcing draw.")
+                winner = "draw"
+
+            embed = await self.build_lobby_end_embed(winner)
+            await self.message.edit(embed=embed, view=None)
+
+            if self.lobby_message and self.game_view:
+                lobby_embed = await self.game_view.build_embed(
+                    self.lobby_message.guild, winner=winner, no_image=True
+                )
+                await self.lobby_message.edit(embed=lobby_embed, view=None)
+
+            await self.channel.send(f"🏁 Test mode — winner: **{winner}**")
+            await self.channel.edit(archived=True)
+            pending_games[self.game_type] = None
+
+            if self.on_tournament_complete:
+                await self.on_tournament_complete(winner)
+
+            await update_leaderboard(self.bot, self.game_type)
+            print(f"[DEBUG] Finalized winner = {winner}")
+            return
+
         # ✅ Collect and process votes
         print(f"[VOTE] Collected votes: {self.votes}")
         self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
         vote_counts = Counter(self.votes.values())
         print(f"[VOTE] Vote counts: {vote_counts}")
         most_common = vote_counts.most_common()
-    
-        # ✅ TEST MODE: finalize early with 1 vote
-        if TEST_MODE and not self.voting_closed and len(self.votes) == 1:
-            print("[Voting] 🧪 Test mode: finalizing early with single vote.")
-            winner = list(self.votes.values())[0]
-            self.voting_closed = True
-            self.game_has_ended = True
-            if self.game_view:
-                self.game_view.game_has_ended = True
-        else:
-            if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
-                print("[Voting] ⚠️ No votes or tie — declaring draw.")
-                winner = "draw"
-            else:
-                winner = most_common[0][0]
 
+        if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
+            print("[Voting] ⚠️ No votes or tie — declaring draw.")
+            winner = "draw"
+        else:
+            winner = most_common[0][0]
 
         valid_options = self.get_vote_options()
         if winner not in valid_options and winner != "draw":
@@ -2020,7 +2038,6 @@ class RoomView(discord.ui.View):
             if 0 <= idx < len(self.players):
                 winner = self.players[idx]
 
-        # ✅ Final embeds
         winner_name = winner
         if isinstance(winner, int):
             member = self.message.guild.get_member(winner)
@@ -2049,7 +2066,6 @@ class RoomView(discord.ui.View):
             await add_credits_atomic(winner, 25)
             print(f"[💰] Hourly game: awarded 25 credits to {winner}")
 
-        # ✅ Cleanup: active_games row
         target_game_id = (
             str(self.lobby_message.id)
             if self.lobby_message else
