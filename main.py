@@ -1096,7 +1096,7 @@ class PlayerManager:
                 .table("active_players")
                 .select("player_id")
                 .eq("player_id", user_id)
-                .limit(1)
+                .maybe_single()
                 .execute()
             )
             return res is not None and res.data is not None
