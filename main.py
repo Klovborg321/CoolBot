@@ -277,6 +277,7 @@ async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
     view.abandon_task = asyncio.create_task(view.auto_abandon_after(1800))
 
     print("[HOURLY] ✅ Hourly lobby created.")
+    await view.start_game()
 
 
 class HourlyCountdownView(discord.ui.View):
@@ -2033,13 +2034,23 @@ class RoomView(discord.ui.View):
         else:
             print("[finalize_game] ⚠️ No valid game_id found to delete active_game row.")
 
+        # ✅ Normalize winner to real user ID if needed
+        if isinstance(winner, str) and winner.isdigit():
+            idx = int(winner) - 1
+            if 0 <= idx < len(self.players):
+                winner = self.players[idx]
+
+        # ✅ Proceed to call the tournament callback with a valid user ID
         if self.on_tournament_complete:
             if isinstance(winner, int):
-                await self.on_tournament_complete(winner)
+                await self.on_tournament_complete(int(winner))
+            elif isinstance(winner, str) and winner.isdigit():
+                await self.on_tournament_complete(int(winner))  # extra fallback
             else:
                 print(f"[Tournament] No clear winner — randomly picking from: {self.players}")
                 fallback = random.choice(self.players)
                 await self.on_tournament_complete(fallback)
+
 
         await update_leaderboard(self.bot, self.game_type)
         print(f"[DEBUG] Finalized winner = {winner}")
@@ -3522,8 +3533,9 @@ class TournamentManager:
         # ✅ Find the loser in the current match pair
         loser_id = None
         for match in self.current_matches:
-            if winner_id in match.players:
-                loser_id = next((p for p in match.players if p != winner_id), None)
+            match_player_ids = [int(p) for p in match.players]  # force int
+            if int(winner_id) in match_player_ids:
+                loser_id = next((p for p in match_player_ids if int(p) != int(winner_id)), None)
                 break
 
         # ✅ SAFEGUARD
