@@ -151,7 +151,7 @@ async def get_player_handicap(player_id: int, course_id: str):
         .select("score")
         .eq("player_id", str(player_id))
         .eq("course_id", course_id)
-        .single()
+        .limit(1)
         .execute()
     )
 
@@ -956,7 +956,7 @@ async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
 
 
 async def get_complete_user_data(user_id):
-    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).single().execute())
+    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).limit(1).execute())
 
     if getattr(res, "error", None) or res.data is None:
         defaults = default_template.copy()
@@ -969,7 +969,7 @@ async def get_complete_user_data(user_id):
 
 
 async def update_user_stat(user_id, key, value, mode="set", game_type=None):
-    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).single().execute())
+    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).limit(1).execute())
 
     if res.data is None:
         data = default_template.copy()
@@ -4146,7 +4146,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
 
     # ✅ Fetch player row
     res = await run_db(
-        lambda: supabase.table("players").select("*").eq("id", str(target_user.id)).single().execute()
+        lambda: supabase.table("players").select("*").eq("id", str(target_user.id)).limit(1).execute()
     )
     player = res.data or {}
 
