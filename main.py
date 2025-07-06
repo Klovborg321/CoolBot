@@ -3423,6 +3423,8 @@ class TournamentManager:
         random.shuffle(self.round_players)
         self.round = 1
 
+        print(f"[ROUND DEBUG] Players: {self.players}")
+        print(f"[ROUND DEBUG] Round players: {self.round_players}")
         await self.run_round(guild)  # ✅ Only call once with correct player list
 
     async def run_round(self, guild):
