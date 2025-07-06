@@ -2683,10 +2683,7 @@ class GameView(discord.ui.View):
             status="✅ Tournament full! Matches running — place your bets!" if not self.betting_closed else "🕐 Betting closed. Good luck!",
             bets=self.bets
         )
-        if target_message.view:
-            await target_message.edit(embed=embed)
-        else:
-            await target_message.edit(embed=embed, view=self)
+        await target_message.edit(embed=embed, view=self)
 
         return True
 
