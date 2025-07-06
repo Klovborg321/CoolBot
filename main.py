@@ -1635,8 +1635,13 @@ class RoomView(discord.ui.View):
             self.abandon_task = None
 
     async def build_room_embed(self, guild=None):
-        guild = guild or self.guild or (self.message.guild if self.message else None)
-        assert guild, "Guild is missing for RoomView!"
+        if not guild:
+            guild = self.guild
+            if not guild and self.message:
+                guild = self.message.guild
+
+        if not guild:
+            raise ValueError("[RoomView] Guild is missing and could not be resolved for build_room_embed()")
 
         embed = discord.Embed(
             title=f"🎮 {self.game_type.title()} Match Room",
@@ -3469,34 +3474,43 @@ class TournamentManager:
                 )
                 room_view.course_image = course_image
                 room_view.guild = guild
-                room_view.on_tournament_complete = self.match_complete
                 room_view.channel = match_thread
-
-                embed = await room_view.build_room_embed()
-                embed.title = f"Room: {room_name}"
-                embed.description = f"Course: {course_name}"
-                room_view.lobby_embed = embed
+                room_view.on_tournament_complete = self.match_complete
 
                 mentions = f"<@{p1}> <@{p2}>"
 
                 try:
-                    msg = await match_thread.send(
-                        content=f"{mentions}\n🏆 This match is part of the tournament!",
-                        embed=embed,
-                        view=room_view
+                    # TEMP message to attach message object to the view
+                    temp_msg = await match_thread.send(
+                        content=f"{mentions}\n⏳ Setting up match room...",
+                        embed=discord.Embed(title="Loading room..."),
+                        view=None
                     )
                 except Exception as e:
-                    print(f"❌ Failed to send match embed in thread: {e}")
+                    print(f"❌ Failed to post initial message in match thread: {e}")
                     continue
 
-                room_view.message = msg
-                room_view.channel = match_thread
-                await room_view.update_message()
+                room_view.message = temp_msg
 
+                try:
+                    embed = await room_view.build_room_embed()
+                    embed.title = f"Room: {room_name}"
+                    embed.description = f"Course: {course_name}"
+                    room_view.lobby_embed = embed
+
+                    await temp_msg.edit(content=f"{mentions}\n🏆 This match is part of the tournament!", embed=embed, view=room_view)
+
+                except Exception as e:
+                    print(f"❌ Failed to build or edit room embed: {e}")
+                    await temp_msg.edit(content="❌ Failed to set up match room.")
+                    continue
+
+                await room_view.update_message()
                 self.current_matches.append(room_view)
 
             else:
                 self.next_round_players.append(players[i])
+
 
     async def match_complete(self, winner_id):
         self.matches_completed_this_round += 1
