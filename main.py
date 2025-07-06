@@ -3477,12 +3477,21 @@ class TournamentManager:
                         print(f"[THREAD] ⚠️ Failed to add user {pid}: {e}")
 
                 try:
-                    temp_msg = await match_thread.send(
-                        content=f"<@{p1}> <@{p2}>\n⏳ Setting up match room...",
-                        embed=discord.Embed(title="Loading room..."),
-                        view=None
+                    # ✅ Build the room embed right away
+                    embed = await room_view.build_room_embed()
+                    embed.title = f"Room: {room_name}"
+                    embed.description = f"Course: {course_name}"
+                    room_view.lobby_embed = embed
+
+                    # ✅ Send the full match room with embed and RoomView
+                    msg = await match_thread.send(
+                        content=f"{mentions}\n🏆 This match is part of the tournament!",
+                        embed=embed,
+                        view=room_view
                     )
-                    print(f"[THREAD] ✅ Sent initial message in thread {match_thread.name}")
+
+                    room_view.message = msg  # ✅ Now message is set
+                    await room_view.update_message()
                 except Exception as e:
                     print(f"❌ Failed to post initial message in match thread: {e}")
                     continue
