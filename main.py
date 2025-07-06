@@ -1844,7 +1844,7 @@ class RoomView(discord.ui.View):
         await self.finalize_game()
 
 
-        async def finalize_game(self, winner=None):
+    async def finalize_game(self, winner=None):
         if self.voting_closed:
             print("[Voting] ⏭️ Already finalized. Skipping.")
             return
