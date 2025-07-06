@@ -1880,7 +1880,6 @@ class RoomView(discord.ui.View):
         self.cancel_vote_timeout()
 
         if self.game_view:
-            self.game_view.game_has_ended = True
             self.game_view.cancel_betting_task()
 
         self.game_has_ended = True
@@ -1889,11 +1888,15 @@ class RoomView(discord.ui.View):
         if TEST_MODE and len(self.votes) == 1:
             print("[Voting] 🧪 Test mode: finalizing early with single vote.")
             winner = list(self.votes.values())[0]
+            self.voting_closed = True
 
             valid_options = self.get_vote_options()
             if winner not in valid_options:
                 print(f"[Voting] ⚠️ Invalid winner in test mode: {winner} — forcing draw.")
                 winner = "draw"
+
+            if self.game_view:
+                self.game_view.game_has_ended = True
 
             embed = await self.build_lobby_end_embed(winner)
             await self.message.edit(embed=embed, view=None)
@@ -1915,9 +1918,9 @@ class RoomView(discord.ui.View):
             print(f"[DEBUG] Finalized winner = {winner}")
             return
 
+        # ✅ Continue normal voting flow
         self.voting_closed = True
 
-        # ✅ Collect and process votes
         print(f"[VOTE] Collected votes: {self.votes}")
         self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
         vote_counts = Counter(self.votes.values())
@@ -1935,6 +1938,7 @@ class RoomView(discord.ui.View):
             print(f"[Voting] ⚠️ Invalid winner value: {winner} — forcing draw.")
             winner = "draw"
 
+        # ✅ handle draw and exit
         if winner == "draw":
             for p in self.players:
                 pdata = await get_player(p)
