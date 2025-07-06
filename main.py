@@ -1897,10 +1897,7 @@ class RoomView(discord.ui.View):
     
         # ✅ TEST MODE: finalize early with 1 vote
         if TEST_MODE and not self.voting_closed and len(self.votes) == 1:
-            print("[Voting] 🧪 Test mode: auto-finalizing after single vote.")
-            self.voting_closed = True
-            await self.finalize_game()
-            return
+            print("[Voting] 🧪 Test mode: finalizing early with single vote.")
 
         if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
             print("[Voting] ⚠️ No votes or tie — declaring draw.")
