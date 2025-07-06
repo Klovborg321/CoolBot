@@ -242,41 +242,41 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
             await post_hourly_game(guild, channel)
             await asyncio.sleep(3600)
 
-    async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
-        print("[HOURLY] Posting Golden Hour game now.")
+async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
+    print("[HOURLY] Posting Golden Hour game now.")
 
-        creator = guild.get_member(bot.user.id) or await guild.fetch_member(bot.user.id)
-        scheduled_time = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+    creator = guild.get_member(bot.user.id) or await guild.fetch_member(bot.user.id)
+    scheduled_time = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
 
-        # ✅ Create GameView with is_hourly=True
-        view = GameView(
-            bot=bot,
-            guild=guild,
-            game_type="singles",
-            creator=creator,
-            max_players=2,
-            channel=channel,
-            scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 25 BALLS!",
-            scheduled_time=scheduled_time,
-            is_hourly=True
-        )
+    # ✅ Create GameView with is_hourly=True
+    view = GameView(
+        bot=bot,
+        guild=guild,
+        game_type="singles",
+        creator=creator,
+        max_players=2,
+        channel=channel,
+        scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 25 BALLS!",
+        scheduled_time=scheduled_time,
+        is_hourly=True
+    )
 
-        # ✅ Build the embed and send it
-        embed = await view.build_embed(guild)
-        message = await channel.send(embed=embed, view=view)
-        view.message = message
+    # ✅ Build the embed and send it
+    embed = await view.build_embed(guild)
+    message = await channel.send(embed=embed, view=view)
+    view.message = message
 
-        # ✅ Save to pending_games
-        pending_games["singles"] = {
-            "players": [],
-            "channel_id": channel.id,
-            "view": view
-        }
+    # ✅ Save to pending_games
+    pending_games["singles"] = {
+        "players": [],
+        "channel_id": channel.id,
+        "view": view
+    }
 
-        # ✅ Start auto-abandon after 30 minutes
-        view.abandon_task = asyncio.create_task(view.auto_abandon_after(1800))
+    # ✅ Start auto-abandon after 30 minutes
+    view.abandon_task = asyncio.create_task(view.auto_abandon_after(1800))
 
-        print("[HOURLY] ✅ Hourly lobby created.")
+    print("[HOURLY] ✅ Hourly lobby created.")
 
 
 class HourlyCountdownView(discord.ui.View):
