@@ -3425,6 +3425,11 @@ class TournamentManager:
 
         await self.run_round(guild)  # ✅ Only call once with correct player list
 
+    async def run_round(self, guild):
+        print(f"[TOURNAMENT] Running round with {len(self.round_players)} players")
+        players = self.round_players.copy()
+        random.shuffle(players)
+
         self.current_matches = []
         self.winners = []
         self.next_round_players = []
