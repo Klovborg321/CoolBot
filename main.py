@@ -2210,7 +2210,7 @@ class VoteButton(discord.ui.Button):
 
         # ✅ If all players voted (normal mode), finalize
         if len(self.view_obj.votes) == len(self.view_obj.players):
-            await self.view_obj.finalize_game()
+            await self.view_obj.finalize_game(winner=self.value)
 
 
 
