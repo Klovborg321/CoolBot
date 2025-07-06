@@ -3507,7 +3507,7 @@ class TournamentManager:
                     )
 
                     room_view.message = msg
-                    await room_view.update_message()
+                    #await room_view.update_message()
                     self.current_matches.append(room_view)
 
                     print(f"[ROOM] ✅ Match ready: {p1} vs {p2} in thread {match_thread.name}")
