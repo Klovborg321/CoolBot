@@ -3533,6 +3533,10 @@ class TournamentManager:
         await update_leaderboard(self.bot, "tournaments")
 
         if TEST_MODE:
+            print(f"[TEST_MODE] ✅ Match complete.")
+            print(f"[TEST_MODE] Matches completed this round: {self.matches_completed_this_round}")
+            print(f"[TEST_MODE] Current matches: {len(self.current_matches)}")
+            print(f"[TEST_MODE] Next round players: {self.next_round_players}")
             if len(self.next_round_players) >= 2:
                 print("[TEST_MODE] 🔁 Auto-advancing to next round (enough winners).")
                 self.round_players = self.next_round_players.copy()
