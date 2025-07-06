@@ -163,7 +163,7 @@ async def get_player_handicap(player_id: int, course_id: str):
         .table("handicaps")
         .select("score")
         .eq("course_id", course_id)
-        .order("score", asc=True)
+        .order("score", desc=False)
         .limit(1)
         .execute()
     )
