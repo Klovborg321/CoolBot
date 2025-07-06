@@ -1844,14 +1844,12 @@ class RoomView(discord.ui.View):
         await self.finalize_game()
 
 
-    async def finalize_game(self, winner=None):
+        async def finalize_game(self, winner=None):
         if self.voting_closed:
             print("[Voting] ⏭️ Already finalized. Skipping.")
             return
 
         print("[DEBUG] Finalizing game...")
-        if winner is not None:
-            print(f"[TEST_MODE] Winner override received: {winner}")
         self.cancel_abandon_task()
         self.cancel_vote_timeout()
 
@@ -1860,14 +1858,13 @@ class RoomView(discord.ui.View):
             self.game_view.cancel_betting_task()
 
         self.game_has_ended = True
+        self.voting_closed = True
 
-        # ✅ TEST MODE shortcut — if winner is passed (from vote button), use it
-        if TEST_MODE and winner is None and len(self.votes) == 1:
-            print("[TEST_MODE] One vote received — using it as winner.")
-            winner = list(self.votes.values())[0]
-
-        # ✅ Now process voting
-        if winner is None:
+        # ✅ TEST MODE: force winner if passed
+        if IS_TEST_MODE and winner is not None:
+            print(f"[TEST_MODE] Winner override received: {winner}")
+        else:
+            print(f"[VOTE] Collected votes: {self.votes}")
             self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
             vote_counts = Counter(self.votes.values())
             print(f"[VOTE] Vote counts: {vote_counts}")
@@ -1879,15 +1876,13 @@ class RoomView(discord.ui.View):
             else:
                 winner = most_common[0][0]
 
-        # ✅ Mark voting closed now that we have a winner
-        self.voting_closed = True
-
+        # ✅ Validate winner
         valid_options = self.get_vote_options()
         if winner not in valid_options and winner != "draw":
             print(f"[Voting] ⚠️ Invalid winner value: {winner} — forcing draw.")
             winner = "draw"
 
-        # ✅ handle draw and exit
+        # ✅ Draw flow
         if winner == "draw":
             for p in self.players:
                 pdata = await get_player(p)
@@ -1923,7 +1918,7 @@ class RoomView(discord.ui.View):
             pending_games[self.game_type] = None
             return
 
-        # ✅ Normalize winner (doubles/triples)
+        # ✅ Normalize for ELO/bets
         normalized_winner = normalize_team(winner) if self.game_type == "doubles" else winner
 
         try:
@@ -1986,12 +1981,13 @@ class RoomView(discord.ui.View):
                     .execute()
                 )
 
-        # ✅ Normalize winner to user ID for embeds if needed
+        # ✅ Normalize winner for embed/footer
         if isinstance(winner, str) and winner.isdigit():
             idx = int(winner) - 1
             if 0 <= idx < len(self.players):
                 winner = self.players[idx]
 
+        # ✅ Final embeds
         winner_name = winner
         if isinstance(winner, int):
             member = self.message.guild.get_member(winner)
@@ -2047,6 +2043,7 @@ class RoomView(discord.ui.View):
 
         await update_leaderboard(self.bot, self.game_type)
         print(f"[DEBUG] Finalized winner = {winner}")
+
 
 
 class GameEndedButton(discord.ui.Button):
