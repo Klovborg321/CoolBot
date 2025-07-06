@@ -1621,6 +1621,14 @@ class RoomView(discord.ui.View):
         self.on_tournament_complete = None
 
 
+    async def update_message(self, status=None):
+        if not self.message:
+            print("[RoomView] No message to update.")
+            return
+
+        embed = await self.build_room_embed(status=status)
+        await self.message.edit(embed=embed, view=self)
+
     def cancel_abandon_task(self):
         if hasattr(self, "abandon_task") and self.abandon_task:
             self.abandon_task.cancel()
@@ -3483,6 +3491,7 @@ class TournamentManager:
 
                 room_view.message = msg
                 room_view.channel = match_thread
+                await room_view.update_message()
 
                 self.current_matches.append(room_view)
 
