@@ -3856,8 +3856,13 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         manager.view = view
         view.players = manager.players.copy()  # sync test players if any
 
-        if IS_TEST_MODE and len(view.players) == count:
-            view.status = "✅ Tournament full! Matches running — place your bets!"
+        if IS_TEST_MODE:
+            for pid in TEST_PLAYER_IDS:
+            if pid not in manager.players and len(manager.players) < manager.max_players:
+                manager.players.append(pid)
+                view.players.append(pid)
+
+        view.status = "✅ Tournament full! Matches running — place your bets!" if IS_TEST_MODE else None
 
         try:
             embed = await view.build_embed(interaction.guild, no_image=True)
