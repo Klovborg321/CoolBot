@@ -151,7 +151,7 @@ async def get_player_handicap(player_id: int, course_id: str):
         .select("score")
         .eq("player_id", str(player_id))
         .eq("course_id", course_id)
-        .limit(1)
+        .single()
         .execute()
     )
 
@@ -956,7 +956,7 @@ async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
 
 
 async def get_complete_user_data(user_id):
-    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).limit(1).execute())
+    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).single().execute())
 
     if getattr(res, "error", None) or res.data is None:
         defaults = default_template.copy()
@@ -969,7 +969,7 @@ async def get_complete_user_data(user_id):
 
 
 async def update_user_stat(user_id, key, value, mode="set", game_type=None):
-    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).limit(1).execute())
+    res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).single().execute())
 
     if res.data is None:
         data = default_template.copy()
@@ -1093,14 +1093,13 @@ class PlayerManager:
         user_id = str(user_id)
         try:
             res = await run_db(lambda: supabase
-               .table("active_players")
-               .select("player_id")
-               .eq("player_id", user_id)
-               .limit(1)
-               .execute()
+                .table("active_players")
+                .select("player_id")
+                .eq("player_id", user_id)
+                .maybe_single()
+                .execute()
             )
-
-            return res is not None and res.data and len(res.data) > 0
+            return res is not None and res.data is not None
         except Exception as e:
             print(f"[PlayerManager.is_active] Error checking active for {user_id}: {e}")
             return False
@@ -1766,17 +1765,21 @@ class RoomView(discord.ui.View):
             # ✅ Fully safe handicap lookup:
             hcp = "-"
             if self.course_name:
-                res = await run_db(lambda: supabase
-                    .table("handicaps")
-                    .select("handicap")
-                    .eq("player_id", str(p))
-                    .eq("course_id", self.course_id)
-                    .limit(1)
-                    .execute()
-                )
-                if res and getattr(res, "data", None):
-                    hval = res.data.get("handicap")
-                    hcp = round(hval, 1) if hval is not None else "-"
+                try:
+                    res = await run_db(lambda: supabase
+                        .table("handicaps")
+                        .select("handicap")
+                        .eq("player_id", str(p))
+                        .eq("course_id", self.course_id)
+                        .maybe_single()
+                        .execute()
+                    )
+                    if res.data and len(res.data) > 0:
+                        hval = res.data[0].get("handicap")
+                        if hval is not None:
+                            hcp = round(hval, 1)
+                except Exception as e:
+                    print(f"[RoomView] ⚠️ Handicap fetch failed for {p}: {e}")
 
             lines.append(f"<@{p}> | Rank: {rank} | Trophies: {trophies} | 🎯 HCP: {hcp}")
 
@@ -2578,20 +2581,15 @@ class GameView(discord.ui.View):
             pdata = await get_player(p)
             ranks.append(pdata.get("rank", 1000))
             if not no_image and getattr(self, "course_name", None):
-                res = await run_db(lambda: supabase
-                   .table("handicaps")
-                   .select("handicap")
-                   .eq("player_id", str(p))
-                   .eq("course_id", self.course_id)
-                   .limit(1)
-                   .execute()
-                )
-
-                # Safely extract the value if available
-                hval = res.data[0]["handicap"] if res.data else None
-                hcp = round(hval, 1) if hval is not None else "-"
+                if res.data and len(res.data) > 0:
+                        hval = res.data[0].get("handicap")
+                        if hval is not None:
+                            hcp = round(hval, 1)
+                except Exception as e:
+                    print(f"[RoomView] ⚠️ Handicap fetch failed for {p}: {e}")
             else:
                 hcp = 10
+            
             handicaps.append(hcp)
 
         game_full = len(self.players) == self.max_players
@@ -4146,7 +4144,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
 
     # ✅ Fetch player row
     res = await run_db(
-        lambda: supabase.table("players").select("*").eq("id", str(target_user.id)).limit(1).execute()
+        lambda: supabase.table("players").select("*").eq("id", str(target_user.id)).single().execute()
     )
     player = res.data or {}
 
