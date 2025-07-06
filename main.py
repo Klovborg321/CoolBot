@@ -2580,6 +2580,8 @@ class GameView(discord.ui.View):
         for p in self.players:
             pdata = await get_player(p)
             ranks.append(pdata.get("rank", 1000))
+
+            hcp = "-"  # ✅ Always initialize handicap value
             if not no_image and getattr(self, "course_name", None):
                 if self.course_name and self.course_id:
                     try:
@@ -2590,14 +2592,14 @@ class GameView(discord.ui.View):
                             .eq("course_id", self.course_id)
                             .maybe_single()
                             .execute()
-                       )   
-                       if res and res.data:
-                           hval = res.data.get("handicap")
-                           hcp = round(hval, 1) if hval is not None else "-"
+                        )
+                        if res and res.data:
+                            hval = res.data.get("handicap")
+                            hcp = round(hval, 1) if hval is not None else "10"
                     except Exception as e:
                         print(f"[WARN] Failed handicap fetch for player {p} / course {self.course_id}: {e}")
                 else:
-                    hcp = 10
+                    hcp = "10"  # ✅ Default fallback
             handicaps.append(hcp)
 
         game_full = len(self.players) == self.max_players
