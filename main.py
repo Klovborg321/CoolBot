@@ -1716,22 +1716,13 @@ class RoomView(discord.ui.View):
                 await add_credits_internal(pid, amount)
 
     async def start_voting(self):
-        print("[Voting] 🔁 start_voting triggered")
-
         if not self.game_has_ended:
-            print("[Voting] ❌ game_has_ended is False — aborting voting")
             return
 
         pending_games[self.game_type] = None
 
-        if not self.message:
-            print("[Voting] ❌ self.message is missing — cannot show voting buttons")
-            return
-
         self.clear_items()
-
         options = self.get_vote_options()
-        print(f"[Voting] ➕ Vote options: {options}")
 
         for option in options:
             if isinstance(option, int):
@@ -1743,32 +1734,17 @@ class RoomView(discord.ui.View):
                     label = f"Vote {label}"
             self.add_item(VoteButton(option, self, label))
 
+        # ✅ Rebuild embed for voting AND attach the updated view (important!)
         embed = await self.build_lobby_end_embed(winner=None)
-        try:
-            await self.message.edit(embed=embed, view=self)
-            print("[Voting] ✅ Voting message updated with buttons")
-        except Exception as e:
-            print(f"[Voting] ❌ Failed to edit message: {e}")
-            return
+        await self.message.edit(embed=embed, view=self)  # ✅ this line was missing
 
-        # ✅ Schedule timeout warning and finalize only inside coroutine
+        # ✅ Optional: post 1-minute warning at 9 minutes
         async def warn_before_finalizing():
             await asyncio.sleep(540)
             if not self.voting_closed:
                 await self.channel.send("⚠️ 1 minute remaining to vote! Game will auto-finalize with current votes.")
 
-        async def end_after_timeout():
-            await asyncio.sleep(600)
-            if not self.voting_closed:
-                print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
-                await self.finalize_game()
-            else:
-                print("[Voting] Voting already closed — skipping finalize.")
-
-        # ✅ Schedule them now that we're safely inside an event loop
         asyncio.create_task(warn_before_finalizing())
-        self.vote_timeout = asyncio.create_task(end_after_timeout())
-
 
         # ✅ Finalize after 10 minutes
         async def end_after_timeout():
@@ -1780,7 +1756,6 @@ class RoomView(discord.ui.View):
                 print("[Voting] Voting already closed — skipping finalize.")
 
         self.vote_timeout = asyncio.create_task(end_after_timeout())
-
 
     def cancel_vote_timeout(self):
         if hasattr(self, "vote_timeout") and self.vote_timeout:
