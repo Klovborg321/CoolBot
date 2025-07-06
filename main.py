@@ -693,22 +693,33 @@ async def update_course_average_par(course_id: str):
         .eq("course_id", course_id)
         .execute()
     )
-    scores = [row["score"] for row in res.data or []]
+
+    # ✅ Error handling
+    if getattr(res, "error", None):
+        print(f"[AVG_PAR] ❌ Failed to fetch scores: {res.error}")
+        return None
+
+    scores = [row["score"] for row in res.data or [] if "score" in row]
 
     if not scores:
-        # If no scores exist, skip update.
+        print(f"[AVG_PAR] ⚠️ No scores found for course {course_id}")
         return None
 
     new_avg = round(sum(scores) / len(scores), 1)
 
     # 2) Update the course row
-    await run_db(lambda: supabase
+    update_res = await run_db(lambda: supabase
         .table("courses")
         .update({"avg_par": new_avg})
         .eq("id", course_id)
         .execute()
     )
 
+    if getattr(update_res, "error", None):
+        print(f"[AVG_PAR] ❌ Failed to update avg_par: {update_res.error}")
+        return None
+
+    print(f"[AVG_PAR] ✅ Updated avg_par for course {course_id}: {new_avg}")
     return new_avg
 
 
@@ -783,34 +794,48 @@ async def dm_all_online(guild: discord.Guild, message: str):
 
 # ✅ Save a pending game (async)
 async def save_pending_game(game_type, players, channel_id, max_players):
-    await run_db(lambda: supabase.table("pending_games").upsert({
+    res = await run_db(lambda: supabase.table("pending_games").upsert({
         "game_type": game_type,
         "players": players,
         "channel_id": channel_id,
-        "max_players": max_players  # ✅ store it!
+        "max_players": max_players
     }).execute())
+
+    if getattr(res, "error", None):
+        print(f"[save_pending_game] ❌ Error: {res.error}")
+        return False
+    return True
 
 
 # ✅ Clear a pending game (async)
 async def clear_pending_game(game_type):
-    await run_db(lambda: supabase.table("pending_games").delete().eq("game_type", game_type).execute())
+    res = await run_db(lambda: supabase.table("pending_games").delete().eq("game_type", game_type).execute())
+    if getattr(res, "error", None):
+        print(f"[clear_pending_game] ❌ Error: {res.error}")
+        return False
+    return True
+
 
 # ✅ Load all pending games (async)
 async def load_pending_games():
-    response = await run_db(lambda: supabase.table("pending_games").select("*").execute())
-    return response.data
+    res = await run_db(lambda: supabase.table("pending_games").select("*").execute())
+    if getattr(res, "error", None):
+        print(f"[load_pending_games] ❌ Error: {res.error}")
+        return []
+    return res.data or []
 
+
+# ✅ Deduct credits via atomic RPC (async)
 async def deduct_credits_atomic(user_id: int, amount: int) -> bool:
     res = await run_db(
         lambda: supabase.rpc("deduct_credits_atomic", {
-            "user_id": user_id,  # ✅ pass as INT
+            "user_id": user_id,
             "amount": amount
         }).execute()
     )
 
-    # 📌 Use `getattr` fallback to avoid AttributeError
-    if getattr(res, "status_code", 200) != 200:
-        print(f"[Supabase RPC Error] Status: {getattr(res, 'status_code', '??')} Data: {res.data}")
+    if getattr(res, "error", None):
+        print(f"[deduct_credits_atomic] ❌ RPC Error: {res.error}")
         return False
 
     return bool(res.data)
@@ -844,8 +869,8 @@ async def save_player(user_id: int, player_data: dict):
         .execute()
     )
 
-    if res.error:
-        print(f"[DB ERROR] ❌ save_player({user_id}) failed: {res.error}")
+    if getattr(res, "error", None):
+        print(f"[DB] ❌ Failed to save player {user_id}: {res.error}")
     else:
         print(f"[DB] ✅ Player {user_id} saved.")
 
@@ -867,14 +892,13 @@ async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
         "won": None
     }).execute())
 
-    if res.error:
+    if getattr(res, "error", None):
         print(f"[BET] ❌ Failed to insert bet for {user_id}: {res.error}")
         await interaction.response.send_message("❌ Failed to place bet.", ephemeral=True)
         return
-    else:
-        print(f"[BET] ✅ Bet placed: {user_id} on {choice} for {amount}")
 
-    # Show confirmation
+    print(f"[BET] ✅ Bet placed: {user_id} on {choice} for {amount}")
+
     try:
         target_id = int(choice)
         member = interaction.guild.get_member(target_id)
@@ -888,17 +912,18 @@ async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
     )
 
 
+
 async def get_complete_user_data(user_id):
     res = await run_db(lambda: supabase.table("players").select("*").eq("id", str(user_id)).single().execute())
 
-    if res.data is None:
-        # Not found → insert defaults
+    if getattr(res, "error", None) or res.data is None:
         defaults = default_template.copy()
         defaults["id"] = str(user_id)
         await run_db(lambda: supabase.table("players").insert(defaults).execute())
         return defaults
 
     return res.data
+
 
 
 async def update_user_stat(user_id, key, value, mode="set", game_type=None):
@@ -2074,7 +2099,7 @@ class VoteButton(discord.ui.Button):
         )
 
         # ✅ Mark this player as free to join other games again
-        player_manager.deactivate(interaction.user.id)
+        await player_manager.deactivate(interaction.user.id)  # ✅ correct
 
         # ✅ If everyone voted, finalize immediately
         if IS_TEST_MODE or len(self.view_obj.votes) == len(self.view_obj.players):
