@@ -3812,7 +3812,7 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         return await self._embed_helper.build_embed(*args, **kwargs)
 
     async def on_submit(self, interaction: discord.Interaction):
-        self.was_submitted = True  # ✅ Mark as completed
+        self.was_submitted = True
         try:
             count = int(self.player_count.value.strip())
             if count % 2 != 0 or count < 2:
@@ -3832,10 +3832,9 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
             return
 
         await player_manager.activate(self.creator.id)
-
         await interaction.response.defer(ephemeral=True)
 
-        # ✅ Always provide parent_channel up-front:
+        # ✅ Create manager and inject test players immediately
         manager = TournamentManager(bot=bot, creator=self.creator.id, max_players=count)
         manager.parent_channel = self.parent_channel
         interaction.client.tournaments[self.parent_channel.id] = manager
@@ -3847,22 +3846,18 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
                 if pid not in manager.players and len(manager.players) < manager.max_players:
                     manager.players.append(pid)
 
+        # ✅ Sync manager and view
         view = TournamentLobbyView(
             manager,
             creator=self.creator,
             max_players=count,
-            parent_channel=self.parent_channel 
+            parent_channel=self.parent_channel
         )
         manager.view = view
-        view.players = manager.players.copy()  # sync test players if any
+        view.players = manager.players.copy()
 
         if IS_TEST_MODE:
-            for pid in TEST_PLAYER_IDS:
-                if pid not in manager.players and len(manager.players) < manager.max_players:
-                    manager.players.append(pid)
-                    view.players.append(pid)
-
-        view.status = "✅ Tournament full! Matches running — place your bets!" if IS_TEST_MODE else None
+            view.status = "✅ Tournament full! Matches running — place your bets!"
 
         try:
             embed = await view.build_embed(interaction.guild, no_image=True)
@@ -3890,7 +3885,6 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
             f"✅ Tournament created for **{count} players!**",
             ephemeral=True
         )
-
 
 
 @tree.command(name="init_tournament")
