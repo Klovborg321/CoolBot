@@ -1891,6 +1891,13 @@ class RoomView(discord.ui.View):
         print(f"[VOTE] Vote counts: {vote_counts}")
         most_common = vote_counts.most_common()
     
+        # ✅ TEST MODE: finalize early with 1 vote
+        if TEST_MODE and not self.voting_closed and len(self.votes) == 1:
+            print("[Voting] 🧪 Test mode: auto-finalizing after single vote.")
+            self.voting_closed = True
+            await self.finalize_game()
+            return
+
         if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
             print("[Voting] ⚠️ No votes or tie — declaring draw.")
             winner = "draw"
@@ -3496,9 +3503,6 @@ class TournamentManager:
 
                 try:
                     embed = await room_view.build_room_embed()
-                    embed.title = f"Room: {room_name}"
-                    embed.description = f"Course: {course_name}"
-                    room_view.lobby_embed = embed
 
                     msg = await match_thread.send(
                         content=f"{mentions}\n🏆 This match is part of the tournament!",
@@ -3507,7 +3511,10 @@ class TournamentManager:
                     )
 
                     room_view.message = msg
-                    #await room_view.update_message()
+                    room_view.lobby_embed = embed  # ✅ store the embed AFTER it's used
+
+                    # Let update_message ensure layout is consistent
+                    await room_view.update_message()
                     self.current_matches.append(room_view)
 
                     print(f"[ROOM] ✅ Match ready: {p1} vs {p2} in thread {match_thread.name}")
@@ -3539,7 +3546,6 @@ class TournamentManager:
             print(f"[ELO ERROR] Could not determine loser for winner {winner_id}. Skipping ELO update.")
         else:
             try:
-                # Only update ELO if both players are known
                 await update_elo_pair_and_save(
                     winner_id,
                     loser_id,
@@ -3550,21 +3556,25 @@ class TournamentManager:
                 print(f"[finalize_game] ❌ Failed ELO update: {e}")
                 return
 
-        # ✅ Deactivate loser for tournament room tracking
         if loser_id:
             await player_manager.deactivate(loser_id)
 
-        # ✅ Refresh leaderboard
         await update_leaderboard(self.bot, "tournaments")
 
-        # ✅ Check if all matches for this round are done
+        # ✅ TEST_MODE short-circuit — continue after *any* match completes
+        if TEST_MODE and len(self.next_round_players) >= 2:
+            print("[TEST_MODE] 🔁 Auto-advancing to next round after first match.")
+            self.round_players = self.next_round_players.copy()
+            self.next_round_players = []
+            await self.run_round(self.parent_channel.guild)
+            return
+
+        # ✅ Check if all matches are done (normal mode)
         if self.matches_completed_this_round >= len(self.current_matches):
             if len(self.next_round_players) == 1:
-                # ✅ Final champion found
                 champ = self.next_round_players[0]
                 await player_manager.deactivate(champ)
 
-                # ✅ Process bets for the whole tournament
                 for uid, uname, amount, choice in self.bets:
                     try:
                         won = int(choice) == champ
@@ -3581,14 +3591,13 @@ class TournamentManager:
                     )
 
                     if won:
-                        odds = 0.5  # Optional: store real odds per bet
+                        odds = 0.5
                         payout = int(amount / odds)
                         await add_credits_atomic(uid, payout)
                         print(f"💰 {uname} won! Payout: {payout}")
                     else:
                         print(f"❌ {uname} lost {amount}")
 
-                # ✅ Build final champion embed
                 final_embed = discord.Embed(
                     title="🏆 Tournament Results",
                     description=f"**Champion:** <@{champ}>",
@@ -3602,11 +3611,9 @@ class TournamentManager:
                 print(f"🏆 Tournament completed. Champion: {champ}")
 
             else:
-                # ✅ More rounds remain → start next round
                 self.round_players = self.next_round_players.copy()
                 self.next_round_players = []
                 await self.run_round(self.parent_channel.guild)
-
 
 
 class TournamentLobbyView(discord.ui.View):
