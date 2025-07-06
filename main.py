@@ -2013,51 +2013,41 @@ class GameEndedButton(discord.ui.Button):
         await self.view_obj.start_voting()
 
 
-class VoteButton(discord.ui.Button):
-    def __init__(self, value, view, raw_label):
-        if raw_label.lower().startswith("vote "):
-            label = raw_label
-        else:
-            label = f"Vote {raw_label}"
-        super().__init__(label=label, style=discord.ButtonStyle.primary)
-        self.value = value
-        self.view_obj = view
+async def callback(self, interaction: discord.Interaction):
+    if self.view_obj.voting_closed:
+        await interaction.response.send_message("❌ Voting has ended.", ephemeral=True)
+        return
 
-    async def callback(self, interaction: discord.Interaction):
-        if self.view_obj.voting_closed:
-            await interaction.response.send_message("❌ Voting has ended.", ephemeral=True)
-            return
-
-        # ✅ NEW: Only allow actual match players to vote!
-        if not IS_TEST_MODE and interaction.user.id not in self.view_obj.players:
-            await interaction.response.send_message(
-                "🚫 You are not a player in this match — you cannot vote.",
-                ephemeral=True
-            )
-            return
-
-        # ✅ Save the vote in the RoomView memory
-        self.view_obj.votes[interaction.user.id] = self.value
-
-        # ✅ Prepare feedback text
-        voter = interaction.guild.get_member(interaction.user.id)
-        if isinstance(self.value, int):
-            voted_for = interaction.guild.get_member(self.value)
-            voted_name = voted_for.display_name if voted_for else f"User {self.value}"
-        else:
-            voted_name = self.value
-
+    # ✅ Only allow actual players to vote
+    if not IS_TEST_MODE and interaction.user.id not in self.view_obj.players:
         await interaction.response.send_message(
-            f"✅ {voter.display_name} voted for **{voted_name}**.",
-            ephemeral=False
+            "🚫 You are not a player in this match — you cannot vote.",
+            ephemeral=True
         )
+        return
 
-        # ✅ Mark this player as free to join other games again
-        await player_manager.deactivate(interaction.user.id)
+    # ✅ Save the vote BEFORE checking for auto-finalize
+    self.view_obj.votes[interaction.user.id] = self.value
 
-        # ✅ If everyone voted, finalize immediately
-        if IS_TEST_MODE or len(self.view_obj.votes) == len(self.view_obj.players):
-            await self.view_obj.finalize_game()
+    # ✅ Feedback message
+    voter = interaction.guild.get_member(interaction.user.id)
+    voted_name = self.value
+    if isinstance(self.value, int):
+        voted = interaction.guild.get_member(self.value)
+        voted_name = voted.display_name if voted else f"User {self.value}"
+
+    await interaction.response.send_message(
+        f"✅ {voter.display_name} voted for **{voted_name}**.",
+        ephemeral=False
+    )
+
+    await player_manager.deactivate(interaction.user.id)
+
+    # ✅ Now finalize in TEST_MODE or when all players have voted
+    if IS_TEST_MODE or len(self.view_obj.votes) == len(self.view_obj.players):
+        print("[VoteButton] All votes in or TEST_MODE — finalizing game.")
+        await self.view_obj.finalize_game()
+
 
 async def _void_if_not_started(self):
     void_time = self.scheduled_time + timedelta(minutes=30)
