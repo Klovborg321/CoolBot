@@ -1913,6 +1913,12 @@ class RoomView(discord.ui.View):
                     .execute()
                 )
 
+        # 🔁 Normalize winner for embed/footer
+        if isinstance(winner, str) and winner.isdigit():
+            idx = int(winner) - 1
+            if 0 <= idx < len(self.players):
+                winner = self.players[idx]  # Convert "1"/"2"/"3" to user ID
+
         # ✅ 4️⃣ Final embeds
         winner_name = winner
         if isinstance(winner, int):
