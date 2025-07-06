@@ -1634,7 +1634,7 @@ class RoomView(discord.ui.View):
             self.abandon_task.cancel()
             self.abandon_task = None
 
-    async def build_room_embed(self, guild=None):
+    async def build_room_embed(self, guild=None, status=None):
         if not guild:
             guild = self.guild
             if not guild and self.message:
@@ -1734,7 +1734,7 @@ class RoomView(discord.ui.View):
         embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
 
         # ✅ 4️⃣ Add status field
-        embed.add_field(name="🎮 Status", value="Match in progress.", inline=True)
+        embed.add_field(name="🎮 Status", value=status or "Match in progress.", inline=True)
 
         # ✅ 5️⃣ Add course image if available
         if self.lobby_embed and self.lobby_embed.image:
@@ -1770,7 +1770,7 @@ class RoomView(discord.ui.View):
                     .select("handicap")
                     .eq("player_id", str(p))
                     .eq("course_id", self.course_id)
-                    .maybe_single()
+                    .limit(1)
                     .execute()
                 )
                 if res and getattr(res, "data", None):
