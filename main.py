@@ -144,6 +144,36 @@ CHANNEL_GAME_MAP = {
     1383869104599072908: ("tournament", 4)
 }
 
+async def get_player_handicap(player_id: int, course_id: str):
+    # Step 1: Try to fetch this player's handicap for this course
+    res = await run_db(lambda: supabase
+        .table("handicaps")
+        .select("score")
+        .eq("player_id", str(player_id))
+        .eq("course_id", course_id)
+        .single()
+        .execute()
+    )
+
+    if res.data and "score" in res.data:
+        return res.data["score"]
+
+    # Step 2: Fallback – get lowest recorded handicap on this course
+    res_fallback = await run_db(lambda: supabase
+        .table("handicaps")
+        .select("score")
+        .eq("course_id", course_id)
+        .order("score", asc=True)
+        .limit(1)
+        .execute()
+    )
+
+    if res_fallback.data:
+        return res_fallback.data[0]["score"]
+
+    # Step 3: Final fallback if no scores at all exist
+    return 0
+
 
 def get_elo_odds(rank1, rank2):
     """Return win probabilities for both players based on ELO."""
@@ -1656,7 +1686,10 @@ class RoomView(discord.ui.View):
                 name = f"**{fixed_width_name(raw_name, 20)}**"
 
                 rank = ranks[idx]
-                hcp_txt = ""  # You can insert actual HCP if available
+                hcp_txt = ""
+                if hasattr(self, "course_id") and self.course_id:
+                    hcp = await get_player_handicap(user_id, self.course_id)
+                    hcp_txt = f" | HCP: {hcp}"  # You can insert actual HCP if available
 
                 # --- Odds display ---
                 if self.game_type == "singles" and game_full and len(ranks) == 2:
