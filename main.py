@@ -1715,38 +1715,59 @@ class RoomView(discord.ui.View):
             for pid in players[2:]:
                 await add_credits_internal(pid, amount)
 
-    class VoteButton(discord.ui.Button):
-        def __init__(self, vote_for, parent_view, label):
-            super().__init__(label=label, style=discord.ButtonStyle.primary)
-            self.vote_for = vote_for
-            self.parent = parent_view  # RoomView
+    async def start_voting(self):
+        if not self.game_has_ended:
+            return
 
-        async def callback(self, interaction: discord.Interaction):
-            user_id = interaction.user.id
+        pending_games[self.game_type] = None
 
-            if self.parent.voting_closed:
-                await interaction.response.send_message("⚠️ Voting has already ended.", ephemeral=True)
-                return
+        self.clear_items()
+        options = self.get_vote_options()
+        for option in options:
+            if isinstance(option, int):
+                member = self.message.guild.get_member(option)
+                label = member.display_name if member else f"User {option}"
+            else:
+                label = option
+                if not label.lower().startswith("vote "):
+                    label = f"Vote {label}"
+            self.add_item(VoteButton(option, self, label))
 
-            # ✅ Register vote
-            self.parent.votes[user_id] = self.vote_for
-            print(f"[Voting] 🗳️ {interaction.user.display_name} voted for {self.vote_for}")
+        # ✅ Rebuild embed for voting
+        embed = await self.build_lobby_end_embed(winner=None)
+        await self.message.edit(embed=embed, view=self)
 
-            # ✅ Optional feedback
-            await interaction.response.send_message(f"✅ You voted for **{self.vote_for}**", ephemeral=True)
+        # ✅ Optional: post 1-minute warning at 9 minutes
+        async def warn_before_finalizing():
+            await asyncio.sleep(540)
+            if not self.voting_closed:
+                await self.channel.send("⚠️ 1 minute remaining to vote! Game will auto-finalize with current votes.")
 
-            # ✅ Update embed (optional)
-            await self.parent.update_vote_embed()
+        asyncio.create_task(warn_before_finalizing())
 
-            # ✅ Finalize if everyone voted
-            if len(self.parent.votes) >= len(self.parent.players) and not self.parent.voting_closed:
-                await self.parent.finalize_game()
+        # ✅ Finalize after 10 minutes
+        async def end_after_timeout():
+            await asyncio.sleep(600)
+            if not self.voting_closed:
+                print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
+                await self.finalize_game()
 
+        self.vote_timeout = asyncio.create_task(end_after_timeout())
 
-        def cancel_vote_timeout(self):
-            if hasattr(self, "vote_timeout") and self.vote_timeout:
-                self.vote_timeout.cancel()
-                self.vote_timeout = None
+    def cancel_vote_timeout(self):
+        if hasattr(self, "vote_timeout") and self.vote_timeout:
+            self.vote_timeout.cancel()
+            self.vote_timeout = None
+
+    async def end_voting_after_timeout(self):
+        await asyncio.sleep(600)
+
+        if self.voting_closed:
+            print("[Voting] Skipped finalize: voting already closed.")
+            return
+
+        print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
+        await self.finalize_game()
 
 
     async def finalize_game(self):
@@ -1755,8 +1776,7 @@ class RoomView(discord.ui.View):
             return
 
         print("[DEBUG] Finalizing game...")
-
-        self.voting_closed = True  # ✅ Immediately lock voting to avoid double entry
+        self.voting_closed = True
 
         # ✅ Cancel timers
         self.cancel_abandon_task()
@@ -1768,32 +1788,24 @@ class RoomView(discord.ui.View):
 
         self.game_has_ended = True
 
-        # ✅ Count only valid votes from active players
+        # ✅ Collect and process votes
         print(f"[VOTE] Collected votes: {self.votes}")
         self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
         vote_counts = Counter(self.votes.values())
         print(f"[VOTE] Vote counts: {vote_counts}")
         most_common = vote_counts.most_common()
-
-        if not most_common:
-            print("[Voting] ⚠️ No votes cast — declaring draw.")
-            winner = "draw"
-        elif len(most_common) > 1 and most_common[0][1] == most_common[1][1]:
-            print("[Voting] ⚠️ Tie in votes — declaring draw.")
+    
+        if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
+            print("[Voting] ⚠️ No votes or tie — declaring draw.")
             winner = "draw"
         else:
             winner = most_common[0][0]
 
-        # ✅ Validate the vote result
         valid_options = self.get_vote_options()
         if winner not in valid_options and winner != "draw":
             print(f"[Voting] ⚠️ Invalid winner value: {winner} — forcing draw.")
             winner = "draw"
 
-        if winner is None:
-            winner = "draw"
-
-        # ✅ DRAW CASE — refund bets, update stats
         if winner == "draw":
             for p in self.players:
                 pdata = await get_player(p)
@@ -1819,7 +1831,9 @@ class RoomView(discord.ui.View):
             await self.message.edit(embed=embed, view=None)
 
             if self.lobby_message and self.game_view:
-                lobby_embed = await self.game_view.build_embed(self.lobby_message.guild, winner=winner, no_image=True)
+                lobby_embed = await self.game_view.build_embed(
+                    self.lobby_message.guild, winner=winner, no_image=True
+                )
                 await self.lobby_message.edit(embed=lobby_embed, view=None)
 
             await self.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
@@ -1827,7 +1841,7 @@ class RoomView(discord.ui.View):
             pending_games[self.game_type] = None
             return
 
-        # ✅ WIN CASE — normalize
+        # ✅ Normalize winner (doubles/triples)
         normalized_winner = normalize_team(winner) if self.game_type == "doubles" else winner
 
         try:
@@ -1839,25 +1853,18 @@ class RoomView(discord.ui.View):
                 )
             elif self.game_type == "doubles":
                 await update_elo_doubles_and_save(
-                    self.players[:2],
-                    self.players[2:],
-                    winner=normalized_winner
+                    self.players[:2], self.players[2:], winner=normalized_winner
                 )
             elif self.game_type == "triples":
-                await update_elo_triples_and_save(
-                    self.players,
-                    winner
-                )
+                await update_elo_triples_and_save(self.players, winner)
         except Exception as e:
             print(f"[finalize_game] ❌ Failed ELO update: {e}")
             return
-
 
         # ✅ Process bets
         if self.game_view:
             for uid, uname, amount, choice in self.game_view.bets:
                 won = False
-
                 if self.game_type == "singles":
                     won = (choice == "1" and self.players[0] == winner) or \
                           (choice == "2" and self.players[1] == winner)
@@ -1870,7 +1877,6 @@ class RoomView(discord.ui.View):
                     except:
                         won = False
 
-                # ✅ Store win/loss first
                 await run_db(lambda: supabase
                     .table("bets")
                     .update({"won": won})
@@ -1880,17 +1886,15 @@ class RoomView(discord.ui.View):
                     .execute()
                 )
 
-                # ✅ THEN calculate payout for THIS bet
+                payout = 0
                 if won:
                     odds = await self.game_view.get_odds(choice)
                     payout = int(amount * (1 / odds)) if odds > 0 else amount
                     await add_credits_internal(uid, payout)
                     print(f"💰 {uname} won! Payout: {payout}")
                 else:
-                    payout = 0
                     print(f"❌ {uname} lost {amount}")
 
-                # ✅ Store payout for THIS bet
                 await run_db(lambda: supabase
                     .table("bets")
                     .update({"payout": payout})
@@ -1900,13 +1904,13 @@ class RoomView(discord.ui.View):
                     .execute()
                 )
 
-        # 🔁 Normalize winner for embed/footer
+        # ✅ Normalize winner to user ID for embeds if needed
         if isinstance(winner, str) and winner.isdigit():
             idx = int(winner) - 1
             if 0 <= idx < len(self.players):
-                winner = self.players[idx]  # Convert "1"/"2"/"3" to user ID
+                winner = self.players[idx]
 
-        # ✅ 4️⃣ Final embeds
+        # ✅ Final embeds
         winner_name = winner
         if isinstance(winner, int):
             member = self.message.guild.get_member(winner)
@@ -1917,7 +1921,9 @@ class RoomView(discord.ui.View):
 
         target_message = self.lobby_message or (self.game_view.message if self.game_view else None)
         if target_message and self.game_view:
-            lobby_embed = await self.game_view.build_embed(target_message.guild, winner=winner, no_image=True)
+            lobby_embed = await self.game_view.build_embed(
+                target_message.guild, winner=winner, no_image=True
+            )
             for item in list(self.game_view.children):
                 if isinstance(item, BettingButton) or getattr(item, "label", "") == "Place Bet":
                     self.game_view.remove_item(item)
@@ -1929,11 +1935,11 @@ class RoomView(discord.ui.View):
         pending_games[self.game_type] = None
         self.players = []
 
-        if self.is_hourly and winner and winner != "draw":
+        if self.is_hourly and winner != "draw":
             await add_credits_internal(winner, 25)
             print(f"[💰] Hourly game: awarded 25 credits to {winner}")
 
-        # ✅ Robust: delete active_game row with fallback ID
+        # ✅ Cleanup: active_games row
         target_game_id = (
             str(self.lobby_message.id)
             if self.lobby_message else
@@ -1955,7 +1961,6 @@ class RoomView(discord.ui.View):
             if isinstance(winner, int):
                 await self.on_tournament_complete(winner)
             else:
-                # ✅ Fallback for draw or no votes — pick a random winner so the tournament can continue
                 print(f"[Tournament] No clear winner — randomly picking from: {self.players}")
                 fallback = random.choice(self.players)
                 await self.on_tournament_complete(fallback)
