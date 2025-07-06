@@ -1858,8 +1858,8 @@ class RoomView(discord.ui.View):
 
         self.game_has_ended = True
 
-        if TEST_MODE and winner is not None:
-            print("[Voting] 🧪 Test mode: finalizing with forced winner.")
+        if TEST_MODE and winner is not None and not self.voting_closed:
+            print(f"[TEST_MODE] 🧪 Finalizing early with winner: {winner}")
             self.voting_closed = True
             self.game_has_ended = True
             if self.game_view:
@@ -1870,9 +1870,7 @@ class RoomView(discord.ui.View):
                 print(f"[Voting] ⚠️ Invalid winner in test mode: {winner} — forcing draw.")
                 winner = "draw"
 
-            if self.game_view:
-                self.game_view.game_has_ended = True
-
+            # Build and update embeds
             embed = await self.build_lobby_end_embed(winner)
             await self.message.edit(embed=embed, view=None)
 
@@ -1891,27 +1889,26 @@ class RoomView(discord.ui.View):
 
             await update_leaderboard(self.bot, self.game_type)
             print(f"[DEBUG] Finalized winner = {winner}")
-            return
+            return  # ✅ STOP here, don't fall through to real voting
+            # ✅ Continue normal voting flow
+            self.voting_closed = True
 
-        # ✅ Continue normal voting flow
-        self.voting_closed = True
+            print(f"[VOTE] Collected votes: {self.votes}")
+            self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
+            vote_counts = Counter(self.votes.values())
+            print(f"[VOTE] Vote counts: {vote_counts}")
+            most_common = vote_counts.most_common()
 
-        print(f"[VOTE] Collected votes: {self.votes}")
-        self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
-        vote_counts = Counter(self.votes.values())
-        print(f"[VOTE] Vote counts: {vote_counts}")
-        most_common = vote_counts.most_common()
+            if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
+                print("[Voting] ⚠️ No votes or tie — declaring draw.")
+                winner = "draw"
+            else:
+                winner = most_common[0][0]
 
-        if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
-            print("[Voting] ⚠️ No votes or tie — declaring draw.")
-            winner = "draw"
-        else:
-            winner = most_common[0][0]
-
-        valid_options = self.get_vote_options()
-        if winner not in valid_options and winner != "draw":
-            print(f"[Voting] ⚠️ Invalid winner value: {winner} — forcing draw.")
-            winner = "draw"
+            valid_options = self.get_vote_options()
+            if winner not in valid_options and winner != "draw":
+                print(f"[Voting] ⚠️ Invalid winner value: {winner} — forcing draw.")
+                winner = "draw"
 
         # ✅ handle draw and exit
         if winner == "draw":
