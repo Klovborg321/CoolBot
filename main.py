@@ -1715,51 +1715,38 @@ class RoomView(discord.ui.View):
             for pid in players[2:]:
                 await add_credits_internal(pid, amount)
 
-    async def start_voting(self):
-        if not self.game_has_ended:
-            return
+    class VoteButton(discord.ui.Button):
+        def __init__(self, vote_for, parent_view, label):
+            super().__init__(label=label, style=discord.ButtonStyle.primary)
+            self.vote_for = vote_for
+            self.parent = parent_view  # RoomView
 
-        pending_games[self.game_type] = None
+        async def callback(self, interaction: discord.Interaction):
+            user_id = interaction.user.id
 
-        self.clear_items()
-        options = self.get_vote_options()
-        for option in options:
-            if isinstance(option, int):
-                member = self.message.guild.get_member(option)
-                label = member.display_name if member else f"User {option}"
-            else:
-                label = option
-                if not label.lower().startswith("vote "):
-                    label = f"Vote {label}"
-            self.add_item(VoteButton(option, self, label))
+            if self.parent.voting_closed:
+                await interaction.response.send_message("⚠️ Voting has already ended.", ephemeral=True)
+                return
 
-        # ✅ Rebuild embed for voting
-        embed = await self.build_lobby_end_embed(winner=None)
-        await self.message.edit(embed=embed, view=self)
+            # ✅ Register vote
+            self.parent.votes[user_id] = self.vote_for
+            print(f"[Voting] 🗳️ {interaction.user.display_name} voted for {self.vote_for}")
 
-        # ✅ Optional: post 1-minute warning at 9 minutes
-        async def warn_before_finalizing():
-            await asyncio.sleep(540)
-            if not self.voting_closed:
-                await self.channel.send("⚠️ 1 minute remaining to vote! Game will auto-finalize with current votes.")
+            # ✅ Optional feedback
+            await interaction.response.send_message(f"✅ You voted for **{self.vote_for}**", ephemeral=True)
 
-        asyncio.create_task(warn_before_finalizing())
+            # ✅ Update embed (optional)
+            await self.parent.update_vote_embed()
 
-        # ✅ Finalize after 10 minutes
-        async def end_after_timeout():
-            await asyncio.sleep(600)
-            if not self.voting_closed:
-                print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
-                await self.finalize_game()
-            else:
-                print("[Voting] Voting already closed — skipping finalize.")
+            # ✅ Finalize if everyone voted
+            if len(self.parent.votes) >= len(self.parent.players) and not self.parent.voting_closed:
+                await self.parent.finalize_game()
 
-                self.vote_timeout = asyncio.create_task(end_after_timeout())
 
-    def cancel_vote_timeout(self):
-        if hasattr(self, "vote_timeout") and self.vote_timeout:
-            self.vote_timeout.cancel()
-            self.vote_timeout = None
+        def cancel_vote_timeout(self):
+            if hasattr(self, "vote_timeout") and self.vote_timeout:
+                self.vote_timeout.cancel()
+                self.vote_timeout = None
 
 
     async def finalize_game(self):
