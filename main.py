@@ -3476,29 +3476,44 @@ class TournamentManager:
                     except Exception as e:
                         print(f"[THREAD] ⚠️ Failed to add user {pid}: {e}")
 
+                mentions = f"<@{p1}> <@{p2}>"
+
+                # ✅ Instantiate RoomView here
+                room_view = RoomView(
+                    bot=bot,
+                    guild=guild,
+                    players=[p1, p2],
+                    game_type="singles",
+                    room_name=room_name,
+                    course_name=course_name,
+                    course_id=course_id,
+                    max_players=2
+                )
+                room_view.course_image = course_image
+                room_view.guild = guild
+                room_view.channel = match_thread
+                room_view.on_tournament_complete = self.match_complete
+
                 try:
-                    # ✅ Build the room embed right away
                     embed = await room_view.build_room_embed()
                     embed.title = f"Room: {room_name}"
                     embed.description = f"Course: {course_name}"
                     room_view.lobby_embed = embed
 
-                    # ✅ Send the full match room with embed and RoomView
                     msg = await match_thread.send(
                         content=f"{mentions}\n🏆 This match is part of the tournament!",
                         embed=embed,
                         view=room_view
                     )
 
-                    room_view.message = msg  # ✅ Now message is set
+                    room_view.message = msg
                     await room_view.update_message()
+                    self.current_matches.append(room_view)
+
+                    print(f"[ROOM] ✅ Match ready: {p1} vs {p2} in thread {match_thread.name}")
                 except Exception as e:
                     print(f"❌ Failed to post initial message in match thread: {e}")
                     continue
-
-                # room_view logic here...
-
-                print(f"[ROOM] ✅ Match ready: {p1} vs {p2} in thread {match_thread.name}")
             else:
                 print(f"[ROUND] ➕ {players[i]} added to next_round_players (odd count)")
                 self.next_round_players.append(players[i])
