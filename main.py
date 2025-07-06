@@ -806,32 +806,6 @@ def normalize_team(name):
             return "B"
     return name
 
-async def dm_all_online(guild: discord.Guild, message: str):
-    """DM all online members in the given guild with a custom message."""
-    # Make sure your bot has `members` intent enabled!
-    if not guild.me.guild_permissions.administrator:
-        print("⚠️ Bot may not have permission to read member list.")
-    
-    sent = 0
-    failed = 0
-
-    for member in guild.members:
-        # Skip bots, offline, and the bot itself
-        if member.bot or member.status == discord.Status.offline or member == guild.me:
-            continue
-
-        try:
-            await member.send(message)
-            sent += 1
-        except discord.Forbidden:
-            # User DMs closed or bot blocked
-            failed += 1
-        except Exception as e:
-            print(f"Error sending to {member}: {e}")
-            failed += 1
-
-    print(f"✅ Done. Sent to {sent} users, failed for {failed}.")
-
 
 # ✅ Save a pending game (async)
 async def save_pending_game(game_type, players, channel_id, max_players):
@@ -4141,8 +4115,9 @@ async def admin_leaderboard(
 
 
 
-@tree.command(name="stats_reset", description="Admin: Reset a user's stats")
+@tree.command(name="admin_stats_reset", description="Admin: Reset a user's stats")
 @app_commands.describe(user="The user to reset")
+@app_commands.check(is_admin)  # ✅ only admins can run
 async def stats_reset(interaction: discord.Interaction, user: discord.User):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("🚫 You must be an administrator to use this.", ephemeral=True)
@@ -4172,9 +4147,10 @@ async def stats_reset(interaction: discord.Interaction, user: discord.User):
 
 
 @tree.command(
-    name="stats",
+    name="admin_stats",
     description="Show your stats (or another user's)."
 )
+@app_commands.check(is_admin)  # ✅ only admins can run
 async def stats(interaction: discord.Interaction, user: discord.User = None, dm: bool = False):
     await interaction.response.defer(ephemeral=True)
 
@@ -4305,9 +4281,9 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@tree.command(name="clear_active", description="Clear active status for a user or everyone.")
+@tree.command(name="admin_clear_active", description="Clear active status for a user or everyone.")
 @app_commands.describe(user="(Optional) The user to clear. Leave blank to clear all.")
-@app_commands.checks.has_permissions(administrator=True)
+@app_commands.check(is_admin)
 async def clear_active(interaction: discord.Interaction, user: discord.User = None):
     if user:
         await player_manager.deactivate(user.id)
@@ -4318,7 +4294,7 @@ async def clear_active(interaction: discord.Interaction, user: discord.User = No
 
 
 @tree.command(
-    name="stats_edit",
+    name="admin_stats_edit",
     description="Admin command to edit a user's stats"
 )
 @app_commands.describe(
@@ -4326,6 +4302,7 @@ async def clear_active(interaction: discord.Interaction, user: discord.User = No
     field="Field to change (rank, trophies, credits)",
     value="New value"
 )
+@app_commands.check(is_admin)  # ✅ only admins can run
 async def stats_edit(interaction: discord.Interaction, user: discord.User, field: str, value: int):
     # ✅ Check admin permissions
     if not interaction.user.guild_permissions.administrator:
@@ -4362,10 +4339,10 @@ async def stats_edit(interaction: discord.Interaction, user: discord.User, field
 
 
 @tree.command(
-    name="clear_chat",
+    name="admin_clear_chat",
     description="Admin: Delete all messages in this channel (last 14 days only)"
 )
-@discord.app_commands.checks.has_permissions(administrator=True)
+@app_commands.check(is_admin)
 async def clear_chat(interaction: discord.Interaction):
     try:
         # ✅ Check if the interaction is still valid
@@ -4406,9 +4383,10 @@ async def clear_chat(interaction: discord.Interaction):
 
 
 @tree.command(
-    name="clear_pending_games",
+    name="admin_clear_pending_games",
     description="Admin: Clear all pending games and remove start buttons."
 )
+@app_commands.check(is_admin)  # ✅ only admins can run
 async def clear_pending(interaction: discord.Interaction):
     # ✅ Check admin permissions
     if not interaction.user.guild_permissions.administrator:
@@ -4442,13 +4420,14 @@ async def clear_pending(interaction: discord.Interaction):
 
 
 @tree.command(
-    name="add_credits",
+    name="admin_add_credits",
     description="Admin command to add credits to a user"
 )
 @app_commands.describe(
     user="User to add credits to",
     amount="Amount of credits to add"
 )
+@app_commands.check(is_admin)  # ✅ only admins can run
 async def add_credits(interaction: discord.Interaction, user: discord.User, amount: int):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
@@ -4473,7 +4452,7 @@ async def add_credits(interaction: discord.Interaction, user: discord.User, amou
     description="Admin: Clear a user's entire betting history without changing other stats"
 )
 @app_commands.describe(user="The user whose bets you want to clear")
-@discord.app_commands.checks.has_permissions(administrator=True)
+@app_commands.check(is_admin)
 async def clear_bet_history(interaction: discord.Interaction, user: discord.User):
     # ✅ Always check .is_done()
     if not interaction.response.is_done():
@@ -4643,31 +4622,20 @@ async def handicap_leaderboard(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@tree.command(name="dm_online")
-@app_commands.describe(msg="Message to send")
-@discord.app_commands.checks.has_permissions(administrator=True)
-async def dm_online(interaction: discord.Interaction, msg: str):
-    await interaction.response.send_message(
-        f"📨 Sending message to online members...",
-        ephemeral=True
-    )
-    await dm_all_online(interaction.guild, msg)
-    await interaction.followup.send("✅ All online members have been messaged.", ephemeral=True)
-
 @tree.command(
-    name="add_course",
+    name="admin_add_course",
     description="Admin: Add a new course with image and ratings"
 )
-@discord.app_commands.checks.has_permissions(administrator=True)
+@app_commands.check(is_admin)
 async def add_course(interaction: discord.Interaction):
     await interaction.response.send_modal(AddCourseModal())
 
 
 @tree.command(
-    name="set_course_rating",
+    name="admin_set_course_rating",
     description="Admin: Update course par and avg. par via paginated dropdown"
 )
-@discord.app_commands.checks.has_permissions(administrator=True)
+@app_commands.check(is_admin)
 async def set_course_rating(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
@@ -4807,12 +4775,13 @@ class AdminSubmitScoreModal(discord.ui.Modal, title="Admin: Set Best Score"):
 
 # ✅ Register directly on your bot instance (no separate Cog needed)
 @app_commands.command(
-    name="update_roles",
+    name="admin_update_roles",
     description="Assign specified roles to all existing server members"
 )
 @app_commands.describe(
     role_names="Comma-separated list of role names to assign"
 )
+@app_commands.check(is_admin)  # ✅ only admins can run
 async def update_roles(interaction: discord.Interaction, role_names: str):
     guild = interaction.guild
 
@@ -5036,12 +5005,13 @@ async def restore_active_games(bot):
             print(f"[restore] ❌ Error restoring game {g.get('game_id')}: {e}")
 
 @tree.command(
-    name="get_user_id",
+    name="admin_get_user_id",
     description="Show the Discord ID of a chosen member"
 )
 @app_commands.describe(
     user="The user whose ID you want to get"
 )
+@app_commands.check(is_admin)  # ✅ only admins can run
 async def get_user_id(interaction: discord.Interaction, user: discord.User):
     await interaction.response.send_message(
         f"🆔 **{user.display_name}**'s Discord ID: `{user.id}`",
@@ -5071,35 +5041,6 @@ async def golden_hour(interaction: discord.Interaction):
     view = HourlyCountdownView(bot, interaction.guild, interaction.channel, seconds_until)
     msg = await interaction.channel.send("⏳ Countdown starting...", view=view)
     view.message = msg
-
-@bot.event
-async def on_ready():
-    await tree.sync()
-    print(f"✅ Logged in as {bot.user}")
-
-    # ✅ Optional: restore active games if needed
-    # await restore_active_games(bot)
-    auto_post_start_buttons.start()
-
-    # ✅ Get your main guild and channel
-    guild = bot.get_guild(1368622436454633633)
-    channel = guild.get_channel(1388042320061927434)
-
-    if not guild or not channel:
-        print("❌ Guild or channel not found.")
-        return
-
-    # ✅ Start hourly countdown loop
-    asyncio.create_task(start_hourly_scheduler(guild, channel))
-
-    # ✅ Load any leftover pending games into memory
-    rows = await load_pending_games()
-    for row in rows:
-        game_type = row["game_type"]
-        players = row["players"]
-        pending_games[game_type] = {"players": players}
-
-    print(f"✅ Loaded pending games into RAM for checks: {pending_games}")
 
 @bot.event
 async def on_ready():
