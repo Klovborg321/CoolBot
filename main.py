@@ -3547,10 +3547,11 @@ class TournamentManager:
         await update_leaderboard(self.bot, "tournaments")
 
         # ✅ TEST_MODE short-circuit — continue after *any* match completes
-        if TEST_MODE and len(self.next_round_players) >= 2:
-            print("[TEST_MODE] 🔁 Auto-advancing to next round after first match.")
+        if TEST_MODE and self.matches_completed_this_round >= len(self.current_matches):
+            print("[TEST_MODE] 🔁 Auto-advancing to next round (all matches complete).")
             self.round_players = self.next_round_players.copy()
             self.next_round_players = []
+            self.matches_completed_this_round = 0
             await self.run_round(self.parent_channel.guild)
             return
 
