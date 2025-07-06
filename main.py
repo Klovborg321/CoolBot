@@ -3828,18 +3828,15 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         # ✅ Always provide parent_channel up-front:
         manager = TournamentManager(bot=bot, creator=self.creator.id, max_players=count)
         manager.parent_channel = self.parent_channel
-
         interaction.client.tournaments[self.parent_channel.id] = manager
 
+        print(f"[DEBUG] IS_TEST_MODE = {IS_TEST_MODE}")
         if IS_TEST_MODE:
+            print(f"[DEBUG] Injecting test players: {TEST_PLAYER_IDS}")
             for pid in TEST_PLAYER_IDS:
                 if pid not in manager.players and len(manager.players) < manager.max_players:
                     manager.players.append(pid)
-                    await player_manager.activate(pid) 
 
-        view.players = manager.players.copy()  
-
-        # ✅ FIX: pass parent_channel explicitly!
         view = TournamentLobbyView(
             manager,
             creator=self.creator,
@@ -3849,11 +3846,18 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
         manager.view = view
         view.players = manager.players.copy()  # sync test players if any
 
-        view.status = "✅ Tournament full! Matches running — place your bets!" if IS_TEST_MODE else None
+        if IS_TEST_MODE and len(view.players) == count:
+            view.status = "✅ Tournament full! Matches running — place your bets!"
 
-        embed = await view.build_embed(interaction.guild, no_image=True)
-        manager.message = await interaction.channel.send(embed=embed, view=view)
-        view.message = manager.message
+        try:
+            embed = await view.build_embed(interaction.guild, no_image=True)
+            manager.message = await interaction.channel.send(embed=embed, view=view)
+            view.message = manager.message
+            print("[✅] Tournament lobby message posted.")
+        except Exception as e:
+            print(f"[❌] Failed to send tournament lobby message: {e}")
+            await interaction.followup.send("❌ Failed to create tournament lobby.", ephemeral=True)
+            return
 
         if len(view.players) == view.max_players:
             view.clear_items()
@@ -3864,20 +3868,14 @@ class PlayerCountModal(discord.ui.Modal, title="Select Tournament Size"):
                 manager.abandon_task.cancel()
 
             manager.started = True
-
+            print("[✅] Starting tournament bracket...")
             await manager.start_bracket(interaction)
-
-            #await asyncio.sleep(120)
-            #view.betting_closed = True
-            #view.clear_items()
-            #await view.update_message()
 
         await interaction.followup.send(
             f"✅ Tournament created for **{count} players!**",
             ephemeral=True
         )
 
-        #await start_new_game_button(interaction.channel, "tournament")
 
 
 @tree.command(name="init_tournament")
