@@ -3414,23 +3414,16 @@ class TournamentManager:
     async def start_bracket(self, interaction):
         guild = interaction.guild
         print(f"[TOURNAMENT] Starting bracket for {len(self.players)} players.")
-        self.round_players = self.players.copy()
-        self.round = 1
 
-    await self.run_round(guild)
-        # ✅ Fix here: ensure actual players are synced
-        self.players = self.players[:self.max_players]  # Trim extra if any
+        # ✅ Ensure players are trimmed and valid
+        self.players = self.players[:self.max_players]
         self.players = [p for p in self.players if await player_manager.is_active(p)]
-    
+
         self.round_players = self.players.copy()
         random.shuffle(self.round_players)
-        await self.run_round(interaction.guild)
+        self.round = 1
 
-    async def run_round(self, guild):
-        print(f"[TOURNAMENT] Running Round {self.round} for {len(self.round_players)} players")
-        self.matches_completed_this_round = 0
-        players = self.round_players.copy()
-        random.shuffle(players)
+        await self.run_round(guild)  # ✅ Only call once with correct player list
 
         self.current_matches = []
         self.winners = []
