@@ -2581,15 +2581,23 @@ class GameView(discord.ui.View):
             pdata = await get_player(p)
             ranks.append(pdata.get("rank", 1000))
             if not no_image and getattr(self, "course_name", None):
-                if res.data and len(res.data) > 0:
-                        hval = res.data[0].get("handicap")
-                        if hval is not None:
-                            hcp = round(hval, 1)
-                except Exception as e:
-                    print(f"[RoomView] ⚠️ Handicap fetch failed for {p}: {e}")
-            else:
-                hcp = 10
-            
+                if self.course_name and self.course_id:
+                    try:
+                        res = await run_db(lambda: supabase
+                            .table("handicaps")
+                            .select("handicap")
+                            .eq("player_id", str(p))
+                            .eq("course_id", self.course_id)
+                            .maybe_single()
+                            .execute()
+                       )   
+                       if res and res.data:
+                           hval = res.data.get("handicap")
+                           hcp = round(hval, 1) if hval is not None else "-"
+                    except Exception as e:
+                        print(f"[WARN] Failed handicap fetch for player {p} / course {self.course_id}: {e}")
+                else:
+                    hcp = 10
             handicaps.append(hcp)
 
         game_full = len(self.players) == self.max_players
