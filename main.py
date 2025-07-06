@@ -1854,46 +1854,18 @@ class RoomView(discord.ui.View):
         self.cancel_vote_timeout()
 
         if self.game_view:
+            self.game_view.game_has_ended = True
             self.game_view.cancel_betting_task()
 
         self.game_has_ended = True
 
-        if TEST_MODE and winner is not None and not self.voting_closed:
-            print(f"[TEST_MODE] 🧪 Finalizing early with winner: {winner}")
-            self.voting_closed = True
-            self.game_has_ended = True
-            if self.game_view:
-                self.game_view.game_has_ended = True
+        # ✅ TEST MODE shortcut — if winner is passed (from vote button), use it
+        if TEST_MODE and winner is None and len(self.votes) == 1:
+            print("[TEST_MODE] One vote received — using it as winner.")
+            winner = list(self.votes.values())[0]
 
-            valid_options = self.get_vote_options()
-            if winner not in valid_options:
-                print(f"[Voting] ⚠️ Invalid winner in test mode: {winner} — forcing draw.")
-                winner = "draw"
-
-            # Build and update embeds
-            embed = await self.build_lobby_end_embed(winner)
-            await self.message.edit(embed=embed, view=None)
-
-            if self.lobby_message and self.game_view:
-                lobby_embed = await self.game_view.build_embed(
-                    self.lobby_message.guild, winner=winner, no_image=True
-                )
-                await self.lobby_message.edit(embed=lobby_embed, view=None)
-
-            await self.channel.send(f"🏁 Test mode — winner: **{winner}**")
-            await self.channel.edit(archived=True)
-            pending_games[self.game_type] = None
-
-            if self.on_tournament_complete:
-                await self.on_tournament_complete(winner)
-
-            await update_leaderboard(self.bot, self.game_type)
-            print(f"[DEBUG] Finalized winner = {winner}")
-            return  # ✅ STOP here, don't fall through to real voting
-            # ✅ Continue normal voting flow
-            self.voting_closed = True
-
-            print(f"[VOTE] Collected votes: {self.votes}")
+        # ✅ Now process voting
+        if winner is None:
             self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
             vote_counts = Counter(self.votes.values())
             print(f"[VOTE] Vote counts: {vote_counts}")
@@ -1904,6 +1876,9 @@ class RoomView(discord.ui.View):
                 winner = "draw"
             else:
                 winner = most_common[0][0]
+
+        # ✅ Mark voting closed now that we have a winner
+        self.voting_closed = True
 
             valid_options = self.get_vote_options()
             if winner not in valid_options and winner != "draw":
