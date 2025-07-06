@@ -1096,7 +1096,7 @@ class PlayerManager:
                 .table("active_players")
                 .select("player_id")
                 .eq("player_id", user_id)
-                .maybe_single()
+                .limit(1)
                 .execute()
             )
             return res is not None and res.data is not None
@@ -2578,14 +2578,17 @@ class GameView(discord.ui.View):
             ranks.append(pdata.get("rank", 1000))
             if not no_image and getattr(self, "course_name", None):
                 res = await run_db(lambda: supabase
-                    .table("handicaps")
-                    .select("handicap")
-                    .eq("player_id", str(p))
-                    .eq("course_id", self.course_id)
-                    .maybe_single()
-                    .execute()
+                   .table("handicaps")
+                   .select("handicap")
+                   .eq("player_id", str(p))
+                   .eq("course_id", self.course_id)
+                   .limit(1)
+                   .execute()
                 )
-                hcp = round(res.data["handicap"], 1) if (res and res.data and "handicap" in res.data) else "-"
+
+# Safely extract the value if available
+hval = res.data[0]["handicap"] if res.data else None
+hcp = round(hval, 1) if hval is not None else "-"
             else:
                 hcp = 10
             handicaps.append(hcp)
