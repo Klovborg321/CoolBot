@@ -2436,13 +2436,10 @@ class GameView(discord.ui.View):
 
 
     async def build_embed(self, guild=None, winner=None, no_image=True, status=None, bets=None):
-        # Title
         title = "🏆 Tournament Lobby" if self.game_type == "tournament" else f"🎮 {self.game_type.title()} Match Lobby"
-        
         if bets is None:
             bets = self.bets
 
-        print(">>> BUILD EMBED DEBUG:", winner, self.game_has_ended, self.betting_closed)
         if status is not None and not self.game_has_ended:
             description = status
         elif self.game_has_ended or winner:
@@ -2473,7 +2470,6 @@ class GameView(discord.ui.View):
         if not no_image and self.course_image:
             embed.set_image(url=self.course_image)
 
-        # Gather player data
         ranks, handicaps = [], []
         for p in self.players:
             pdata = await get_player(p)
@@ -2489,7 +2485,7 @@ class GameView(discord.ui.View):
                 )
                 hcp = round(res.data["handicap"], 1) if (res and res.data and "handicap" in res.data) else "-"
             else:
-                hcp = None
+                hcp = 10
             handicaps.append(hcp)
 
         game_full = len(self.players) == self.max_players
@@ -2504,7 +2500,6 @@ class GameView(discord.ui.View):
             total = sum(exp)
             odds = [v / total for v in exp]
 
-        # Players section
         player_lines = []
         if self.game_type == "doubles":
             player_lines.append("\u200b")
@@ -2545,7 +2540,6 @@ class GameView(discord.ui.View):
         embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
         embed.add_field(name="\u200b", value="\u200b", inline=False)
 
-        # Bets section — ✅ normalized & clear
         if bets:
             bet_lines = []
             for _, uname, amt, ch in bets:
@@ -2566,10 +2560,8 @@ class GameView(discord.ui.View):
                 else:
                     label = ch
                 bet_lines.append(f"💰 {uname} bet {amt} on {label}")
-            
             embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
 
-        # Footer — clean, covers all winners
         if winner == "draw":
             embed.set_footer(text="🎮 Game has ended. Result: 🤝 Draw")
         elif winner == "ended":
@@ -2583,8 +2575,8 @@ class GameView(discord.ui.View):
             credit_note = " — 🏆 +25 credits!" if self.is_hourly else ""
             embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}{credit_note}")
 
-
         return embed
+
 
     async def get_odds(self, choice):
         ranks = [ (await get_player(p)).get("rank", 1000) for p in self.players ]
