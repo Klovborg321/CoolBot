@@ -151,7 +151,7 @@ async def get_player_handicap(player_id: int, course_id: str):
         .select("score")
         .eq("player_id", str(player_id))
         .eq("course_id", course_id)
-        .single()
+        .limit(1)
         .execute()
     )
 
@@ -1771,7 +1771,7 @@ class RoomView(discord.ui.View):
                         .select("handicap")
                         .eq("player_id", str(p))
                         .eq("course_id", self.course_id)
-                        .maybe_single()
+                        .limit(1)
                         .execute()
                     )
                     if res.data and len(res.data) > 0:
@@ -2590,7 +2590,7 @@ class GameView(discord.ui.View):
                             .select("handicap")
                             .eq("player_id", str(p))
                             .eq("course_id", self.course_id)
-                            .maybe_single()
+                            .limit(1)
                             .execute()
                         )
                         if res and res.data:
