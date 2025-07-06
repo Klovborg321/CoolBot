@@ -2440,9 +2440,11 @@ class GameView(discord.ui.View):
         if bets is None:
             bets = self.bets
 
-        if status is not None and not self.game_has_ended:
+        if winner:
+            description = "🎮 Game ended."
+        elif status is not None:
             description = status
-        elif self.game_has_ended or winner:
+        elif self.game_has_ended:
             description = "🎮 Game ended."
         elif self.betting_closed:
             description = "🕐 Betting closed. Good luck!"
