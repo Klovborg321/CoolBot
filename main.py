@@ -1994,34 +1994,54 @@ class GameEndedButton(discord.ui.Button):
 
         await interaction.response.defer()
 
-        # ✅ 1️⃣ Update both embeds first (no voting yet)
-        thread_embed = self.view_obj.lobby_embed.copy()
-        thread_embed.set_footer(text="🎮 Game has ended.")
-        await self.view_obj.message.edit(embed=thread_embed, view=None)
+        # ✅ Ensure thread message exists
+        if not self.view_obj.message and interaction.channel:
+            try:
+                async for msg in interaction.channel.history(limit=10):
+                    if msg.author == interaction.client.user:
+                        self.view_obj.message = msg
+                        break
+            except Exception as e:
+                print(f"[GameEndedButton] ⚠️ Could not find thread message: {e}")
 
+        # ✅ 1️⃣ Update thread embed
+        try:
+            if self.view_obj.message:
+                thread_embed = self.view_obj.lobby_embed.copy()
+                thread_embed.set_footer(text="🎮 Game has ended.")
+                await self.view_obj.message.edit(embed=thread_embed, view=None)
+        except Exception as e:
+            print(f"[GameEndedButton] ⚠️ Failed to update thread message: {e}")
+
+        # ✅ 2️⃣ Update main lobby embed
         target_message = self.view_obj.lobby_message or (
             self.view_obj.game_view.message if self.view_obj.game_view else None
         )
         if target_message:
-            updated_embed = await self.view_obj.game_view.build_embed(
-                target_message.guild,
-                winner=None,
-                no_image=True,
-                status="🎮 Game ended."
-            )
+            try:
+                updated_embed = await self.view_obj.game_view.build_embed(
+                    target_message.guild,
+                    winner=None,
+                    no_image=True,
+                    status="🎮 Game ended."
+                )
 
-            # ✅ Remove any betting buttons
-            for item in list(self.view_obj.children):
-                if isinstance(item, BettingButtonDropdown) or isinstance(item, BettingButton):
-                    self.view_obj.remove_item(item)
-            for item in list(self.view_obj.game_view.children):
-                if isinstance(item, BettingButtonDropdown) or isinstance(item, BettingButton):
-                    self.view_obj.game_view.remove_item(item)
+                # ✅ Remove betting buttons
+                for item in list(self.view_obj.children):
+                    if isinstance(item, (BettingButtonDropdown, BettingButton)):
+                        self.view_obj.remove_item(item)
 
-            await target_message.edit(embed=updated_embed, view=self.view_obj.game_view)
+                for item in list(self.view_obj.game_view.children):
+                    if isinstance(item, (BettingButtonDropdown, BettingButton)):
+                        self.view_obj.game_view.remove_item(item)
 
-        # ✅ 2️⃣ Now start voting AFTER embeds are updated
+                await target_message.edit(embed=updated_embed, view=self.view_obj.game_view)
+            except Exception as e:
+                print(f"[GameEndedButton] ⚠️ Failed to update lobby message: {e}")
+
+        # ✅ 3️⃣ Start voting after updates
         await self.view_obj.start_voting()
+
 
 
 async def callback(self, interaction: discord.Interaction):
