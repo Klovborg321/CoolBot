@@ -717,6 +717,10 @@ async def update_elo_series_and_save(player1_id, player2_id, results, k=32, game
         s1["current_streak"] = 0
         s2["current_streak"] = 0
 
+    # ✅ Explicit reassignment (critical!)
+    p1["stats"][game_type] = s1
+    p2["stats"][game_type] = s2
+
     await save_player(player1_id, p1)
     await save_player(player2_id, p2)
 
