@@ -254,7 +254,7 @@ async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
         creator=creator,
         max_players=2,
         channel=channel,
-        scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 50 BALLS!",
+        scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 50 STARS!",
         scheduled_time=scheduled_time,
         is_hourly=True
     )
@@ -4176,7 +4176,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
         blocks.append(f"**{game_type.title()} Stats**\n```" + "\n".join(block) + "```")
 
     # ✅ Add global credits at top
-    blocks.insert(0, f"**💰 Balls:** `{credits}`")
+    blocks.insert(0, f"**\u2B50 Stars:** `{credits}`")
 
     # ✅ Build embed with all sections
     embed = discord.Embed(
@@ -5012,7 +5012,47 @@ async def init_selected(interaction: discord.Interaction):
         ephemeral=True
     )
 
+@tree.command(name="show_stat", description="Show your stats across all game types.")
+async def show_stat(interaction: discord.Interaction):
+    user_id = interaction.user.id
+    pdata = await get_player(user_id)
 
+    if not pdata:
+        await interaction.response.send_message("❌ No stats found for you.", ephemeral=True)
+        return
+
+    stats = pdata.get("stats", {})
+    embed = discord.Embed(title=f"📊 Stats for {interaction.user.display_name}", color=discord.Color.green())
+
+    for game_type, s in stats.items():
+        embed.add_field(
+            name=game_type.title(),
+            value=(
+                f"🏆 Wins: {s.get('wins', 0)}\n"
+                f"❌ Losses: {s.get('losses', 0)}\n"
+                f"🤝 Draws: {s.get('draws', 0)}\n"
+                f"🎮 Games Played: {s.get('games_played', 0)}\n"
+                f"🔥 Current Streak: {s.get('current_streak', 0)}\n"
+                f"📈 Best Streak: {s.get('best_streak', 0)}\n"
+                f"🎖️ Trophies: {s.get('trophies', 0)}\n"
+                f"⭐ Rank: {s.get('rank', 1000)}"
+            ),
+            inline=False
+        )
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@tree.command(name="show_stars", description="See how many stars you have.")
+async def show_stars(interaction: discord.Interaction):
+    user_id = interaction.user.id
+    pdata = await get_player(user_id)
+
+    if not pdata:
+        await interaction.response.send_message("❌ Could not find your profile.", ephemeral=True)
+        return
+
+    credits = pdata.get("credits", 0)
+    await interaction.response.send_message(f"⭐ You have **{credits} stars**.", ephemeral=True)
 
 @tree.command(name="golden_hour")
 async def golden_hour(interaction: discord.Interaction):
