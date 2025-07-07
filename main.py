@@ -80,7 +80,8 @@ pending_games = {
     "singles": None,
     "doubles": None,
     "triples": None,
-    "tournament": None
+    "tournament": None,
+    "hourly": None
 }
 
 players_data = "players.json"
@@ -230,7 +231,7 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
             print(f"[HOURLY] Not top of hour, posting countdown ({seconds_until}s).")
 
             countdown_view = HourlyCountdownView(bot, guild, channel, seconds_until_start=seconds_until)
-            countdown_view.message = await channel.send("⏳ Golden Hour starts soon...", view=countdown_view)
+            countdown_view.message = await channel.send("⏳ Golden Hourly starts soon...", view=countdown_view)
 
             try:
                 await countdown_view.task
@@ -254,7 +255,7 @@ async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
         creator=creator,
         max_players=2,
         channel=channel,
-        scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 50 STARS!",
+        scheduled_note="💰 - GOLDEN HOURLY GAME - 💰\nWINNER GETS 50 STARS!",
         scheduled_time=scheduled_time,
         is_hourly=True
     )
@@ -265,7 +266,7 @@ async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
     view.message = message
 
     # ✅ Save to pending_games
-    pending_games["singles"] = {
+    pending_games["hourly"] = {
         "players": [],
         "channel_id": channel.id,
         "view": view
@@ -2036,8 +2037,8 @@ class RoomView(discord.ui.View):
         self.players = []
 
         if self.is_hourly and winner != "draw":
-            await add_credits_atomic(winner, 25)
-            print(f"[💰] Hourly game: awarded 25 credits to {winner}")
+            await add_credits_atomic(winner, 50)
+            print(f"[💰] Hourly game: awarded 50 credits to {winner}")
 
         target_game_id = (
             str(self.lobby_message.id)
@@ -2325,6 +2326,8 @@ class GameView(discord.ui.View):
         self.cancel_abandon_task()
         self.cancel_betting_task()
         pending_games[self.game_type] = None
+        if is_hourly:
+            pending_games["hourly"] = None
 
         for p in self.players:
             await player_manager.deactivate(p)
