@@ -255,7 +255,7 @@ async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
         creator=creator,
         max_players=2,
         channel=channel,
-        scheduled_note="💰 - GOLDEN HOURLY GAME - 💰\nWINNER GETS 50 STARS!",
+        scheduled_note="\u2B50 - GOLDEN HOURLY GAME - \u2B50\nWINNER GETS 50 STARS!",
         scheduled_time=scheduled_time,
         is_hourly=True
     )
@@ -791,7 +791,7 @@ def format_page(self, guild):
 
         badge = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else ""
 
-        line = f"#{i:>2} {name} | 🏆 {trophies:<3} | 💰 {credits:<4} | 📈 {rank} {badge}"
+        line = f"#{i:>2} {name} | 🏆 {trophies:<3} | \u2B50 {credits:<4} | 📈 {rank} {badge}"
         lines.append(line)
 
     if not lines:
@@ -937,7 +937,7 @@ async def handle_bet(interaction, user_id, choice, amount, odds, game_id):
     # ✅ Confirmation message
     await interaction.response.send_message(
         f"✅ Bet of **{amount}** placed on **{target_name}**.\n"
-        f"📊 Odds: {odds:.2f} | 💰 Payout if win: **{payout}**",
+        f"📊 Odds: {odds:.2f} | \u2B50 Payout if win: **{payout}**",
         ephemeral=True
     )
 
@@ -1992,7 +1992,7 @@ class RoomView(discord.ui.View):
                     odds = await self.game_view.get_odds(choice)
                     payout = int(amount * (1 / odds)) if odds > 0 else amount
                     await add_credits_atomic(uid, payout)
-                    print(f"💰 {uname} won! Payout: {payout}")
+                    print(f"\u2B50 {uname} won! Payout: {payout}")
                 else:
                     print(f"❌ {uname} lost {amount}")
 
@@ -2038,7 +2038,7 @@ class RoomView(discord.ui.View):
 
         if self.is_hourly and winner != "draw":
             await add_credits_atomic(winner, 50)
-            print(f"[💰] Hourly game: awarded 50 credits to {winner}")
+            print(f"[\u2B50] Hourly game: awarded 50 credits to {winner}")
 
         target_game_id = (
             str(self.lobby_message.id)
@@ -2677,7 +2677,7 @@ class GameView(discord.ui.View):
                         label = str(ch)
                 else:
                     label = ch
-                bet_lines.append(f"💰 {uname} bet {amt} on {label}")
+                bet_lines.append(f"\u2B50 {uname} bet {amt} on {label}")
             embed.add_field(name="📊 Bets", value="\n".join(bet_lines), inline=False)
 
         if winner == "draw":
@@ -2915,7 +2915,7 @@ class BetAmountModal(discord.ui.Modal, title="Enter Bet Amount"):
             await self.safe_send(
                 interaction,
                 f"✅ Bet of **{amount}** on **{choice_name}** placed!\n"
-                f"📊 Odds: {odds * 100:.1f}% | 💰 Payout: **{payout}**",
+                f"📊 Odds: {odds * 100:.1f}% | \u2B50 Payout: **{payout}**",
                 ephemeral=True
             )
 
@@ -3002,7 +3002,7 @@ class LeaderboardView(discord.ui.View):
             credits = stats.get("credits", 0)
 
             badge = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else ""
-            line = f"#{i:>2} {name} | 📈 {rank} {badge} | 🏆 {trophies:<3} | 💰 {credits:<4}"
+            line = f"#{i:>2} {name} | 📈 {rank} {badge} | 🏆 {trophies:<3} | \u2B50 {credits:<4}"
             lines.append(line)
 
         if not lines:
@@ -3571,7 +3571,7 @@ class TournamentManager:
                 champ = self.next_round_players[0]
                 await player_manager.deactivate(champ)
 
-                # 💰 Handle bet payouts
+                # \u2B50 Handle bet payouts
                 for uid, uname, amount, choice in self.bets:
                     try:
                         won = int(choice) == champ
@@ -3591,7 +3591,7 @@ class TournamentManager:
                         odds = 0.5
                         payout = int(amount / odds)
                         await add_credits_atomic(uid, payout)
-                        print(f"💰 {uname} won! Payout: {payout}")
+                        print(f"\u2B50 {uname} won! Payout: {payout}")
                     else:
                         print(f"❌ {uname} lost {amount}")
     
