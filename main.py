@@ -121,7 +121,7 @@ default_template = {
             "best_streak": 0,
             "trophies": 0
         },
-        "tournaments": {
+        "tournament": {
             "rank": 1000,
             "wins": 0,
             "losses": 0,
