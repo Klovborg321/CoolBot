@@ -250,7 +250,6 @@ async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
 
     # ✅ Create GameView with is_hourly=True
     view = GameView(
-        bot=bot,
         guild=guild,
         game_type="singles",
         creator=creator,
@@ -2271,7 +2270,7 @@ class TournamentStartButtonView(discord.ui.View):
 
 
 class GameView(discord.ui.View):
-    def __init__(self, game_type, creator, max_players, channel, scheduled_note=None, scheduled_time=None, is_hourly=False):
+    def __init__(self, game_type, creator, max_players, channel, scheduled_note=None, scheduled_time=None, is_hourly=False, bot=None):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
@@ -2295,6 +2294,7 @@ class GameView(discord.ui.View):
         self.is_hourly=is_hourly
         self.hourly_start_task = None
         self.hourly_void_task = None
+        self.bot=bot
 
 
         # ✅ Unique ID per game for safe countdown
@@ -3394,7 +3394,6 @@ class TournamentManager:
         self.creator = creator
         self.players = [creator.id if hasattr(creator, "id") else creator]
         self.max_players = max_players
-        self.bot = bot
         self.matches_completed_this_round = 0
         self.message = None           # the main lobby message in parent channel
         self.parent_channel = None    # the parent text channel
