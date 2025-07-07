@@ -250,12 +250,11 @@ async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
 
     # ✅ Create GameView with is_hourly=True
     view = GameView(
-        guild=guild,
         game_type="singles",
         creator=creator,
         max_players=2,
         channel=channel,
-        scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 25 BALLS!",
+        scheduled_note="💰 - GOLDEN HOUR GAME - 💰\nWINNER GETS 50 BALLS!",
         scheduled_time=scheduled_time,
         is_hourly=True
     )
