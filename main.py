@@ -638,7 +638,7 @@ async def update_elo_triples_and_save(player_ids, winner, k=32, game_type="tripl
     return [s["rank"] for s in stats_list]
 
 
-async def update_elo_series_and_save(player1_id, player2_id, results, k=32, game_type="singles"):
+async def update_elo_series_and_save(player1_id, player2_id, results, k=32, game_type="tournament"):
     """
     Multiple rounds ELO + stats, scoped by game_type.
     - results: list of outcomes per round: 1, 2, or 0.5 (draw)
@@ -1924,7 +1924,14 @@ class RoomView(discord.ui.View):
         normalized_winner = normalize_team(winner) if self.game_type == "doubles" else winner
 
         try:
-            if self.game_type == "singles":
+            if getattr(self, "is_tournament", False):
+                await update_elo_series_and_save(
+                    self.players[0],
+                    self.players[1],
+                    results=[1 if self.players[0] == winner else 2],
+                    game_type="tournament"
+                )
+            elif self.game_type == "singles":
                 await update_elo_pair_and_save(
                     self.players[0],
                     self.players[1],
@@ -1939,6 +1946,7 @@ class RoomView(discord.ui.View):
         except Exception as e:
             print(f"[finalize_game] ❌ Failed ELO update: {e}")
             return
+
 
         # ✅ Process bets
         if self.game_view:
