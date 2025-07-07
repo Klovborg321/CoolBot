@@ -1922,6 +1922,7 @@ class RoomView(discord.ui.View):
 
         # ✅ Normalize for ELO/bets
         normalized_winner = normalize_team(winner) if self.game_type == "doubles" else winner
+        print("[DEBUG] is_tournament:", self.is_tournament)
 
         try:
             if getattr(self, "is_tournament", False):
