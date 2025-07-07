@@ -3538,27 +3538,16 @@ class TournamentManager:
 
         await update_leaderboard(self.bot, "tournaments")
 
-        if TEST_MODE:
-            print(f"[TEST_MODE] ✅ Match complete.")
-            print(f"[TEST_MODE] Matches completed this round: {self.matches_completed_this_round}")
-            print(f"[TEST_MODE] Current matches: {len(self.current_matches)}")
-            print(f"[TEST_MODE] Next round players: {self.next_round_players}")
-            if len(self.next_round_players) >= 2:
-                print("[TEST_MODE] 🔁 Auto-advancing to next round (enough winners).")
-                self.round_players = self.next_round_players.copy()
-                self.next_round_players = []
-                self.matches_completed_this_round = 0  # reset
-                await self.run_round(self.parent_channel.guild)
-            else:
-                print("[TEST_MODE] ⏸️ Not enough winners yet. Waiting for next match.")
-            return
+        print(f"[TOURNAMENT] ✅ Match complete. Winner: {winner_id}")
+        print(f"🏁 Matches completed this round: {self.matches_completed_this_round} / {len(self.current_matches)}")
+        print(f"📥 Next round players: {self.next_round_players}")
 
-        # ✅ Check if all matches are done (normal mode)
         if self.matches_completed_this_round >= len(self.current_matches):
             if len(self.next_round_players) == 1:
                 champ = self.next_round_players[0]
                 await player_manager.deactivate(champ)
 
+                # 💰 Handle bet payouts
                 for uid, uname, amount, choice in self.bets:
                     try:
                         won = int(choice) == champ
@@ -3581,7 +3570,7 @@ class TournamentManager:
                         print(f"💰 {uname} won! Payout: {payout}")
                     else:
                         print(f"❌ {uname} lost {amount}")
-
+    
                 final_embed = discord.Embed(
                     title="🏆 Tournament Results",
                     description=f"**Champion:** <@{champ}>",
@@ -3595,9 +3584,14 @@ class TournamentManager:
                 print(f"🏆 Tournament completed. Champion: {champ}")
 
             else:
+                print(f"[TOURNAMENT] 🔁 Advancing to next round with players: {self.next_round_players}")
                 self.round_players = self.next_round_players.copy()
                 self.next_round_players = []
+                self.matches_completed_this_round = 0
                 await self.run_round(self.parent_channel.guild)
+        else:
+            print(f"[TOURNAMENT] ⏳ Waiting for remaining matches to complete.")
+
 
 
 class TournamentLobbyView(discord.ui.View):
