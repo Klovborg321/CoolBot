@@ -1182,12 +1182,13 @@ room_name_generator = RoomNameGenerator()
 
 
 class GameJoinView(discord.ui.View):
-    def __init__(self, game_type, max_players, scheduled_note=None, scheduled_time=None):
+    def __init__(self, game_type, max_players, scheduled_note=None, scheduled_time=None, is_hourly=False):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.max_players = max_players
         self.scheduled_note = scheduled_note 
         self.scheduled_time = scheduled_time 
+        self.is_hourly = is_hourly
 
         # ✅ Use dynamic label
         button = discord.ui.Button(
@@ -1244,7 +1245,10 @@ class GameJoinView(discord.ui.View):
         # ✅ Post the lobby
         embed = await view.build_embed(interaction.guild, no_image=True)
         view.message = await interaction.channel.send(embed=embed, view=view)
-        pending_games[self.game_type] = view
+        if getattr(self, "is_hourly", False):
+            pending_games["hourly"] = None
+        else:
+            pending_games[self.game_type] = None
 
         # ✅ If full immediately → auto start
         if len(view.players) == view.max_players:
@@ -2244,7 +2248,7 @@ async def _void_if_not_started(self):
             await self.message.edit(embed=embed, view=None)
 
         print("[HOURLY] Game voided after 30 min.")
-        pending_games[self.game_type] = None
+        pending_games["hourly"] = None
         self.message = None
 
         # Cleanup
@@ -3708,7 +3712,10 @@ class TournamentLobbyView(discord.ui.View):
         self.cancel_abandon_task()
         self.cancel_betting_task()
 
-        pending_games[self.game_type] = None
+        if getattr(self, "is_hourly", False):
+            pending_games["hourly"] = None
+        else:
+            pending_games[self.game_type] = None
 
         for p in self.players:
             await player_manager.deactivate(p)
