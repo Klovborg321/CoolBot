@@ -1810,7 +1810,10 @@ class RoomView(discord.ui.View):
         if not self.game_has_ended:
             return
 
-        pending_games[self.game_type] = None
+        if getattr(self, "is_hourly", False):
+            pending_games["hourly"] = None
+        else:
+            pending_games[self.game_type] = None
 
         self.clear_items()
         options = self.get_vote_options()
@@ -1954,7 +1957,10 @@ class RoomView(discord.ui.View):
             except Exception as e:
                 print(f"[finalize_game] ⚠️ Failed to archive thread: {e}")
 
-            pending_games[self.game_type] = None
+            if getattr(self, "is_hourly", False):
+                pending_games["hourly"] = None
+            else:
+                pending_games[self.game_type] = None
             return
 
         # ✅ Normalize for ELO/bets
@@ -2056,7 +2062,10 @@ class RoomView(discord.ui.View):
         await self.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
         await asyncio.sleep(3)
         await self.channel.edit(archived=True)
-        pending_games[self.game_type] = None
+        if getattr(self, "is_hourly", False):
+            pending_games["hourly"] = None
+        else:
+            pending_games[self.game_type] = None
         self.players = []
 
         if self.is_hourly and winner != "draw":
@@ -2331,9 +2340,15 @@ class GameView(discord.ui.View):
         await self._handle_join(interaction, button)
 
     async def auto_abandon_after(self, seconds):
+        print(f"[AUTO ABANDON] Started abandon timer ({seconds}s)...")
         await asyncio.sleep(seconds)
+
+        print(f"[AUTO ABANDON] Checking player count: {len(self.players)} / {self.max_players}")
         if len(self.players) < self.max_players:
+            print("[AUTO ABANDON] Lobby still incomplete. Abandoning.")
             await self.abandon_game("⏱️ Hourly match expired (no full lobby).")
+        else:
+            print("[AUTO ABANDON] Game already started or lobby full. Skip abandon.")
 
     def cancel_betting_task(self):
         if self.betting_task:
@@ -2348,9 +2363,10 @@ class GameView(discord.ui.View):
     async def abandon_game(self, reason):
         self.cancel_abandon_task()
         self.cancel_betting_task()
-        pending_games[self.game_type] = None
-        if is_hourly:
+        if getattr(self, "is_hourly", False):
             pending_games["hourly"] = None
+        else:
+            pending_games[self.game_type] = None
 
         for p in self.players:
             await player_manager.deactivate(p)
