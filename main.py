@@ -290,22 +290,28 @@ class HourlyCountdownView(discord.ui.View):
         self.task = asyncio.create_task(self.run_countdown())
 
     async def run_countdown(self):
-        while self.seconds_until_start > 0:
-            mins, secs = divmod(self.seconds_until_start, 60)
-            content = f"⏳ Next Golden Hour starts in `{mins:02}:{secs:02}`..."
-            await self.update_message(content)
-            await asyncio.sleep(10)
-            self.seconds_until_start -= 10
+        try:
+            while self.seconds_until_start > 0:
+                mins, secs = divmod(self.seconds_until_start, 60)
+                content = f"⏳ Next Golden Hour starts in `{mins:02}:{secs:02}`..."
+                await self.update_message(content)
+                await asyncio.sleep(10)
+                self.seconds_until_start -= 10
 
-        await self.update_message("🏁 Posting Golden Hour Game soon...")
-        print("[Countdown] Countdown complete.")
+            await self.update_message("🏁 Posting Golden Hour Game soon...")
+            print("[Countdown] Countdown complete.")
+        except Exception as e:
+            print(f"[Countdown] ❌ Error during countdown: {e}")
+
 
     async def update_message(self, content):
         if self.message:
             try:
                 await self.message.edit(content=content, view=self)
             except discord.NotFound:
-                pass
+                print("[Countdown] ⚠️ Message not found — maybe deleted.")
+            except Exception as e:
+                print(f"[Countdown] ⚠️ Failed to update message: {e}")
 
 
 def is_admin(interaction: discord.Interaction) -> bool:
@@ -1855,8 +1861,17 @@ class RoomView(discord.ui.View):
             return
 
         print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
-        await self.finalize_game()
 
+        try:
+            await self.finalize_game()
+        except Exception as e:
+            print(f"[Voting] ❌ Error during finalize_game(): {e}")
+
+    async def safe_edit_message(message, **kwargs):
+        try:
+            await message.edit(**kwargs)
+        except Exception as e:
+            print(f"[safe_edit_message] ⚠️ Failed to edit message: {e}")
 
     async def finalize_game(self, winner=None):
         if getattr(self, "has_finalized", False):
@@ -1920,8 +1935,12 @@ class RoomView(discord.ui.View):
                     )
                     print(f"↩️ Refunded {amount} to {uname} (DRAW)")
 
-            embed = await self.build_lobby_end_embed(winner)
-            await self.message.edit(embed=embed, view=None)
+            try:
+                embed = await self.build_lobby_end_embed(winner)
+                await safe_edit_message(self.message, embed=embed, view=None)
+            except Exception as e:
+                print(f"[finalize_game] ❌ Failed to edit main message: {e}")
+
 
             if self.lobby_message and self.game_view:
                 lobby_embed = await self.game_view.build_embed(
@@ -1930,7 +1949,11 @@ class RoomView(discord.ui.View):
                 await self.lobby_message.edit(embed=lobby_embed, view=None)
 
             await self.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
-            await self.channel.edit(archived=True)
+            try:
+                await self.channel.edit(archived=True)
+            except Exception as e:
+                print(f"[finalize_game] ⚠️ Failed to archive thread: {e}")
+
             pending_games[self.game_type] = None
             return
 
@@ -2687,10 +2710,10 @@ class GameView(discord.ui.View):
         elif isinstance(winner, int):
             member = guild.get_member(winner) if guild else None
             winner_name = member.display_name if member else f"User {winner}"
-            credit_note = " — 🏆 +25 credits!" if self.is_hourly else ""
+            credit_note = " — 🏆 +50 stars!" if self.is_hourly else ""
             embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}{credit_note}")
         elif winner in ("Team A", "Team B"):
-            credit_note = " — 🏆 +25 credits!" if self.is_hourly else ""
+            credit_note = " — 🏆 +50 stars!" if self.is_hourly else ""
             embed.set_footer(text=f"🎮 Game has ended. Winner: {winner}{credit_note}")
 
         return embed
