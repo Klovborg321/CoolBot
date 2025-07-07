@@ -873,6 +873,15 @@ async def add_credits_atomic(user_id: int, amount: int):
 async def save_player(user_id: int, player_data: dict):
     player_data["id"] = str(user_id)
 
+    if "stats" not in player_data:
+        player_data["stats"] = {}
+
+    if not isinstance(player_data["stats"], dict):
+        print(f"[SAVE] ❌ Invalid stats object for user {user_id}")
+        return
+
+    print(f"[SAVE] Writing player {user_id} with stats keys: {list(player_data['stats'].keys())}")
+
     res = await run_db(lambda: supabase
         .table("players")
         .upsert(player_data)
