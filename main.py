@@ -3482,7 +3482,7 @@ class TournamentManager:
                     bot=bot,
                     guild=guild,
                     players=[p1, p2],
-                    game_type="singles",
+                    game_type="tournament",
                     room_name=room_name,
                     course_name=course_name,
                     course_id=course_id,
