@@ -1847,9 +1847,11 @@ class RoomView(discord.ui.View):
 
 
     async def finalize_game(self, winner=None):
-        if self.voting_closed:
+        if getattr(self, "has_finalized", False):
             print("[Voting] ⏭️ Already finalized. Skipping.")
             return
+
+        self.has_finalized = True
 
         print("[DEBUG] Finalizing game...")
         self.cancel_abandon_task()
@@ -1922,7 +1924,7 @@ class RoomView(discord.ui.View):
 
         # ✅ Normalize for ELO/bets
         normalized_winner = normalize_team(winner) if self.game_type == "doubles" else winner
-        print("[DEBUG] is_tournament:", self.is_tournament)
+        print("[DEBUG] is_tournament:", getattr(self, "is_tournament", False))
 
         try:
             if getattr(self, "is_tournament", False):
@@ -1947,7 +1949,6 @@ class RoomView(discord.ui.View):
         except Exception as e:
             print(f"[finalize_game] ❌ Failed ELO update: {e}")
             return
-
 
         # ✅ Process bets
         if self.game_view:
@@ -2047,7 +2048,7 @@ class RoomView(discord.ui.View):
         # ✅ Report winner to tournament manager if set
         if self.on_tournament_complete:
             print(f"[TOURNAMENT] Reporting winner: {winner} (type: {type(winner)})")
-    
+
             if isinstance(winner, int):
                 await self.on_tournament_complete(winner)
             elif isinstance(winner, str) and winner.isdigit():
@@ -2057,10 +2058,8 @@ class RoomView(discord.ui.View):
                 fallback = random.choice(self.players)
                 await self.on_tournament_complete(fallback)
 
-
         await update_leaderboard(self.bot, self.game_type)
         print(f"[DEBUG] Finalized winner = {winner}")
-
 
 
 class GameEndedButton(discord.ui.Button):
