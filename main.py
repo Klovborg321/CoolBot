@@ -3559,7 +3559,7 @@ class TournamentManager:
         if loser_id:
             await player_manager.deactivate(loser_id)
 
-        await update_leaderboard(self.bot, "tournaments")
+        await update_leaderboard(self.bot, "tournament")
 
         print(f"[TOURNAMENT] ✅ Match complete. Winner: {winner_id}")
         print(f"🏁 Matches completed this round: {self.matches_completed_this_round} / {len(self.current_matches)}")
@@ -4042,14 +4042,14 @@ async def init_triples(interaction: discord.Interaction):
     description="Admin: Show the leaderboard for a specific game type"
 )
 @app_commands.describe(
-    game_type="Which game type to show (singles, doubles, triples, tournaments)"
+    game_type="Which game type to show (singles, doubles, triples, tournament)"
 )
 @app_commands.check(is_admin)  # ✅ only admins can run
 async def admin_leaderboard(
     interaction: discord.Interaction,
     game_type: str
 ):
-    allowed = ["singles", "doubles", "triples", "tournaments"]
+    allowed = ["singles", "doubles", "triples", "tournament"]
     if game_type not in allowed:
         await interaction.response.send_message(
             f"❌ Invalid game type. Use: {', '.join(allowed)}",
@@ -4154,7 +4154,7 @@ async def stats(interaction: discord.Interaction, user: discord.User = None, dm:
 
     # ✅ Build sections for each game type
     blocks = []
-    for game_type in ("singles", "doubles", "triples", "tournaments"):
+    for game_type in ("singles", "doubles", "triples", "tournament"):
         stats = stats_data.get(game_type, {})
         rank = stats.get("rank", 1000)
         trophies = stats.get("trophies", 0)
@@ -4982,7 +4982,7 @@ async def restore_active_games(bot):
                 await lobby_view.start_betting_phase()
 
             # ✅ Track TournamentManager
-            if not hasattr(bot, "tournaments"):
+            if not hasattr(bot, "tournament"):
                 bot.tournaments = {}
             bot.tournaments[parent_channel.id] = manager
 
