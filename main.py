@@ -1567,7 +1567,7 @@ class BetDropdown(discord.ui.Select):
 
 
 class RoomView(discord.ui.View):
-    def __init__(self, bot, guild, players, game_type, room_name, lobby_message=None, lobby_embed=None, game_view=None, course_name=None, course_id=None, max_players=2, is_hourly=False):
+    def __init__(self, bot, guild, players, game_type, room_name, lobby_message=None, lobby_embed=None, game_view=None, course_name=None, course_id=None, max_players=2, is_hourly=False, is_tournament=False):
         super().__init__(timeout=None)
         self.bot = bot             # ✅ store bot
         self.guild = guild     
@@ -1583,6 +1583,7 @@ class RoomView(discord.ui.View):
         self.betting_task = None
         self.betting_closed = False
         self.is_hourly = is_hourly
+        self.is_tournament=is_tournament
 
         # ✅ Store course_name robustly:
         self.course_name = course_name or getattr(game_view, "course_name", None)
@@ -1639,7 +1640,7 @@ class RoomView(discord.ui.View):
         odds = []
         odds_a = odds_b = 0.5  # Defaults for safety
 
-        if self.game_type == "singles" and len(ranks) == 2:
+        if (self.game_type == "singles" or is_tournament) and len(ranks) == 2:
             prob1 = 1 / (1 + 10 ** ((ranks[1] - ranks[0]) / 400))
             prob2 = 1 - prob1
             odds = [prob1, prob2]
@@ -3482,11 +3483,12 @@ class TournamentManager:
                     bot=bot,
                     guild=guild,
                     players=[p1, p2],
-                    game_type="tournament",
+                    game_type="singles",
                     room_name=room_name,
                     course_name=course_name,
                     course_id=course_id,
-                    max_players=2
+                    max_players=2,
+                    is_tournament=True
                 )
                 room_view.course_image = course_image
                 room_view.guild = guild
