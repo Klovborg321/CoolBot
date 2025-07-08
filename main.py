@@ -2590,6 +2590,8 @@ class GameView(discord.ui.View):
 
     async def build_embed(self, guild=None, winner=None, no_image=True, status=None, bets=None):
         title = "🏆 Tournament Lobby" if self.game_type == "tournament" else f"🎮 {self.game_type.title()} Match Lobby"
+        if getattr(self, "is_hourly", False):
+            title = "🌟 Golden Hourly Match Lobby 🌟"
         if bets is None:
             bets = self.bets
 
