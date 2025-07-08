@@ -76,13 +76,7 @@ start_buttons = {}  # (channel_id, game_type) => Message
 # Globals
 games = {}
 
-pending_games = {
-    "singles": None,
-    "doubles": None,
-    "triples": None,
-    "tournament": None,
-    "hourly": None
-}
+pending_games = {}
 
 players_data = "players.json"
 
@@ -180,6 +174,7 @@ async def get_player_handicap(player_id: int, course_id: str):
     return 0
 
 
+
 def get_elo_odds(rank1, rank2):
     """Return win probabilities for both players based on ELO."""
     expected1 = 1 / (1 + 10 ** ((rank2 - rank1) / 400))
@@ -199,7 +194,7 @@ async def ensure_start_buttons(bot):
             print(f"[AutoInit] ❌ Channel {channel_id} not found — skipping.")
             continue
 
-        if pending_games.get(game_type):
+        if pending_games.get((game_type, channel_id)):
             print(f"[AutoInit] ⏸️ Skipping '{game_type}' — a game is already pending.")
             continue
 
@@ -269,13 +264,11 @@ async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
     message = await channel.send(embed=embed, view=view)
     view.message = message
 
-    # ✅ Save to pending_games
-    pending_games["hourly"] = {
+    pending_games[("hourly", channel.id)] = {
         "players": [],
         "channel_id": channel.id,
         "view": view
     }
-
     # ✅ Start auto-abandon after 30 minutes
     print("[HOURLY] ✅ Hourly lobby created.")
     view.abandon_task = asyncio.create_task(view.auto_abandon_after(1800))  # 30 minutes
@@ -822,12 +815,16 @@ def normalize_team(name):
 
 # ✅ Save a pending game (async)
 async def save_pending_game(game_type, players, channel_id, max_players):
-    res = await run_db(lambda: supabase.table("pending_games").upsert({
-        "game_type": game_type,
-        "players": players,
-        "channel_id": channel_id,
-        "max_players": max_players
-    }).execute())
+    res = await run_db(lambda: supabase
+        .table("pending_games")
+        .upsert({
+            "game_type": game_type,
+            "players": players,
+            "channel_id": channel_id,
+            "max_players": max_players
+        }, on_conflict=["game_type", "channel_id"])  # Optional but safe
+        .execute()
+    )
 
     if getattr(res, "error", None):
         print(f"[save_pending_game] ❌ Error: {res.error}")
@@ -835,22 +832,33 @@ async def save_pending_game(game_type, players, channel_id, max_players):
     return True
 
 
-# ✅ Clear a pending game (async)
-async def clear_pending_game(game_type):
-    res = await run_db(lambda: supabase.table("pending_games").delete().eq("game_type", game_type).execute())
+
+async def clear_pending_game(game_type, channel_id):
+    res = await run_db(lambda: supabase
+        .table("pending_games")
+        .delete()
+        .eq("game_type", game_type)
+        .eq("channel_id", channel_id)
+        .execute()
+    )
     if getattr(res, "error", None):
         print(f"[clear_pending_game] ❌ Error: {res.error}")
         return False
     return True
 
 
-# ✅ Load all pending games (async)
+# ✅ Load all pending games into a dictionary keyed by (game_type, channel_id)
 async def load_pending_games():
     res = await run_db(lambda: supabase.table("pending_games").select("*").execute())
     if getattr(res, "error", None):
         print(f"[load_pending_games] ❌ Error: {res.error}")
-        return []
-    return res.data or []
+        return {}
+
+    games = {}
+    for row in res.data or []:
+        key = (row["game_type"], row["channel_id"])
+        games[key] = row
+    return games
 
 
 # ✅ Deduct credits via atomic RPC (async)
@@ -1205,7 +1213,7 @@ class GameJoinView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
 
         # ✅ Block duplicate games of same type
-        if pending_games.get(self.game_type):
+        if pending_games.get((self.game_type, interaction.channel.id)):
             await interaction.followup.send(
                 "⚠️ A game of this type is already pending.",
                 ephemeral=True
@@ -1248,10 +1256,8 @@ class GameJoinView(discord.ui.View):
         # ✅ Post the lobby
         embed = await view.build_embed(interaction.guild, no_image=True)
         view.message = await interaction.channel.send(embed=embed, view=view)
-        if getattr(self, "is_hourly", False):
-            pending_games["hourly"] = None
-        else:
-            pending_games[self.game_type] = None
+        channel_id = self.channel.id if self.channel else self.message.channel.id
+        pending_games.pop((self.game_type, channel_id), None)
 
         # ✅ If full immediately → auto start
         if len(view.players) == view.max_players:
@@ -1817,10 +1823,7 @@ class RoomView(discord.ui.View):
         if not self.game_has_ended:
             return
 
-        if getattr(self, "is_hourly", False):
-            pending_games["hourly"] = None
-        else:
-            pending_games[self.game_type] = None
+        pending_games.pop((self.game_type, self.channel.id), None)
 
         self.clear_items()
         options = self.get_vote_options()
@@ -1964,10 +1967,7 @@ class RoomView(discord.ui.View):
             except Exception as e:
                 print(f"[finalize_game] ⚠️ Failed to archive thread: {e}")
 
-            if getattr(self, "is_hourly", False):
-                pending_games["hourly"] = None
-            else:
-                pending_games[self.game_type] = None
+            pending_games.pop((self.game_type, self.channel.id), None)
             return
 
         # ✅ Normalize for ELO/bets
@@ -2069,10 +2069,7 @@ class RoomView(discord.ui.View):
         await self.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
         await asyncio.sleep(3)
         await self.channel.edit(archived=True)
-        if getattr(self, "is_hourly", False):
-            pending_games["hourly"] = None
-        else:
-            pending_games[self.game_type] = None
+        pending_games.pop((self.game_type, self.channel.id), None)
         self.players = []
 
         if self.is_hourly and winner != "draw":
@@ -2261,7 +2258,7 @@ async def _void_if_not_started(self):
             await self.message.edit(embed=embed, view=None)
 
         print("[HOURLY] Game voided after 30 min.")
-        pending_games["hourly"] = None
+        pending_games.pop((self.game_type, self.channel.id), None)
         self.message = None
 
         # Cleanup
@@ -2380,10 +2377,7 @@ class GameView(discord.ui.View):
     async def abandon_game(self, reason):
         self.cancel_abandon_task()
         self.cancel_betting_task()
-        if getattr(self, "is_hourly", False):
-            pending_games["hourly"] = None
-        else:
-            pending_games[self.game_type] = None
+        pending_games.pop((self.game_type, self.channel.id), None)
 
         for p in self.players:
             await player_manager.deactivate(p)
@@ -2455,7 +2449,7 @@ class GameView(discord.ui.View):
 
         self.has_started = True 
         
-        pending_games.pop(self.game_type, None)
+        pending_games.pop((self.game_type, self.channel.id), None)
 
         #await save_pending_game(self.game_type, self.players, self.channel.id, self.max_players)
 
@@ -3618,7 +3612,7 @@ class TournamentManager:
         self.winners.append(winner_id)
         self.next_round_players.append(winner_id)
 
-        pending_games["tournament"] = None
+        pending_games.pop((self.game_type, self.channel.id), None)
 
         # ✅ Find the loser in the current match pair
         loser_id = None
@@ -3739,10 +3733,7 @@ class TournamentLobbyView(discord.ui.View):
         self.cancel_abandon_task()
         self.cancel_betting_task()
 
-        if getattr(self, "is_hourly", False):
-            pending_games["hourly"] = None
-        else:
-            pending_games[self.game_type] = None
+        pending_games.pop((self.game_type, self.parent_channel.id), None)
 
         for p in self.players:
             await player_manager.deactivate(p)
@@ -3796,7 +3787,7 @@ class TournamentLobbyView(discord.ui.View):
             # ✅ Sync the manager player list before tournament starts
             self.manager.players = self.players.copy()
             self.manager.started = True
-            pending_games["tournament"] = None
+            pending_games.pop((self.game_type, self.parent_channel.id), None)
 
             self.clear_items()
             if not any(isinstance(item, BettingButtonDropdown) for item in self.children):
@@ -3976,7 +3967,7 @@ async def init_tournament(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
 
     print("[init_tournament] Checking for existing game or button...")
-    if pending_games.get("tournament") or any(k[0] == interaction.channel.id for k in start_buttons):
+    if pending_games.get(("tournament", interaction.channel.id)) or ("tournament", interaction.channel.id) in start_buttons:
         print("[init_tournament] Found existing game/button, sending followup...")
         await interaction.followup.send(
             "⚠️ A tournament game is already pending or a button is active here.",
@@ -3987,8 +3978,7 @@ async def init_tournament(interaction: discord.Interaction):
     max_players = 16
 
     print("[init_tournament] Calling start_new_game_button...")
-    # ✅ Ensure this never takes 3+ seconds; if it might, break it up:
-    await start_new_game_button(interaction.channel, "tournament", max_players=None)
+    await start_new_game_button(interaction.channel, "tournament", max_players=max_players)
 
     print("[init_tournament] Sending success followup...")
     await interaction.followup.send(
@@ -4027,26 +4017,17 @@ async def set_user_handicap(interaction: discord.Interaction):
 @tree.command(name="init_singles")
 async def init_singles(interaction: discord.Interaction):
     """Creates a singles game lobby with the start button"""
-
-    print("[init_doubles] Defer interaction...")
     await interaction.response.defer(ephemeral=True)
 
-    print("[init_doubles] Checking for existing game or button...")
-    if pending_games.get("singles") or any(k[0] == interaction.channel.id for k in start_buttons):
-        print("[init_singles] Found existing game/button, sending followup...")
+    if pending_games.get(("singles", interaction.channel.id)) or ("singles", interaction.channel.id) in start_buttons:
         await interaction.followup.send(
             "⚠️ A singles game is already pending or a button is active here.",
             ephemeral=True
         )
         return
 
-    max_players = 2
+    await start_new_game_button(interaction.channel, "singles", max_players=2)
 
-    print("[init_singles] Calling start_new_game_button...")
-    # ✅ Ensure this never takes 3+ seconds; if it might, break it up:
-    await start_new_game_button(interaction.channel, "singles", max_players=max_players)
-
-    print("[init_singles] Sending success followup...")
     await interaction.followup.send(
         "✅ Singles game button posted and ready for players to join!",
         ephemeral=True
@@ -4056,59 +4037,41 @@ async def init_singles(interaction: discord.Interaction):
 @tree.command(name="init_doubles")
 async def init_doubles(interaction: discord.Interaction):
     """Creates a doubles game lobby with the start button"""
-
-    print("[init_doubles] Defer interaction...")
     await interaction.response.defer(ephemeral=True)
 
-    print("[init_doubles] Checking for existing game or button...")
-    if pending_games.get("doubles") or any(k[0] == interaction.channel.id for k in start_buttons):
-        print("[init_doubles] Found existing game/button, sending followup...")
+    if pending_games.get(("doubles", interaction.channel.id)) or ("doubles", interaction.channel.id) in start_buttons:
         await interaction.followup.send(
             "⚠️ A doubles game is already pending or a button is active here.",
             ephemeral=True
         )
         return
 
-    max_players = 4
+    await start_new_game_button(interaction.channel, "doubles", max_players=4)
 
-    print("[init_doubles] Calling start_new_game_button...")
-    # ✅ Ensure this never takes 3+ seconds; if it might, break it up:
-    await start_new_game_button(interaction.channel, "doubles", max_players=max_players)
-
-    print("[init_doubles] Sending success followup...")
     await interaction.followup.send(
         "✅ Doubles game button posted and ready for players to join!",
         ephemeral=True
     )
 
+
 @tree.command(name="init_triples")
 async def init_triples(interaction: discord.Interaction):
     """Creates a triples game lobby with the start button"""
-
-    print("[init_triples] Defer interaction...")
     await interaction.response.defer(ephemeral=True)
 
-    print("[init_triples] Checking for existing game or button...")
-    if pending_games.get("triples") or any(k[0] == interaction.channel.id for k in start_buttons):
-        print("[init_singles] Found existing game/button, sending followup...")
+    if pending_games.get(("triples", interaction.channel.id)) or ("triples", interaction.channel.id) in start_buttons:
         await interaction.followup.send(
             "⚠️ A triples game is already pending or a button is active here.",
             ephemeral=True
         )
         return
 
-    max_players = 3
+    await start_new_game_button(interaction.channel, "triples", max_players=3)
 
-    print("[init_triples] Calling start_new_game_button...")
-    # ✅ Ensure this never takes 3+ seconds; if it might, break it up:
-    await start_new_game_button(interaction.channel, "triples", max_players=max_players)
-
-    print("[init_triples] Sending success followup...")
     await interaction.followup.send(
         "✅ Triples game button posted and ready for players to join!",
         ephemeral=True
     )
-
 
 
 @tree.command(
@@ -4447,9 +4410,8 @@ async def clear_chat(interaction: discord.Interaction):
     name="admin_clear_pending_games",
     description="Admin: Clear all pending games and remove start buttons."
 )
-@app_commands.check(is_admin)  # ✅ only admins can run
+@app_commands.check(is_admin)
 async def clear_pending(interaction: discord.Interaction):
-    # ✅ Check admin permissions
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
             "⛔ You must be an admin to use this.",
@@ -4458,20 +4420,24 @@ async def clear_pending(interaction: discord.Interaction):
         return
 
     # 1️⃣ Clear local `pending_games` state
-    for key in pending_games:
-        pending_games[key] = None
+    pending_games.clear()
 
     # 2️⃣ Clear Supabase `pending_games` table
-    await run_db(lambda: supabase.table("pending_games").delete().neq("game_type", "").execute())
+    await run_db(lambda: supabase
+        .table("pending_games")
+        .delete()
+        .neq("game_type", "")  # Safe universal delete
+        .execute()
+    )
 
-    # 3️⃣ Delete any start buttons messages
+    # 3️⃣ Delete start buttons from Discord
     for msg in list(start_buttons.values()):
         try:
             await msg.delete()
         except Exception:
             pass
 
-    # 4️⃣ Clear local `start_buttons` dict
+    # 4️⃣ Clear local start_buttons cache
     start_buttons.clear()
 
     await interaction.response.send_message(
@@ -5165,14 +5131,6 @@ async def on_ready():
     # ✅ Start hourly countdown loop
     asyncio.create_task(start_hourly_scheduler(guild, channel))
 
-    # ✅ Load any leftover pending games into memory
-    rows = await load_pending_games()
-    for row in rows:
-        game_type = row["game_type"]
-        players = row["players"]
-        pending_games[game_type] = {"players": players}
-
-    print(f"✅ Loaded pending games into RAM for checks: {pending_games}")
 
 
 @tasks.loop(minutes=1)
