@@ -219,36 +219,41 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
 
     while True:
         now = datetime.utcnow()
-        at_top_of_hour = now.minute == 0
+        at_top_of_hour = now.minute == 0 and now.second < 5  # Allow a small buffer
 
         if at_top_of_hour:
+            print("[HOURLY] 🕐 It's the top of the hour. Posting Golden Hour game.")
             await post_hourly_game(guild, channel)
-            await asyncio.sleep(3600)
         else:
+            # Calculate seconds until the next top of hour
             next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
             seconds_until = int((next_hour - now).total_seconds())
-            print(f"[HOURLY] Not top of hour, posting countdown ({seconds_until}s).")
+            print(f"[HOURLY] ⏳ Not top of hour, posting countdown ({seconds_until}s).")
 
             countdown_view = HourlyCountdownView(bot, guild, channel, seconds_until_start=seconds_until)
             countdown_view.message = await channel.send("⏳ Golden Hourly starts soon...", view=countdown_view)
 
             try:
                 await countdown_view.task
-                print("[Countdown] Task completed. Posting hourly game.")
+                print("[Countdown] ✅ Countdown finished. Posting Golden Hour Game.")
+                await post_hourly_game(guild, channel)
             except Exception as e:
-                print(f"[Countdown] Task failed: {e}")
+                print(f"[Countdown] ❌ Countdown task failed: {e}")
 
-            # ✅ Now that countdown has ended, post the game
-            await post_hourly_game(guild, channel)
-            await asyncio.sleep(3600)
+        # ✅ After game or countdown, sleep until *next* top of hour
+        now = datetime.utcnow()
+        next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+        sleep_time = (next_hour - now).total_seconds()
+        print(f"[HOURLY] 😴 Sleeping for {int(sleep_time)}s until next top of hour.")
+        await asyncio.sleep(sleep_time)
+
 
 async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
-    print("[HOURLY] Posting Golden Hour game now.")
+    print("[HOURLY] 📤 Posting Golden Hour game now.")
 
     creator = guild.get_member(bot.user.id) or await guild.fetch_member(bot.user.id)
     scheduled_time = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
 
-    # ✅ Create GameView with is_hourly=True
     view = GameView(
         game_type="singles",
         creator=creator,
@@ -256,18 +261,26 @@ async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
         channel=channel,
         scheduled_note="\u2B50 - GOLDEN HOURLY GAME - \u2B50\nWINNER GETS 50 STARS!",
         scheduled_time=scheduled_time,
-        is_hourly=True
+        is_hourly=True,
+        bot=bot
     )
 
-    pending_games[("hourly", channel.id)] = {
+    # ✅ Store using ("singles", channel.id) for consistency
+    pending_games[("singles", channel.id)] = {
         "players": [],
         "channel_id": channel.id,
         "view": view
     }
-    # ✅ Start auto-abandon after 30 minutes
-    print("[HOURLY] ✅ Hourly lobby created.")
-    view.abandon_task = asyncio.create_task(view.auto_abandon_after(1800))  # 30 minutes
-    view.message = await channel.send(embed=await view.build_embed(channel.guild), view=view)
+
+    # ✅ Start void timer (30 min from scheduled time)
+    view.hourly_void_task = asyncio.create_task(view._void_if_not_started())
+
+    # ✅ Send the lobby embed
+    embed = await view.build_embed(channel.guild)
+    view.message = await channel.send(embed=embed, view=view)
+
+    print("[HOURLY] ✅ Hourly lobby created and void timer started.")
+
 
 
 class HourlyCountdownView(discord.ui.View):
@@ -2230,19 +2243,20 @@ class VoteButton(discord.ui.Button):
 
 async def _void_if_not_started(self):
     void_time = self.scheduled_time + timedelta(minutes=30)
-    seconds_until_void = (void_time - datetime.now()).total_seconds()
+    seconds_until_void = (void_time - datetime.utcnow()).total_seconds()
 
-    print(f"[HOURLY] Game will be voided in {int(seconds_until_void)}s at {void_time.time()} if not started.")
+    print(f"[HOURLY] ⏳ Game will be voided in {int(seconds_until_void)}s at {void_time.time()} if not started.")
 
     try:
         await asyncio.sleep(seconds_until_void)
 
         if self.has_started:
-            print("[HOURLY] Game started, not voiding.")
+            print("[HOURLY] ✅ Game started before timeout. No need to void.")
             return
 
-        # ✅ Remove buttons, update embed
+        # ❌ Not started in time — void the game
         self.clear_items()
+
         embed = await self.build_embed(
             self.channel.guild,
             status="❌ Game voided — not enough players by HH:30."
@@ -2250,23 +2264,30 @@ async def _void_if_not_started(self):
         embed.title = "❌ Hourly Game Voided"
 
         if self.message:
-            await self.message.edit(embed=embed, view=None)
+            try:
+                await self.message.edit(embed=embed, view=None)
+                await asyncio.sleep(10)
+                await self.message.delete()
+            except Exception as e:
+                print(f"[HOURLY] ⚠️ Failed to update/delete message: {e}")
 
-        print("[HOURLY] Game voided after 30 min.")
+        print("[HOURLY] ❌ Game voided after 30 min inactivity.")
+
+        # Remove from pending
         pending_games.pop((self.game_type, self.channel.id), None)
-        self.message = None
 
-        # Cleanup
-        self.cancel_abandon_task()
-        self.cancel_betting_task()
+        # Cleanup flags
+        self.message = None
         self.hourly_void_task = None
         self.hourly_start_task = None
+        self.cancel_betting_task()
 
         for p in self.players:
             await player_manager.deactivate(p)
 
     except asyncio.CancelledError:
-        print("[HOURLY] Void countdown cancelled.")
+        print("[HOURLY] 🛑 Void countdown cancelled.")
+
 
 
 class TournamentStartButtonView(discord.ui.View):
