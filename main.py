@@ -259,11 +259,6 @@ async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
         is_hourly=True
     )
 
-    # ✅ Build the embed and send it
-    embed = await view.build_embed(guild)
-    message = await channel.send(embed=embed, view=view)
-    view.message = message
-
     pending_games[("hourly", channel.id)] = {
         "players": [],
         "channel_id": channel.id,
