@@ -273,10 +273,9 @@ async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
     }
 
     # ✅ Start auto-abandon after 30 minutes
-    view.abandon_task = asyncio.create_task(view.auto_abandon_after(1800))
-
     print("[HOURLY] ✅ Hourly lobby created.")
-    await view.start_game()
+    view.abandon_task = asyncio.create_task(view.auto_abandon_after(1800))  # 30 minutes
+    view.message = await channel.send(embed=await view.build_embed(channel.guild), view=view)
 
 
 class HourlyCountdownView(discord.ui.View):
