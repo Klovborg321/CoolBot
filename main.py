@@ -142,7 +142,11 @@ CHANNEL_GAME_MAP = {
     1383488263146438788: ("singles", 2),
     1383488331672850503: ("doubles", 4),
     1383488387952021555: ("triples", 3),
-    1383869104599072908: ("tournament", 4)
+    1383869104599072908: ("tournament", 4),
+    1387488539033473124: ("singles", 2),
+    1387488874590109886: ("doubles", 4),
+    1387489036788301866: ("triples", 3),
+    1387489197778010122: ("tournament", 4)
 }
 
 async def get_player_handicap(player_id: int, course_id: str):
@@ -5138,9 +5142,11 @@ async def on_ready():
     guild = bot.get_guild(1368622436454633633)
     channel = guild.get_channel(1388042320061927434)
 
-    if not guild or not channel:
-        print("❌ Guild or channel not found.")
-        return
+    # ✅ Start hourly countdown loop
+    asyncio.create_task(start_hourly_scheduler(guild, channel))
+
+    guild = bot.get_guild(1368622436454633633)
+    channel = guild.get_channel(1392032427236659280)
 
     # ✅ Start hourly countdown loop
     asyncio.create_task(start_hourly_scheduler(guild, channel))
