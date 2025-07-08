@@ -2076,12 +2076,22 @@ class RoomView(discord.ui.View):
             print(f"[\u2B50] Hourly game: awarded 50 credits to {winner}")
 
         target_game_id = (
-            str(self.lobby_message.id)
-            if self.lobby_message else
-            str(self.game_view.message.id) if self.game_view and self.game_view.message else
-            str(self.message.id) if self.message else None
+            str(self.lobby_message.id) if getattr(self, "lobby_message", None) else
+            str(self.game_view.message.id) if getattr(self, "game_view", None) and self.game_view.message else
+            str(self.message.id) if getattr(self, "message", None) else None
         )
+
+        print(f"[DEBUG] Resolved target_game_id: {target_game_id}")
+
         if target_game_id:
+            res = await run_db(lambda: supabase
+                .table("active_games")
+                .select("*")
+                .eq("game_id", target_game_id)
+                .execute()
+            )
+            print(f"[DEBUG] Rows found before delete: {res.data}")
+
             await run_db(lambda: supabase
                 .table("active_games")
                 .delete()
