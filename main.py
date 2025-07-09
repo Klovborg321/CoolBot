@@ -225,7 +225,6 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
             print("[HOURLY] 🕐 It's the top of the hour. Posting Golden Hour game.")
             await post_hourly_game(guild, channel)
         else:
-            # Calculate seconds until the next top of hour
             next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
             seconds_until = int((next_hour - now).total_seconds())
             print(f"[HOURLY] ⏳ Not top of hour, posting countdown ({seconds_until}s).")
@@ -237,10 +236,11 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
                 await countdown_view.task
                 print("[Countdown] ✅ Countdown finished. Posting Golden Hour Game.")
                 await post_hourly_game(guild, channel)
+                continue  # ✅ Countdown already waited until top of hour
             except Exception as e:
                 print(f"[Countdown] ❌ Countdown task failed: {e}")
 
-        # ✅ After game or countdown, sleep until *next* top of hour
+        # ✅ Only sleep here if we posted immediately at top of hour
         now = datetime.utcnow()
         next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
         sleep_time = (next_hour - now).total_seconds()
@@ -289,24 +289,28 @@ class HourlyCountdownView(discord.ui.View):
         self.bot = bot
         self.guild = guild
         self.channel = channel
-        self.seconds_until_start = seconds_until_start
         self.message = None
+
+        self.target_time = datetime.utcnow() + timedelta(seconds=seconds_until_start)
         self.task = asyncio.create_task(self.run_countdown())
 
     async def run_countdown(self):
         try:
-            while self.seconds_until_start > 0:
-                mins, secs = divmod(self.seconds_until_start, 60)
+            while True:
+                remaining = (self.target_time - datetime.utcnow()).total_seconds()
+                if remaining <= 0:
+                    break
+
+                mins, secs = divmod(int(remaining), 60)
                 content = f"⏳ Next Golden Hour starts in `{mins:02}:{secs:02}`..."
                 await self.update_message(content)
                 await asyncio.sleep(10)
-                self.seconds_until_start -= 10
 
             await self.update_message("🏁 Posting Golden Hour Game soon...")
-            print("[Countdown] Countdown complete.")
+            print("[Countdown] ✅ Countdown complete.")
+
         except Exception as e:
             print(f"[Countdown] ❌ Error during countdown: {e}")
-
 
     async def update_message(self, content):
         if self.message:
@@ -316,6 +320,7 @@ class HourlyCountdownView(discord.ui.View):
                 print("[Countdown] ⚠️ Message not found — maybe deleted.")
             except Exception as e:
                 print(f"[Countdown] ⚠️ Failed to update message: {e}")
+
 
 
 def is_admin(interaction: discord.Interaction) -> bool:
@@ -1858,16 +1863,8 @@ class RoomView(discord.ui.View):
 
         asyncio.create_task(warn_before_finalizing())
 
-        # ✅ Finalize after 10 minutes
-        async def end_after_timeout():
-            await asyncio.sleep(600)
-            if not self.voting_closed:
-                print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
-                await self.finalize_game()
-            else:
-                print("[Voting] Voting already closed — skipping finalize.")
-
-        self.vote_timeout = asyncio.create_task(end_after_timeout())
+        print("[Voting] ⏳ Starting 10-minute voting timeout...")
+        self.vote_timeout = asyncio.create_task(self.end_voting_after_timeout())
 
     def cancel_vote_timeout(self):
         if hasattr(self, "vote_timeout") and self.vote_timeout:
