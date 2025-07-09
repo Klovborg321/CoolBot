@@ -2377,6 +2377,40 @@ class GameView(discord.ui.View):
         else:
             print("[AUTO ABANDON] Game already started or lobby full. Skip abandon.")
 
+
+    async def _void_if_not_started(self):
+        void_time = self.scheduled_time + timedelta(minutes=30)
+        seconds_until_void = (void_time - datetime.utcnow()).total_seconds()
+
+        print(f"[HOURLY] Game will be voided in {int(seconds_until_void)}s at {void_time.time()} if not started.")
+
+        try:
+            await asyncio.sleep(seconds_until_void)
+
+            if self.has_started:
+                print("[HOURLY] Game started, not voiding.")
+                return
+
+            self.clear_items()
+            embed = await self.build_embed(self.channel.guild, status="❌ Game voided — not enough players by HH:30.")
+            embed.title = "❌ Hourly Game Voided"
+
+            if self.message:
+                await self.message.edit(embed=embed, view=None)
+
+            print("[HOURLY] Game voided after 30 min.")
+            pending_games.pop((self.game_type, self.channel.id), None)
+            self.message = None
+
+            self.cancel_abandon_task()
+            self.cancel_betting_task()
+            self.hourly_void_task = None
+            self.hourly_start_task = None
+
+        except Exception as e:
+            print(f"[HOURLY] ❌ Error in void task: {e}")
+
+
     def cancel_betting_task(self):
         if self.betting_task:
             self.betting_task.cancel()
