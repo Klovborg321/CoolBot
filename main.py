@@ -224,7 +224,9 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
         if at_top_of_hour:
             print("[HOURLY] 🕐 It's the top of the hour. Posting Golden Hour game.")
             await post_hourly_game(guild, channel)
+
         else:
+            # 🕓 Not top of the hour — start countdown to next one
             next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
             seconds_until = int((next_hour - now).total_seconds())
             print(f"[HOURLY] ⏳ Not top of hour, posting countdown ({seconds_until}s).")
@@ -236,16 +238,26 @@ async def start_hourly_scheduler(guild: discord.Guild, channel: discord.TextChan
                 await countdown_view.task
                 print("[Countdown] ✅ Countdown finished. Posting Golden Hour Game.")
                 await post_hourly_game(guild, channel)
-                continue  # ✅ Countdown already waited until top of hour
+                continue  # ✅ Already waited — skip to next loop
             except Exception as e:
                 print(f"[Countdown] ❌ Countdown task failed: {e}")
 
-        # ✅ Only sleep here if we posted immediately at top of hour
+        # 💤 Fallback sleep (e.g., after voided game)
         now = datetime.utcnow()
         next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
-        sleep_time = (next_hour - now).total_seconds()
-        print(f"[HOURLY] 😴 Sleeping for {int(sleep_time)}s until next top of hour.")
-        await asyncio.sleep(sleep_time)
+        sleep_time = int((next_hour - now).total_seconds())
+
+        print(f"[HOURLY] 🕑 No countdown in progress. Starting fallback countdown ({sleep_time}s).")
+        countdown_view = HourlyCountdownView(bot, guild, channel, seconds_until_start=sleep_time)
+        countdown_view.message = await channel.send("⏳ Golden Hourly starts soon...", view=countdown_view)
+
+        try:
+            await countdown_view.task
+            print("[Countdown] ✅ Fallback countdown finished. Posting Golden Hour Game.")
+            await post_hourly_game(guild, channel)
+        except Exception as e:
+            print(f"[Countdown] ❌ Fallback countdown task failed: {e}")
+
 
 
 async def post_hourly_game(guild: discord.Guild, channel: discord.TextChannel):
