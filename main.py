@@ -2273,6 +2273,13 @@ async def _void_if_not_started(self):
         # Remove from pending
         pending_games.pop((self.game_type, self.channel.id), None)
 
+        if self.thread:
+            try:
+                await self.thread.edit(archived=True)
+                print("[HOURLY] 🗃️ Thread archived after void.")
+            except Exception as e:
+                print(f"[HOURLY] ⚠️ Failed to archive thread: {e}")
+
         # Cleanup flags
         self.message = None
         self.hourly_void_task = None
