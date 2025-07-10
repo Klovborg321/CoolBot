@@ -1928,31 +1928,29 @@ class RoomView(discord.ui.View):
             print(f"[VOTE] Collected votes: {self.votes}")
 
             if IS_TEST_MODE:
-                # self.votes is a list of (uid, vote_value)
-                valid_votes = [(uid, val) for uid, val in self.votes if uid in self.players]
-                vote_counts = Counter(val for _, val in valid_votes)
-            else:
-                # self.votes is a dict {uid: vote_value}
-                if IS_TEST_MODE:
-                    self.votes = [(uid, val) for uid, val in self.votes if uid in self.players]
-                    vote_counts = Counter(val for _, val in self.votes)
-                else:
-                    self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
-                    vote_counts = Counter(self.votes.values())
-                #self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
-                vote_counts = Counter(self.votes.values())
-
-            print(f"[VOTE] Vote counts: {vote_counts}")
+            # ✅ votes = list of (user_id, vote_value)
+            valid_votes = [(uid, val) for uid, val in self.votes if uid in self.players]
+            vote_counts = Counter(val for _, val in valid_votes)
             most_common = vote_counts.most_common()
 
             if not most_common:
-                print("[Voting] ⚠️ No votes — declaring draw.")
+                print("[Voting] ⚠️ No votes — forcing draw.")
                 winner = "draw"
-            elif len(most_common) > 1 and most_common[0][1] == most_common[1][1]:
-                print("[Voting] ⚠️ Tie in top votes — declaring draw.")
+            else:
+                # ✅ Use top vote even if only 1 vote
+                winner = most_common[0][0]
+        else:
+            # ✅ votes = dict {user_id: vote_value}
+            self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
+            vote_counts = Counter(self.votes.values())
+            most_common = vote_counts.most_common()
+
+            if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
+                print("[Voting] ⚠️ Tie in votes — declaring draw.")
                 winner = "draw"
             else:
                 winner = most_common[0][0]
+
 
 
         # ✅ Validate winner
@@ -2219,10 +2217,7 @@ class GameEndedButton(discord.ui.Button):
 
 class VoteButton(discord.ui.Button):
     def __init__(self, value, view, raw_label):
-        if raw_label.lower().startswith("vote "):
-            label = raw_label
-        else:
-            label = f"Vote {raw_label}"
+        label = f"Vote {raw_label}"
         super().__init__(label=label, style=discord.ButtonStyle.primary)
         self.value = value
         self.view_obj = view
@@ -2239,33 +2234,43 @@ class VoteButton(discord.ui.Button):
             )
             return
 
+        # ✅ Register vote (can overwrite in TEST_MODE)
         self.view_obj.votes[interaction.user.id] = self.value
         print(f"[VOTE BUTTON] {interaction.user.id} voted for {self.value}")
 
         voter = interaction.guild.get_member(interaction.user.id)
-        if isinstance(self.value, int):
-            voted_for = interaction.guild.get_member(self.value)
-            voted_name = voted_for.display_name if voted_for else f"User {self.value}"
-        else:
-            voted_name = self.value
-
-        await interaction.response.send_message(
-            f"✅ {voter.display_name} voted for **{voted_name}**.",
-            ephemeral=False
+        voted_name = (
+            interaction.guild.get_member(self.value).display_name
+            if isinstance(self.value, int)
+            else str(self.value)
         )
+
+        try:
+            await interaction.response.send_message(
+                f"✅ {voter.display_name} voted for **{voted_name}**.",
+                ephemeral=True
+            )
+        except discord.InteractionResponded:
+            try:
+                await interaction.followup.send(
+                    f"✅ {voter.display_name} voted for **{voted_name}**.",
+                    ephemeral=True
+                )
+            except Exception as e:
+                print(f"[VoteButton] Failed to send followup: {e}")
 
         await player_manager.deactivate(interaction.user.id)
 
-        # ✅ TEST MODE: finalize early with one vote
-        if IS_TEST_MODE and len(self.view_obj.votes) == 1 and not self.view_obj.voting_closed:
-            print("[TEST_MODE] One vote received — finalizing game immediately.")
-            await self.view_obj.finalize_game(winner=self.value)
+        # ✅ Finalize early in TEST_MODE if 2+ votes cast (even by same player)
+        if IS_TEST_MODE and len(self.view_obj.votes) >= 2 and not self.view_obj.voting_closed:
+            print("[TEST_MODE] 2 votes received — finalizing game.")
+            await self.view_obj.finalize_game()
             return
 
-        # ✅ If all players voted (normal mode), finalize
-        if len(self.view_obj.votes) == len(self.view_obj.players):
+        # ✅ Normal mode: finalize if all players have voted
+        if not IS_TEST_MODE and len(self.view_obj.votes) == len(self.view_obj.players):
+            print("[VOTE] All players voted — finalizing game.")
             await self.view_obj.finalize_game()
-
 
 
 async def _void_if_not_started(self):
