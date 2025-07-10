@@ -2352,10 +2352,9 @@ class GameView(discord.ui.View):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
-        if(is_hourly):
-             self.players = []
-        else:
-            self.players = [creator.id if hasattr(creator, "id") else creator] if creator else []
+        self.players = []
+        if not is_hourly and creator and hasattr(creator, "id"):
+            self.players.append(creator.id)
         self.max_players = max_players
         self.channel = channel
         self.message = None
