@@ -1928,10 +1928,10 @@ class RoomView(discord.ui.View):
             print(f"[VOTE] Collected votes: {self.votes}")
 
             if IS_TEST_MODE:
-            # ✅ votes = list of (user_id, vote_value)
-            valid_votes = [(uid, val) for uid, val in self.votes if uid in self.players]
-            vote_counts = Counter(val for _, val in valid_votes)
-            most_common = vote_counts.most_common()
+                # ✅ votes = list of (user_id, vote_value)
+                valid_votes = [(uid, val) for uid, val in self.votes if uid in self.players]
+                vote_counts = Counter(val for _, val in valid_votes)
+                most_common = vote_counts.most_common()
 
                 if not most_common:
                     print("[Voting] ⚠️ No votes — forcing draw.")
