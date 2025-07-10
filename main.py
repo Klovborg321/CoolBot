@@ -2240,13 +2240,6 @@ class VoteButton(discord.ui.Button):
             )
             return
 
-        # ✅ Initialize votes as list of (user_id, value) in test mode
-        if IS_TEST_MODE:
-            existing_votes = [v for v in self.view_obj.votes if v[0] == interaction.user.id and v[1] == self.value]
-            if existing_votes:
-                await interaction.response.send_message("❌ You already voted for that.", ephemeral=True)
-                return
-
             self.view_obj.votes.append((interaction.user.id, self.value))
             print(f"[VOTE BUTTON] [TEST_MODE] {interaction.user.id} voted for {self.value}")
 
