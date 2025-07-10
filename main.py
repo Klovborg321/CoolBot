@@ -1857,18 +1857,16 @@ class RoomView(discord.ui.View):
         for option in options:
             if isinstance(option, int):
                 member = self.message.guild.get_member(option)
-                label = member.display_name if member else f"User {option}"
+                raw_label = member.display_name if member else f"User {option}"
             else:
-                label = option
-                if not label.lower().startswith("vote "):
-                    label = f"Vote {label}"
-            self.add_item(VoteButton(option, self, label))
+                raw_label = str(option)
+            self.add_item(VoteButton(option, self, raw_label))
 
-        # ✅ Rebuild embed for voting AND attach the updated view (important!)
+        # ✅ Rebuild embed with view and attach
         embed = await self.build_lobby_end_embed(winner=None)
-        await self.message.edit(embed=embed, view=self)  # ✅ this line was missing
+        await self.message.edit(embed=embed, view=self)
 
-        # ✅ Optional: post 1-minute warning at 9 minutes
+        # ✅ Optional: 1-min warning at 9 minutes
         async def warn_before_finalizing():
             await asyncio.sleep(540)
             if not self.voting_closed:
@@ -1878,6 +1876,7 @@ class RoomView(discord.ui.View):
 
         print("[Voting] ⏳ Starting 10-minute voting timeout...")
         self.vote_timeout = asyncio.create_task(self.end_voting_after_timeout())
+
 
     def cancel_vote_timeout(self):
         if hasattr(self, "vote_timeout") and self.vote_timeout:
@@ -2220,40 +2219,24 @@ class GameEndedButton(discord.ui.Button):
 
 class VoteButton(discord.ui.Button):
     def __init__(self, value, view, raw_label):
-        if raw_label.lower().startswith("vote "):
-            label = raw_label
-        else:
-            label = f"Vote {raw_label}"
+        label = f"Vote {raw_label}"
         super().__init__(label=label, style=discord.ButtonStyle.primary)
         self.value = value
         self.view_obj = view
 
     async def callback(self, interaction: discord.Interaction):
-        # ✅ Always defer quickly to prevent "Interaction Failed"
-        if not interaction.response.is_done():
-            try:
-                await interaction.response.defer(ephemeral=True)
-            except Exception as e:
-                print(f"[VoteButton] ⚠️ Failed to defer: {e}")
-
         if self.view_obj.voting_closed:
-            try:
-                await interaction.followup.send("❌ Voting has ended.", ephemeral=True)
-            except Exception as e:
-                print(f"[VoteButton] ❌ Failed to send end message: {e}")
+            await interaction.response.send_message("❌ Voting has ended.", ephemeral=True)
             return
 
         if not IS_TEST_MODE and interaction.user.id not in self.view_obj.players:
-            try:
-                await interaction.followup.send(
-                    "🚫 You are not a player in this match — you cannot vote.",
-                    ephemeral=True
-                )
-            except Exception as e:
-                print(f"[VoteButton] ❌ Failed to send not-player message: {e}")
+            await interaction.response.send_message(
+                "🚫 You are not a player in this match — you cannot vote.",
+                ephemeral=True
+            )
             return
 
-        # ✅ Register vote — allow multiple votes in test mode
+        # ✅ Register vote (can overwrite in TEST_MODE)
         self.view_obj.votes[interaction.user.id] = self.value
         print(f"[VOTE BUTTON] {interaction.user.id} voted for {self.value}")
 
@@ -2265,26 +2248,31 @@ class VoteButton(discord.ui.Button):
         )
 
         try:
-            await interaction.followup.send(
+            await interaction.response.send_message(
                 f"✅ {voter.display_name} voted for **{voted_name}**.",
                 ephemeral=True
             )
-        except Exception as e:
-            print(f"[VoteButton] ❌ Followup send failed: {e}")
+        except discord.InteractionResponded:
+            try:
+                await interaction.followup.send(
+                    f"✅ {voter.display_name} voted for **{voted_name}**.",
+                    ephemeral=True
+                )
+            except Exception as e:
+                print(f"[VoteButton] Failed to send followup: {e}")
 
         await player_manager.deactivate(interaction.user.id)
 
-        # ✅ TEST MODE: allow same user to vote twice
+        # ✅ Finalize early in TEST_MODE if 2+ votes cast (even by same player)
         if IS_TEST_MODE and len(self.view_obj.votes) >= 2 and not self.view_obj.voting_closed:
-            print("[TEST_MODE] 2 votes reached — finalizing.")
+            print("[TEST_MODE] 2 votes received — finalizing game.")
             await self.view_obj.finalize_game()
             return
 
-        # ✅ Normal mode: all unique players voted
+        # ✅ Normal mode: finalize if all players have voted
         if not IS_TEST_MODE and len(self.view_obj.votes) == len(self.view_obj.players):
-            print("[VOTE] All players voted — finalizing.")
+            print("[VOTE] All players voted — finalizing game.")
             await self.view_obj.finalize_game()
-
 
 
 async def _void_if_not_started(self):
