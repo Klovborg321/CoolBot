@@ -2233,7 +2233,7 @@ class VoteButton(discord.ui.Button):
             await interaction.response.send_message("❌ Voting has ended.", ephemeral=True)
             return
 
-        # ✅ Only restrict voting to players outside test mode
+        # ✅ Block non-players from voting (unless in test mode)
         if not IS_TEST_MODE and interaction.user.id not in self.view_obj.players:
             await interaction.response.send_message(
                 "🚫 You are not a player in this match — you cannot vote.",
@@ -2241,38 +2241,36 @@ class VoteButton(discord.ui.Button):
             )
             return
 
-        # ✅ In test mode, allow duplicate votes — no blocking
-
-        # ✅ Record the vote (allow multiple from same user in test mode)
+        # ✅ Allow same user to vote multiple times in test mode (simulate votes)
+        vote_count_before = len(self.view_obj.votes)
         self.view_obj.votes[interaction.user.id] = self.value
-        print(f"[VOTE BUTTON] {interaction.user.id} voted for {self.value}")
+        vote_count_after = len(self.view_obj.votes)
 
-        # ✅ Get display name for confirmation message
+        # ✅ Respond with confirmation
         voter = interaction.guild.get_member(interaction.user.id)
-        if isinstance(self.value, int):
-            voted_for = interaction.guild.get_member(self.value)
-            voted_name = voted_for.display_name if voted_for else f"User {self.value}"
-        else:
-            voted_name = self.value
+        voted_name = (
+            interaction.guild.get_member(self.value).display_name
+            if isinstance(self.value, int)
+            else str(self.value)
+        )
 
         await interaction.response.send_message(
             f"✅ {voter.display_name} voted for **{voted_name}**.",
-            ephemeral=False
+            ephemeral=True
         )
 
         await player_manager.deactivate(interaction.user.id)
 
-        # ✅ TEST MODE: finalize after 2 votes even if same user
+        # ✅ Finalize early in test mode if 2 total votes (even from 1 user)
         if IS_TEST_MODE and len(self.view_obj.votes) >= 2 and not self.view_obj.voting_closed:
-            print("[TEST_MODE] 2 votes cast — finalizing game.")
+            print("[TEST_MODE] 2 votes received — finalizing game.")
             await self.view_obj.finalize_game()
             return
 
-        # ✅ NORMAL MODE: finalize if all players voted
-        if not IS_TEST_MODE:
-            unique_voters = set(uid for uid, _ in self.view_obj.votes)
-            if len(unique_voters) == len(self.view_obj.players):
-                await self.view_obj.finalize_game()
+        # ✅ Normal mode: finalize when all players have voted
+        if not IS_TEST_MODE and len(self.view_obj.votes) == len(self.view_obj.players):
+            print("[VOTE] All players voted — finalizing game.")
+            await self.view_obj.finalize_game()
 
 
 
