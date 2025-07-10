@@ -2244,7 +2244,7 @@ class VoteButton(discord.ui.Button):
         # ✅ In test mode, allow duplicate votes — no blocking
 
         # ✅ Record the vote (allow multiple from same user in test mode)
-        self.view_obj.votes.append((interaction.user.id, self.value))
+        self.view_obj.votes[interaction.user.id] = self.value
         print(f"[VOTE BUTTON] {interaction.user.id} voted for {self.value}")
 
         # ✅ Get display name for confirmation message
