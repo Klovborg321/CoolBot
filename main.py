@@ -1273,6 +1273,7 @@ class GameJoinView(discord.ui.View):
 
         # ✅ TEST MODE: auto-fill dummy players
         if IS_TEST_MODE:
+            view.players.append(interaction.user.id)
             for pid in TEST_PLAYER_IDS:
                 if pid != interaction.user.id and pid not in view.players and len(view.players) < view.max_players:
                     view.players.append(pid)
@@ -2352,9 +2353,10 @@ class GameView(discord.ui.View):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.creator = creator
-        self.players = []
-        if not is_hourly and creator and hasattr(creator, "id"):
-            self.players.append(creator.id)
+        if(is_hourly):
+             self.players = []
+        else:
+            self.players = [creator.id if hasattr(creator, "id") else creator] if creator else []
         self.max_players = max_players
         self.channel = channel
         self.message = None
