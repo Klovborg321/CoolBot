@@ -1915,7 +1915,6 @@ class RoomView(discord.ui.View):
 
         print("[DEBUG] Finalizing game...")
         self.cancel_abandon_task()
-        self.cancel_vote_timeout()
 
         if self.game_view:
             self.game_view.game_has_ended = True
@@ -2146,6 +2145,10 @@ class RoomView(discord.ui.View):
 
         await update_leaderboard(self.bot, self.game_type)
         print(f"[DEBUG] Finalized winner = {winner}")
+        # ✅ At the very end of finalize_game()
+        if hasattr(self, "vote_timeout") and self.vote_timeout:
+            self.vote_timeout.cancel()
+            self.vote_timeout = None
 
 
 class GameEndedButton(discord.ui.Button):
