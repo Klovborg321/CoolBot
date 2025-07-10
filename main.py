@@ -1281,7 +1281,8 @@ class GameJoinView(discord.ui.View):
         # ✅ Post the lobby
         embed = await view.build_embed(interaction.guild, no_image=True)
         view.message = await interaction.channel.send(embed=embed, view=view)
-        channel_id = self.channel.id if self.channel else self.message.channel.id
+        #channel_id = self.channel.id if self.channel else self.message.channel.id
+        channel_id = view.channel.id if view.channel else view.message.channel.id
         pending_games.pop((self.game_type, channel_id), None)
 
         # ✅ If full immediately → auto start
