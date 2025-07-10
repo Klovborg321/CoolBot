@@ -2493,7 +2493,10 @@ class GameView(discord.ui.View):
                 self.remove_item(self.betting_button)
                 self.betting_button = None
 
-            await self.update_message(status="🕐 Betting closed. Good luck!")
+            if self.message:
+                await self.update_message(status="🕐 Betting closed. Good luck!")
+            else:
+                print("[BET] Skipping message update — no message to edit.")
             print(f"[BET] Betting closed for instance {instance_id}")
         except asyncio.CancelledError:
             print(f"[BET] Countdown cancelled for instance {instance_id}")
@@ -2502,13 +2505,18 @@ class GameView(discord.ui.View):
         self.clear_items()
         self.betting_button = BettingButtonDropdown(self)
         self.add_item(self.betting_button)
-        await self.update_message(status="✅ Match is full. Place your bets!")
+
+        if self.message:
+            await self.update_message(status="✅ Match is full. Place your bets!")
+        else:
+            print("[TEST_MODE] No message to update for betting phase.")
 
         if self.betting_task:
             self.betting_task.cancel()
         self.betting_task = asyncio.create_task(self._betting_countdown(self.instance_id))
 
-    async def game_full(self, interaction):
+
+    async def game_full(self, interaction=None):
         global pending_games
         self.cancel_abandon_task()
         self.cancel_betting_task()
@@ -2611,9 +2619,16 @@ class GameView(discord.ui.View):
 
         await player_manager.activate(interaction.user.id)
         self.players.append(interaction.user.id)
+
+        if not self.channel:
+            self.channel = interaction.channel
+
         await self.update_message()
 
         if len(self.players) == self.max_players:
+            if self.has_started:
+                print("[Join] Game already started, skipping game_full()")
+                return
             await self.game_full(interaction)
 
     async def update_message(self, status=None):
@@ -2644,19 +2659,19 @@ class GameView(discord.ui.View):
         await self.message.edit(embed=embed, view=self)
 
 
-    async def join_callback(interaction: discord.Interaction):
-        await self._handle_join(interaction)
+    #async def join_callback(interaction: discord.Interaction):
+    #    await self._handle_join(interaction)
+#
+#        join_button.callback = join_callback
+#        self.add_item(join_button)
+#
+#        self.add_item(LeaveGameButton(self))
+#
+#        # ✅ Betting button (still allowed until betting is closed)
+#        if not self.betting_closed and hasattr(self, "betting_button"):
+#            self.add_item(self.betting_button)
 
-        join_button.callback = join_callback
-        self.add_item(join_button)
-
-        self.add_item(LeaveGameButton(self))
-
-        # ✅ Betting button (still allowed until betting is closed)
-        if not self.betting_closed and hasattr(self, "betting_button"):
-            self.add_item(self.betting_button)
-
-        await self.message.edit(embed=embed, view=self)
+#        await self.message.edit(embed=embed, view=self)
 
 
     async def build_embed(self, guild=None, winner=None, no_image=True, status=None, bets=None):
