@@ -1273,7 +1273,6 @@ class GameJoinView(discord.ui.View):
 
         # ✅ TEST MODE: auto-fill dummy players
         if IS_TEST_MODE:
-            view.players.append(interaction.user.id)
             for pid in TEST_PLAYER_IDS:
                 if pid != interaction.user.id and pid not in view.players and len(view.players) < view.max_players:
                     view.players.append(pid)
@@ -2518,6 +2517,7 @@ class GameView(discord.ui.View):
 
 
     async def game_full(self, interaction=None):
+        print(f"[DEBUG] game_full triggered — players: {self.players}, max: {self.max_players}")
         global pending_games
         self.cancel_abandon_task()
         self.cancel_betting_task()
