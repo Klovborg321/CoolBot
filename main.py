@@ -1933,23 +1933,23 @@ class RoomView(discord.ui.View):
             vote_counts = Counter(val for _, val in valid_votes)
             most_common = vote_counts.most_common()
 
-            if not most_common:
-                print("[Voting] ⚠️ No votes — forcing draw.")
-                winner = "draw"
+                if not most_common:
+                    print("[Voting] ⚠️ No votes — forcing draw.")
+                    winner = "draw"
+                else:
+                    # ✅ Use top vote even if only 1 vote
+                    winner = most_common[0][0]
             else:
-                # ✅ Use top vote even if only 1 vote
-                winner = most_common[0][0]
-        else:
-            # ✅ votes = dict {user_id: vote_value}
-            self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
-            vote_counts = Counter(self.votes.values())
-            most_common = vote_counts.most_common()
+                # ✅ votes = dict {user_id: vote_value}
+                self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
+                vote_counts = Counter(self.votes.values())
+                most_common = vote_counts.most_common()
 
-            if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
-                print("[Voting] ⚠️ Tie in votes — declaring draw.")
-                winner = "draw"
-            else:
-                winner = most_common[0][0]
+                if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
+                    print("[Voting] ⚠️ Tie in votes — declaring draw.")
+                    winner = "draw"
+                else:
+                    winner = most_common[0][0]
 
 
 
