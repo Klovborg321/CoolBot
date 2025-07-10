@@ -1646,7 +1646,7 @@ class RoomView(discord.ui.View):
         self.course_name = course_name or getattr(game_view, "course_name", None)
         self.course_id = course_id or getattr(game_view, "course_id", None)
 
-        self.votes = [] if IS_TEST_MODE else {}
+        self.votes = {}
         self.vote_timeout = None
         self.game_has_ended = False
         self.voting_closed = False
@@ -1857,16 +1857,18 @@ class RoomView(discord.ui.View):
         for option in options:
             if isinstance(option, int):
                 member = self.message.guild.get_member(option)
-                raw_label = member.display_name if member else f"User {option}"
+                label = member.display_name if member else f"User {option}"
             else:
-                raw_label = str(option)
-            self.add_item(VoteButton(option, self, raw_label))
+                label = option
+                if not label.lower().startswith("vote "):
+                    label = f"Vote {label}"
+            self.add_item(VoteButton(option, self, label))
 
-        # ✅ Rebuild embed with view and attach
+        # ✅ Rebuild embed for voting AND attach the updated view (important!)
         embed = await self.build_lobby_end_embed(winner=None)
-        await self.message.edit(embed=embed, view=self)
+        await self.message.edit(embed=embed, view=self)  # ✅ this line was missing
 
-        # ✅ Optional: 1-min warning at 9 minutes
+        # ✅ Optional: post 1-minute warning at 9 minutes
         async def warn_before_finalizing():
             await asyncio.sleep(540)
             if not self.voting_closed:
@@ -1876,7 +1878,6 @@ class RoomView(discord.ui.View):
 
         print("[Voting] ⏳ Starting 10-minute voting timeout...")
         self.vote_timeout = asyncio.create_task(self.end_voting_after_timeout())
-
 
     def cancel_vote_timeout(self):
         if hasattr(self, "vote_timeout") and self.vote_timeout:
@@ -1926,32 +1927,16 @@ class RoomView(discord.ui.View):
             print(f"[TEST_MODE] Winner override received: {winner}")
         else:
             print(f"[VOTE] Collected votes: {self.votes}")
+            self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
+            vote_counts = Counter(self.votes.values())
+            print(f"[VOTE] Vote counts: {vote_counts}")
+            most_common = vote_counts.most_common()
 
-            if IS_TEST_MODE:
-                # ✅ votes = list of (user_id, vote_value)
-                valid_votes = [(uid, val) for uid, val in self.votes if uid in self.players]
-                vote_counts = Counter(val for _, val in valid_votes)
-                most_common = vote_counts.most_common()
-
-                if not most_common:
-                    print("[Voting] ⚠️ No votes — forcing draw.")
-                    winner = "draw"
-                else:
-                    # ✅ Use top vote even if only 1 vote
-                    winner = most_common[0][0]
+            if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
+                print("[Voting] ⚠️ No votes or tie — declaring draw.")
+                winner = "draw"
             else:
-                # ✅ votes = dict {user_id: vote_value}
-                self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
-                vote_counts = Counter(self.votes.values())
-                most_common = vote_counts.most_common()
-
-                if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
-                    print("[Voting] ⚠️ Tie in votes — declaring draw.")
-                    winner = "draw"
-                else:
-                    winner = most_common[0][0]
-
-
+                winner = most_common[0][0]
 
         # ✅ Validate winner
         valid_options = self.get_vote_options()
@@ -2217,7 +2202,10 @@ class GameEndedButton(discord.ui.Button):
 
 class VoteButton(discord.ui.Button):
     def __init__(self, value, view, raw_label):
-        label = f"Vote {raw_label}"
+        if raw_label.lower().startswith("vote "):
+            label = raw_label
+        else:
+            label = f"Vote {raw_label}"
         super().__init__(label=label, style=discord.ButtonStyle.primary)
         self.value = value
         self.view_obj = view
@@ -2234,43 +2222,33 @@ class VoteButton(discord.ui.Button):
             )
             return
 
-        # ✅ Register vote (can overwrite in TEST_MODE)
         self.view_obj.votes[interaction.user.id] = self.value
         print(f"[VOTE BUTTON] {interaction.user.id} voted for {self.value}")
 
         voter = interaction.guild.get_member(interaction.user.id)
-        voted_name = (
-            interaction.guild.get_member(self.value).display_name
-            if isinstance(self.value, int)
-            else str(self.value)
-        )
+        if isinstance(self.value, int):
+            voted_for = interaction.guild.get_member(self.value)
+            voted_name = voted_for.display_name if voted_for else f"User {self.value}"
+        else:
+            voted_name = self.value
 
-        try:
-            await interaction.response.send_message(
-                f"✅ {voter.display_name} voted for **{voted_name}**.",
-                ephemeral=True
-            )
-        except discord.InteractionResponded:
-            try:
-                await interaction.followup.send(
-                    f"✅ {voter.display_name} voted for **{voted_name}**.",
-                    ephemeral=True
-                )
-            except Exception as e:
-                print(f"[VoteButton] Failed to send followup: {e}")
+        await interaction.response.send_message(
+            f"✅ {voter.display_name} voted for **{voted_name}**.",
+            ephemeral=False
+        )
 
         await player_manager.deactivate(interaction.user.id)
 
-        # ✅ Finalize early in TEST_MODE if 2+ votes cast (even by same player)
-        if IS_TEST_MODE and len(self.view_obj.votes) >= 2 and not self.view_obj.voting_closed:
-            print("[TEST_MODE] 2 votes received — finalizing game.")
-            await self.view_obj.finalize_game()
+        # ✅ TEST MODE: finalize early with one vote
+        if IS_TEST_MODE and len(self.view_obj.votes) == 1 and not self.view_obj.voting_closed:
+            print("[TEST_MODE] One vote received — finalizing game immediately.")
+            await self.view_obj.finalize_game(winner=self.value)
             return
 
-        # ✅ Normal mode: finalize if all players have voted
-        if not IS_TEST_MODE and len(self.view_obj.votes) == len(self.view_obj.players):
-            print("[VOTE] All players voted — finalizing game.")
+        # ✅ If all players voted (normal mode), finalize
+        if len(self.view_obj.votes) == len(self.view_obj.players):
             await self.view_obj.finalize_game()
+
 
 
 async def _void_if_not_started(self):
