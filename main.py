@@ -2215,6 +2215,7 @@ class VoteButton(discord.ui.Button):
             await interaction.response.send_message("❌ Voting has ended.", ephemeral=True)
             return
 
+        # ✅ In normal mode, block votes from non-players
         if not IS_TEST_MODE and interaction.user.id not in self.view_obj.players:
             await interaction.response.send_message(
                 "🚫 You are not a player in this match — you cannot vote.",
@@ -2222,7 +2223,21 @@ class VoteButton(discord.ui.Button):
             )
             return
 
-        self.view_obj.votes[interaction.user.id] = self.value
+        # ✅ Allow 1 user to vote for multiple players in TEST_MODE
+        if IS_TEST_MODE:
+            # Count how many distinct player votes already exist
+            current_voted = list(self.view_obj.votes.values())
+            if self.value in current_voted:
+                await interaction.response.send_message(
+                    f"❌ Vote for **{self.value}** already submitted.",
+                    ephemeral=True
+                )
+                return
+
+            self.view_obj.votes[f"{interaction.user.id}_{self.value}"] = self.value
+        else:
+            self.view_obj.votes[interaction.user.id] = self.value
+
         print(f"[VOTE BUTTON] {interaction.user.id} voted for {self.value}")
 
         voter = interaction.guild.get_member(interaction.user.id)
@@ -2232,23 +2247,32 @@ class VoteButton(discord.ui.Button):
         else:
             voted_name = self.value
 
-        await interaction.response.send_message(
-            f"✅ {voter.display_name} voted for **{voted_name}**.",
-            ephemeral=False
-        )
+        try:
+            await interaction.response.send_message(
+                f"✅ {voter.display_name} voted for **{voted_name}**.",
+                ephemeral=True
+            )
+        except discord.InteractionResponded:
+            await interaction.followup.send(
+                f"✅ {voter.display_name} voted for **{voted_name}**.",
+                ephemeral=True
+            )
 
         await player_manager.deactivate(interaction.user.id)
 
-        # ✅ TEST MODE: finalize early with one vote
-        if IS_TEST_MODE and len(self.view_obj.votes) == 1 and not self.view_obj.voting_closed:
-            print("[TEST_MODE] One vote received — finalizing game immediately.")
-            await self.view_obj.finalize_game(winner=self.value)
-            return
+        # ✅ Finalize in test mode when votes are in for all player slots
+        if IS_TEST_MODE:
+            voted_values = list(self.view_obj.votes.values())
+            remaining = [p for p in self.view_obj.players if p not in voted_values]
+            if not remaining and not self.view_obj.voting_closed:
+                print("[TEST_MODE] All votes cast — finalizing game.")
+                await self.view_obj.finalize_game()
+                return
 
-        # ✅ If all players voted (normal mode), finalize
-        if len(self.view_obj.votes) == len(self.view_obj.players):
+        # ✅ Normal mode finalize
+        if not IS_TEST_MODE and len(self.view_obj.votes) == len(self.view_obj.players):
+            print("[VOTE] All players voted — finalizing.")
             await self.view_obj.finalize_game()
-
 
 
 async def _void_if_not_started(self):
