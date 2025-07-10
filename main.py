@@ -2220,30 +2220,42 @@ class GameEndedButton(discord.ui.Button):
 
 class VoteButton(discord.ui.Button):
     def __init__(self, value, view, raw_label):
-        label = raw_label if raw_label.lower().startswith("vote ") else f"Vote {raw_label}"
+        if raw_label.lower().startswith("vote "):
+            label = raw_label
+        else:
+            label = f"Vote {raw_label}"
         super().__init__(label=label, style=discord.ButtonStyle.primary)
         self.value = value
         self.view_obj = view
 
     async def callback(self, interaction: discord.Interaction):
-        print(f"[VoteButton] Callback triggered by {interaction.user.id} voting for {self.value}")
+        # ✅ Always defer quickly to prevent "Interaction Failed"
+        if not interaction.response.is_done():
+            try:
+                await interaction.response.defer(ephemeral=True)
+            except Exception as e:
+                print(f"[VoteButton] ⚠️ Failed to defer: {e}")
 
         if self.view_obj.voting_closed:
-            await interaction.response.send_message("❌ Voting has ended.", ephemeral=True)
+            try:
+                await interaction.followup.send("❌ Voting has ended.", ephemeral=True)
+            except Exception as e:
+                print(f"[VoteButton] ❌ Failed to send end message: {e}")
             return
 
         if not IS_TEST_MODE and interaction.user.id not in self.view_obj.players:
-            await interaction.response.send_message(
-                "🚫 You are not a player in this match — you cannot vote.",
-                ephemeral=True
-            )
+            try:
+                await interaction.followup.send(
+                    "🚫 You are not a player in this match — you cannot vote.",
+                    ephemeral=True
+                )
+            except Exception as e:
+                print(f"[VoteButton] ❌ Failed to send not-player message: {e}")
             return
 
-        # ✅ Register vote
-        if IS_TEST_MODE:
-            self.view_obj.votes.setdefault("test_votes", []).append(self.value)
-        else:
-            self.view_obj.votes[interaction.user.id] = self.value
+        # ✅ Register vote — allow multiple votes in test mode
+        self.view_obj.votes[interaction.user.id] = self.value
+        print(f"[VOTE BUTTON] {interaction.user.id} voted for {self.value}")
 
         voter = interaction.guild.get_member(interaction.user.id)
         voted_name = (
@@ -2252,43 +2264,27 @@ class VoteButton(discord.ui.Button):
             else str(self.value)
         )
 
-        # ✅ Always respond to interaction
         try:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"✅ {voter.display_name} voted for **{voted_name}**.",
                 ephemeral=True
             )
-        except discord.InteractionResponded:
-            try:
-                await interaction.followup.send(
-                    f"✅ {voter.display_name} voted for **{voted_name}**.",
-                    ephemeral=True
-                )
-            except Exception as e:
-                print(f"[VoteButton] ❌ Followup send failed: {e}")
+        except Exception as e:
+            print(f"[VoteButton] ❌ Followup send failed: {e}")
 
         await player_manager.deactivate(interaction.user.id)
 
-        # ✅ TEST MODE: finalize if 2 votes (even from same user)
-        if IS_TEST_MODE:
-            votes = self.view_obj.votes.get("test_votes", [])
-            if len(votes) >= 2 and not self.view_obj.voting_closed:
-                from collections import Counter
-                vote_counts = Counter(votes)
-                most_common = vote_counts.most_common()
-                if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
-                    print("[TEST_MODE] ⚠️ Tie or no clear winner — draw.")
-                    await self.view_obj.finalize_game(winner="draw")
-                else:
-                    winner = most_common[0][0]
-                    print(f"[TEST_MODE] ✅ Finalizing with test winner: {winner}")
-                    await self.view_obj.finalize_game(winner=winner)
-                return
-
-        # ✅ Normal mode: finalize when all players have voted
-        if not IS_TEST_MODE and len(self.view_obj.votes) == len(self.view_obj.players):
-            print("[VOTE] ✅ All players voted — finalizing.")
+        # ✅ TEST MODE: allow same user to vote twice
+        if IS_TEST_MODE and len(self.view_obj.votes) >= 2 and not self.view_obj.voting_closed:
+            print("[TEST_MODE] 2 votes reached — finalizing.")
             await self.view_obj.finalize_game()
+            return
+
+        # ✅ Normal mode: all unique players voted
+        if not IS_TEST_MODE and len(self.view_obj.votes) == len(self.view_obj.players):
+            print("[VOTE] All players voted — finalizing.")
+            await self.view_obj.finalize_game()
+
 
 
 async def _void_if_not_started(self):
