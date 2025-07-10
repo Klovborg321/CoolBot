@@ -1881,22 +1881,24 @@ class RoomView(discord.ui.View):
 
     def cancel_vote_timeout(self):
         if hasattr(self, "vote_timeout") and self.vote_timeout:
+            print("[Voting] 🔕 vote_timeout task cancelled.")
             self.vote_timeout.cancel()
             self.vote_timeout = None
 
     async def end_voting_after_timeout(self):
-        await asyncio.sleep(600)
-
-        if self.voting_closed:
-            print("[Voting] Skipped finalize: voting already closed.")
-            return
-
-        print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
-
+        print("[DEBUG] 🔔 end_voting_after_timeout() task started.")
         try:
+            await asyncio.sleep(600)
+            print("[Voting] ⏱️ Timeout reached — finalizing with available votes.")
+
+            if self.voting_closed:
+                print("[Voting] Skipped finalize: voting already closed.")
+                return
+
             await self.finalize_game()
         except Exception as e:
-            print(f"[Voting] ❌ Error during finalize_game(): {e}")
+            print(f"[Voting] ❌ Error inside end_voting_after_timeout: {e}")
+
 
     async def safe_edit_message(message, **kwargs):
         try:
