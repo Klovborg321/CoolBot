@@ -2240,37 +2240,30 @@ class VoteButton(discord.ui.Button):
             )
             return
 
-            self.view_obj.votes.append((interaction.user.id, self.value))
-            print(f"[VOTE BUTTON] [TEST_MODE] {interaction.user.id} voted for {self.value}")
+        # ✅ Save the vote (test mode may allow multiple from same user)
+        self.view_obj.votes.append((interaction.user.id, self.value))
 
+        # ✅ Respond properly to avoid 'Interaction Failed'
+        if IS_TEST_MODE:
+            await interaction.response.defer()
         else:
-            # Normal mode: one vote per user
-            self.view_obj.votes[interaction.user.id] = self.value
-            print(f"[VOTE BUTTON] {interaction.user.id} voted for {self.value}")
-
-        voter = interaction.guild.get_member(interaction.user.id)
-        if isinstance(self.value, int):
-            voted_for = interaction.guild.get_member(self.value)
-            voted_name = voted_for.display_name if voted_for else f"User {self.value}"
-        else:
-            voted_name = self.value
-
-        await interaction.response.send_message(
-            f"✅ {voter.display_name} voted for **{voted_name}**.",
-            ephemeral=False
-        )
+            await interaction.response.send_message(
+                f"✅ {interaction.user.display_name} voted for **{self.value}**.",
+                ephemeral=False
+            )
 
         await player_manager.deactivate(interaction.user.id)
 
-        # ✅ TEST MODE: finalize when 2 votes (even same user)
+        # ✅ Finalize if 2 votes in test mode
         if IS_TEST_MODE and len(self.view_obj.votes) >= 2 and not self.view_obj.voting_closed:
-            print("[TEST_MODE] Two test votes received — finalizing game.")
+            print("[TEST_MODE] Finalizing after 2 votes")
             await self.view_obj.finalize_game()
             return
 
-        # ✅ Normal: finalize when all players voted
+        # ✅ Finalize normally if all real players have voted
         if not IS_TEST_MODE and len(self.view_obj.votes) == len(self.view_obj.players):
             await self.view_obj.finalize_game()
+
 
 
 async def _void_if_not_started(self):
