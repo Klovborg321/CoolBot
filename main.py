@@ -1927,16 +1927,24 @@ class RoomView(discord.ui.View):
             print(f"[TEST_MODE] Winner override received: {winner}")
         else:
             print(f"[VOTE] Collected votes: {self.votes}")
-            self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
-            vote_counts = Counter(self.votes.values())
+
+            if IS_TEST_MODE:
+                # ✅ Just count all vote values, regardless of who voted
+                vote_counts = Counter(self.votes.values())
+            else:
+                # ✅ Only keep votes from valid players
+                self.votes = {uid: val for uid, val in self.votes.items() if uid in self.players}
+                vote_counts = Counter(self.votes.values())
+
             print(f"[VOTE] Vote counts: {vote_counts}")
             most_common = vote_counts.most_common()
 
-            if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
+            if not most_common or (not IS_TEST_MODE and len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
                 print("[Voting] ⚠️ No votes or tie — declaring draw.")
                 winner = "draw"
             else:
                 winner = most_common[0][0]
+
 
         # ✅ Validate winner
         valid_options = self.get_vote_options()
@@ -2202,10 +2210,7 @@ class GameEndedButton(discord.ui.Button):
 
 class VoteButton(discord.ui.Button):
     def __init__(self, value, view, raw_label):
-        if raw_label.lower().startswith("vote "):
-            label = raw_label
-        else:
-            label = f"Vote {raw_label}"
+        label = raw_label if raw_label.lower().startswith("vote ") else f"Vote {raw_label}"
         super().__init__(label=label, style=discord.ButtonStyle.primary)
         self.value = value
         self.view_obj = view
@@ -2215,7 +2220,6 @@ class VoteButton(discord.ui.Button):
             await interaction.response.send_message("❌ Voting has ended.", ephemeral=True)
             return
 
-        # ✅ In normal mode, block votes from non-players
         if not IS_TEST_MODE and interaction.user.id not in self.view_obj.players:
             await interaction.response.send_message(
                 "🚫 You are not a player in this match — you cannot vote.",
@@ -2223,29 +2227,21 @@ class VoteButton(discord.ui.Button):
             )
             return
 
-        # ✅ Allow 1 user to vote for multiple players in TEST_MODE
-        if IS_TEST_MODE:
-            # Count how many distinct player votes already exist
-            current_voted = list(self.view_obj.votes.values())
-            if self.value in current_voted:
-                await interaction.response.send_message(
-                    f"❌ Vote for **{self.value}** already submitted.",
-                    ephemeral=True
-                )
-                return
+        voter = interaction.guild.get_member(interaction.user.id)
+        voted_name = (
+            interaction.guild.get_member(self.value).display_name
+            if isinstance(self.value, int)
+            else str(self.value)
+        )
 
-            self.view_obj.votes[f"{interaction.user.id}_{self.value}"] = self.value
+        # ✅ TEST MODE: allow multiple votes by same user, even for same player
+        if IS_TEST_MODE:
+            key = f"{interaction.user.id}_{uuid.uuid4()}"  # Unique key per vote
+            self.view_obj.votes[key] = self.value
         else:
             self.view_obj.votes[interaction.user.id] = self.value
 
         print(f"[VOTE BUTTON] {interaction.user.id} voted for {self.value}")
-
-        voter = interaction.guild.get_member(interaction.user.id)
-        if isinstance(self.value, int):
-            voted_for = interaction.guild.get_member(self.value)
-            voted_name = voted_for.display_name if voted_for else f"User {self.value}"
-        else:
-            voted_name = self.value
 
         try:
             await interaction.response.send_message(
@@ -2260,17 +2256,11 @@ class VoteButton(discord.ui.Button):
 
         await player_manager.deactivate(interaction.user.id)
 
-        # ✅ Finalize in test mode when votes are in for all player slots
-        if IS_TEST_MODE:
-            voted_values = list(self.view_obj.votes.values())
-            remaining = [p for p in self.view_obj.players if p not in voted_values]
-            if not remaining and not self.view_obj.voting_closed:
-                print("[TEST_MODE] All votes cast — finalizing game.")
-                await self.view_obj.finalize_game()
-                return
-
-        # ✅ Normal mode finalize
-        if not IS_TEST_MODE and len(self.view_obj.votes) == len(self.view_obj.players):
+        # ✅ Finalize when enough votes (in test mode, 2+ total)
+        if IS_TEST_MODE and len(self.view_obj.votes) >= 2 and not self.view_obj.voting_closed:
+            print("[TEST_MODE] 2 or more test votes received — finalizing.")
+            await self.view_obj.finalize_game()
+        elif not IS_TEST_MODE and len(self.view_obj.votes) == len(self.view_obj.players):
             print("[VOTE] All players voted — finalizing.")
             await self.view_obj.finalize_game()
 
