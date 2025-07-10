@@ -2226,6 +2226,8 @@ class VoteButton(discord.ui.Button):
         self.view_obj = view
 
     async def callback(self, interaction: discord.Interaction):
+        print(f"[VoteButton] Callback triggered by {interaction.user.id} voting for {self.value}")
+
         if self.view_obj.voting_closed:
             await interaction.response.send_message("❌ Voting has ended.", ephemeral=True)
             return
@@ -2237,13 +2239,12 @@ class VoteButton(discord.ui.Button):
             )
             return
 
-        # ✅ Handle voting differently in TEST_MODE
+        # ✅ Register vote
         if IS_TEST_MODE:
             self.view_obj.votes.setdefault("test_votes", []).append(self.value)
         else:
             self.view_obj.votes[interaction.user.id] = self.value
 
-        # ✅ Build vote confirmation
         voter = interaction.guild.get_member(interaction.user.id)
         voted_name = (
             interaction.guild.get_member(self.value).display_name
@@ -2251,7 +2252,7 @@ class VoteButton(discord.ui.Button):
             else str(self.value)
         )
 
-        # ✅ Send confirmation message
+        # ✅ Always respond to interaction
         try:
             await interaction.response.send_message(
                 f"✅ {voter.display_name} voted for **{voted_name}**.",
@@ -2264,29 +2265,30 @@ class VoteButton(discord.ui.Button):
                     ephemeral=True
                 )
             except Exception as e:
-                print(f"[VoteButton] Failed to send followup: {e}")
+                print(f"[VoteButton] ❌ Followup send failed: {e}")
 
         await player_manager.deactivate(interaction.user.id)
 
-        # ✅ TEST MODE: finalize if 2 test votes
-        if IS_TEST_MODE and len(self.view_obj.votes["test_votes"]) >= 2 and not self.view_obj.voting_closed:
-            from collections import Counter
-            counts = Counter(self.view_obj.votes["test_votes"])
-            most_common = counts.most_common()
-            if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
-                print("[TEST_MODE] Tie or no clear winner — declaring draw.")
-                await self.view_obj.finalize_game(winner="draw")
-            else:
-                winner = most_common[0][0]
-                print(f"[TEST_MODE] Finalizing for test winner: {winner}")
-                await self.view_obj.finalize_game(winner=winner)
-            return
+        # ✅ TEST MODE: finalize if 2 votes (even from same user)
+        if IS_TEST_MODE:
+            votes = self.view_obj.votes.get("test_votes", [])
+            if len(votes) >= 2 and not self.view_obj.voting_closed:
+                from collections import Counter
+                vote_counts = Counter(votes)
+                most_common = vote_counts.most_common()
+                if not most_common or (len(most_common) > 1 and most_common[0][1] == most_common[1][1]):
+                    print("[TEST_MODE] ⚠️ Tie or no clear winner — draw.")
+                    await self.view_obj.finalize_game(winner="draw")
+                else:
+                    winner = most_common[0][0]
+                    print(f"[TEST_MODE] ✅ Finalizing with test winner: {winner}")
+                    await self.view_obj.finalize_game(winner=winner)
+                return
 
-        # ✅ Normal mode: finalize if all players voted
+        # ✅ Normal mode: finalize when all players have voted
         if not IS_TEST_MODE and len(self.view_obj.votes) == len(self.view_obj.players):
-            print("[VOTE] All players voted — finalizing.")
+            print("[VOTE] ✅ All players voted — finalizing.")
             await self.view_obj.finalize_game()
-
 
 
 async def _void_if_not_started(self):
