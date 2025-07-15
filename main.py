@@ -2539,34 +2539,34 @@ class GameView(discord.ui.View):
     async def game_full(self, interaction=None):
         print(f"[DEBUG] game_full triggered — players: {self.players}, max: {self.max_players}")
         global pending_games
+
         self.cancel_abandon_task()
         self.cancel_betting_task()
+        self.has_started = True
 
-        self.has_started = True 
-        
         pending_games.pop((self.game_type, self.channel.id), None)
 
-        #await save_pending_game(self.game_type, self.players, self.channel.id, self.max_players)
-
+        # 🔁 Rebuild embed early (no image) and update buttons BEFORE thread creation
         lobby_embed = await self.build_embed(interaction.guild, no_image=True)
         lobby_embed.title = f"{self.game_type.title()} Game Lobby"
         lobby_embed.color = discord.Color.orange()
 
-        #self.clear_items()
-        #self.betting_button = BettingButtonDropdown(self)
-        #self.add_item(self.betting_button)
+        self.clear_items()  # ✅ Clear old buttons
+        self.betting_button = BettingButtonDropdown(self)
+        self.add_item(self.betting_button)
 
         if not self.channel:
             self.channel = interaction.channel
 
         if self.message:
             try:
-                await self.message.edit(embed=lobby_embed, view=self)
+                await self.message.edit(embed=lobby_embed, view=self)  # ✅ Edit early with new buttons
             except discord.NotFound:
                 self.message = await self.channel.send(embed=lobby_embed, view=self)
         else:
             self.message = await self.channel.send(embed=lobby_embed, view=self)
 
+        # 📦 Continue with DB and thread logic after UI feedback is done
         res = await run_db(lambda: supabase.table("courses").select("id", "name", "image_url").execute())
         chosen = random.choice(res.data or [{}])
         self.course_id = chosen.get("id")
@@ -2610,17 +2610,19 @@ class GameView(discord.ui.View):
         mentions = " ".join(f"<@{p}>" for p in self.players)
         thread_msg = await thread.send(content=f"{mentions}\nMatch started!", embed=thread_embed, view=room_view)
         room_view.message = thread_msg
-        room_view.channel = thread 
+        room_view.channel = thread
 
         await save_game_state(self, self, room_view)
+
         if not self.scheduled_note:
             await start_new_game_button(self.channel, self.game_type, self.max_players)
 
         if self.is_hourly:
             countdown_view = HourlyCountdownView(bot, interaction.guild, self.channel, seconds_until_start=120)
             countdown_view.message = await self.channel.send("⏳ Golden Hour Game starts soon...", view=countdown_view)
-        
+
         await self.show_betting_phase()
+
 
     async def _handle_join(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.response.is_done():
