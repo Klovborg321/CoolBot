@@ -2724,8 +2724,8 @@ class GameView(discord.ui.View):
             timestamp=discord.utils.utcnow()
         )
         embed.set_author(
-            name="LEAGUE OF EXTRAORDINARY MISFITS",
-            icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1382601173932183695/LOGO_2.webp"
+            name="PUTT CLUB CHANNEL",
+            icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1395849001756131479/logo.webp"
         )
 
         if self.scheduled_time:
