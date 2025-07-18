@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional 
 import requests
 import discord
 from discord.ext import commands, tasks
