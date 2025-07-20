@@ -1,4 +1,4 @@
-from typing import Optional 
+from typing import Optional
 import requests
 import discord
 from discord.ext import commands, tasks
@@ -410,7 +410,7 @@ async def send_global_notification(game_type: str, lobby_link: str, guild: disco
         return
 
     embed = discord.Embed(
-        title="🏌️ **Mini Golf Misfits**",
+        title="🏌️ **THE PUTT CLUB SERVER**",
         description=(
             f"A new **`{game_type}`** lobby just opened!\n\n"
             f"[👉 **Click here to join the lobby!**]({lobby_link})"
@@ -420,7 +420,7 @@ async def send_global_notification(game_type: str, lobby_link: str, guild: disco
     embed.set_image(
         url="https://nxybekwiefwxnijrwuas.supabase.co/storage/v1/object/public/game-images/banner.png"
     )
-    embed.set_footer(text="League of Extraordinary Misfits")
+    embed.set_footer(text="Putt Club")
 
     await channel.send(
         content=f"{role.mention} ⛳ **New `{game_type}` game alert!**",
