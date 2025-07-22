@@ -1186,13 +1186,24 @@ class RoomNameGenerator:
 
     async def fetch_five_letter_words(self):
         if self.fetching:
-            return  # prevent multiple calls
+            return
         self.fetching = True
         try:
             response = requests.get(
-                "https://api.datamuse.com/words", params={"sp": "?????", "max": 1000}
+                "https://api.datamuse.com/words",
+                params={
+                    "sp": "?????",       # 5-letter pattern
+                    "md": "f",           # include frequency metadata
+                    "max": 1000
+                }
             )
-            words = [w["word"].lower() for w in response.json() if w["word"].isalpha()]
+            data = response.json()
+            # Filter for high frequency and alphabetic only
+            words = [
+                w["word"].lower()
+                for w in data
+                if w["word"].isalpha() and w.get("tags") and any(tag.startswith("f:") and float(tag[2:]) > 5.0 for tag in w["tags"])
+            ]
             self.word_cache = [w for w in words if w not in self.used_words]
         except Exception as e:
             print(f"[RoomNameGenerator] Error: {e}")
@@ -1208,9 +1219,6 @@ class RoomNameGenerator:
         self.word_cache.remove(word)
         self.used_words.add(word)
         return word.capitalize()
-
-# ✅ use `await room_name_generator.get_unique_word()` in your flow
-
 
 
 # ✅ Correct: instantiate it OUTSIDE the class block
