@@ -2813,20 +2813,22 @@ class GameView(discord.ui.View):
                 member = guild.get_member(user_id) if guild else None
                 raw_name = member.display_name if member else f"Player {idx + 1}"
                 name = f"**{fixed_width_name(raw_name, 20)}**"
-                rank = ranks[idx]
-                hcp_txt = f" 🎯 HCP: {handicaps[idx]}" if handicaps[idx] is not None else ""
+
+                win = (await get_player(user_id)).get("wins", 0)  # ✅ Use wins instead of rank
+                hcp_txt = ""  # 🎯 Handicap removed
 
                 if self.game_type == "singles" and game_full:
                     e1, e2 = ranks
                     o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
                     player_odds = o1 if idx == 0 else 1 - o1
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%{hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({win}) • {player_odds * 100:.1f}%"
                 elif self.game_type == "triples" and game_full:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%{hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({win}) • {odds[idx] * 100:.1f}%"
                 else:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}){hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({win})"
             else:
                 line = f"○ Player {idx + 1}: [Waiting...]"
+
             player_lines.append(line)
 
             if self.game_type == "doubles" and idx == 1:
@@ -2835,6 +2837,7 @@ class GameView(discord.ui.View):
                 if game_full:
                     label += f" • {odds_b * 100:.1f}%"
                 player_lines.append(label)
+
 
         embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
         embed.add_field(name="\u200b", value="\u200b", inline=False)
