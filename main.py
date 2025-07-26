@@ -143,6 +143,24 @@ CHANNEL_GAME_MAP = {
     1387489197778010122: ("tournament", 4)
 }
 
+async def autocomplete_course(interaction: discord.Interaction, current: str):
+    try:
+        res = await run_db(lambda: supabase
+            .table("courses")
+            .select("name")
+            .ilike("name", f"%{current}%")
+            .limit(25)
+            .execute()
+        )
+        return [
+            app_commands.Choice(name=course["name"], value=course["name"])
+            for course in res.data
+        ]
+    except Exception as e:
+        print(f"[autocomplete_course] ❌ {e}")
+        return []
+
+# --- Modal for score input ---
 class HandicapModal(ui.Modal, title="Set Handicap"):
     def __init__(self, user_id: int, course_name: str, course_id: str):
         super().__init__()
@@ -162,14 +180,13 @@ class HandicapModal(ui.Modal, title="Set Handicap"):
         score_raw = self.score_input.value.strip()
 
         try:
-            # Convert to numeric value (int or float)
             score = float(score_raw.replace(",", "."))
         except ValueError:
-            await interaction.response.send_message("❌ Please enter a valid number (e.g. -7 or 54).", ephemeral=True)
+            await interaction.response.send_message("❌ Invalid number format.", ephemeral=True)
             return
 
-        # Step 1: Fetch avg_par from courses
         try:
+            # Step 1: Fetch avg_par
             course_res = await run_db(lambda: supabase
                 .table("courses")
                 .select("avg_par")
@@ -184,13 +201,13 @@ class HandicapModal(ui.Modal, title="Set Handicap"):
 
             avg_par = course_res.data.get("avg_par")
             if avg_par is None:
-                await interaction.response.send_message("❌ Course is missing avg_par value.", ephemeral=True)
+                await interaction.response.send_message("❌ avg_par missing.", ephemeral=True)
                 return
 
             # Step 2: Calculate handicap
             handicap = score - avg_par
 
-            # Step 3: Upsert score + handicap
+            # Step 3: Save to Supabase
             await run_db(lambda: supabase
                 .table("handicaps")
                 .upsert({
@@ -203,7 +220,7 @@ class HandicapModal(ui.Modal, title="Set Handicap"):
             )
 
             await interaction.response.send_message(
-                f"✅ Set handicap for <@{self.user_id}> on **{self.course_name}**:\n"
+                f"✅ Handicap set for <@{self.user_id}> on **{self.course_name}**:\n"
                 f"• Score: `{score}`\n"
                 f"• Avg Par: `{avg_par}`\n"
                 f"• Handicap: `{handicap:+.1f}`",
@@ -211,7 +228,8 @@ class HandicapModal(ui.Modal, title="Set Handicap"):
             )
 
         except Exception as e:
-            await interaction.response.send_message(f"❌ Failed to save: {e}", ephemeral=True)
+            await interaction.response.send_message(f"❌ Failed to save handicap: {e}", ephemeral=True)
+
 
 async def get_player_handicap(player_id: int, course_id: str):
     # Step 1: Try to fetch this player's handicap for this course
@@ -4192,7 +4210,9 @@ async def set_user_handicap(
     user: discord.User,
     course: str
 ):
-    # Validate course name (resolve to ID)
+    await interaction.response.defer(ephemeral=True)
+
+    # Look up course info
     res = await run_db(lambda: supabase
         .table("courses")
         .select("id, name")
@@ -4202,17 +4222,16 @@ async def set_user_handicap(
     )
 
     if not res.data:
-        await interaction.response.send_message("❌ Course not found.", ephemeral=True)
+        await interaction.followup.send("❌ Course not found.", ephemeral=True)
         return
 
     course_id = res.data[0]["id"]
     course_name = res.data[0]["name"]
 
-    await interaction.response.send_modal(
-        HandicapModal(user_id=user.id, course_name=course_name, course_id=course_id)
+    # Show modal
+    await interaction.followup.send_modal(
+        HandicapModal(user.id, course_name, course_id)
     )
-
-
 
 @tree.command(name="init_singles")
 async def init_singles(interaction: discord.Interaction):
