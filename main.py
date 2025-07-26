@@ -2013,164 +2013,168 @@ class RoomView(discord.ui.View):
                 print(f"[finalize_game] ⚠️ Failed to archive thread: {e}")
 
             pending_games.pop((self.game_type, self.channel.id), None)
-            return
-
-        # ✅ Normalize for ELO/bets
-        normalized_winner = normalize_team(winner) if self.game_type == "doubles" else winner
-        print("[DEBUG] is_tournament:", getattr(self, "is_tournament", False))
-
-        try:
-            if getattr(self, "is_tournament", False):
-                await update_elo_series_and_save(
-                    self.players[0],
-                    self.players[1],
-                    results=[1 if self.players[0] == winner else 2],
-                    game_type="tournament"
-                )
-            elif self.game_type == "singles":
-                await update_elo_pair_and_save(
-                    self.players[0],
-                    self.players[1],
-                    winner=1 if self.players[0] == winner else 2
-                )
-            elif self.game_type == "doubles":
-                await update_elo_doubles_and_save(
-                    self.players[:2], self.players[2:], winner=normalized_winner
-                )
-            elif self.game_type == "triples":
-                await update_elo_triples_and_save(self.players, winner)
-        except Exception as e:
-            print(f"[finalize_game] ❌ Failed ELO update: {e}")
-            return
-
-        # ✅ Process bets
-        if self.game_view:
-            for uid, uname, amount, choice in self.game_view.bets:
-                won = False
-                if self.game_type == "singles":
-                    won = (choice == "1" and self.players[0] == winner) or \
-                          (choice == "2" and self.players[1] == winner)
-                elif self.game_type == "doubles":
-                    won = normalize_team(choice) == normalized_winner
-                elif self.game_type == "triples":
-                    try:
-                        idx = int(choice) - 1
-                        won = self.players[idx] == winner
-                    except:
-                        won = False
-
-                await run_db(lambda: supabase
-                    .table("bets")
-                    .update({"won": won})
-                    .eq("player_id", uid)
-                    .eq("game_id", self.game_view.message.id)
-                    .eq("choice", choice)
-                    .execute()
-                )
-
-                payout = 0
-                if won:
-                    odds = await self.game_view.get_odds(choice)
-                    payout = int(amount * (1 / odds)) if odds > 0 else amount
-                    await add_credits_atomic(uid, payout)
-                    print(f"\u2B50 {uname} won! Payout: {payout}")
-                else:
-                    print(f"❌ {uname} lost {amount}")
-
-                await run_db(lambda: supabase
-                    .table("bets")
-                    .update({"payout": payout})
-                    .eq("player_id", uid)
-                    .eq("game_id", self.game_view.message.id)
-                    .eq("choice", choice)
-                    .execute()
-                )
-
-        # ✅ Normalize winner for embed/footer
-        if isinstance(winner, str) and winner.isdigit():
-            idx = int(winner) - 1
-            if 0 <= idx < len(self.players):
-                winner = self.players[idx]
-
-        # ✅ Final embeds
-        winner_name = winner
-        if isinstance(winner, int):
-            member = self.message.guild.get_member(winner)
-            winner_name = member.display_name if member else f"User {winner}"
-
-        embed = await self.build_lobby_end_embed(winner)
-        await self.message.edit(embed=embed, view=None)
-
-        target_message = self.lobby_message or (self.game_view.message if self.game_view else None)
-        if target_message and self.game_view:
-            lobby_embed = await self.game_view.build_embed(
-                target_message.guild, winner=winner, no_image=True
-            )
-            for item in list(self.game_view.children):
-                if isinstance(item, BettingButton) or getattr(item, "label", "") == "Place Bet":
-                    self.game_view.remove_item(item)
-            await target_message.edit(embed=lobby_embed, view=self.game_view)
-
-        await self.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
-        await asyncio.sleep(3)
-        await self.channel.edit(archived=True)
-        pending_games.pop((self.game_type, self.channel.id), None)
-
-        if self.is_hourly and winner != "draw":
-            await add_credits_atomic(winner, 50)
-            print(f"[\u2B50] Hourly game: awarded 50 credits to {winner}")
-
-        target_game_id = (
-            str(self.lobby_message.id) if getattr(self, "lobby_message", None) else
-            str(self.game_view.message.id) if getattr(self, "game_view", None) and self.game_view.message else
-            str(self.message.id) if getattr(self, "message", None) else None
-        )
-
-        print(f"[DEBUG] Resolved target_game_id: {target_game_id}")
-
-        if target_game_id:
-            res = await run_db(lambda: supabase
-                .table("active_games")
-                .select("*")
-                .eq("game_id", target_game_id)
-                .execute()
-            )
-            print(f"[DEBUG] Rows found before delete: {res.data}")
-
-            await run_db(lambda: supabase
-                .table("active_games")
-                .delete()
-                .eq("game_id", target_game_id)
-                .execute()
-            )
-            print(f"[finalize_game] ✅ Deleted active_game for {target_game_id}")
         else:
-            print("[finalize_game] ⚠️ No valid game_id found to delete active_game row.")
+            # ✅ Normalize for ELO/bets
+            normalized_winner = normalize_team(winner) if self.game_type == "doubles" else winner
+            print("[DEBUG] is_tournament:", getattr(self, "is_tournament", False))
 
-        # ✅ Report winner to tournament manager if set
-        if self.on_tournament_complete:
-            print(f"[TOURNAMENT] Reporting winner: {winner} (type: {type(winner)})")
+            try:
+                if getattr(self, "is_tournament", False):
+                    await update_elo_series_and_save(
+                        self.players[0],
+                        self.players[1],
+                        results=[1 if self.players[0] == winner else 2],
+                        game_type="tournament"
+                    )
+                elif self.game_type == "singles":
+                    await update_elo_pair_and_save(
+                        self.players[0],
+                        self.players[1],
+                        winner=1 if self.players[0] == winner else 2
+                    )
+                elif self.game_type == "doubles":
+                    await update_elo_doubles_and_save(
+                        self.players[:2], self.players[2:], winner=normalized_winner
+                    )
+                elif self.game_type == "triples":
+                    await update_elo_triples_and_save(self.players, winner)
+            except Exception as e:
+                print(f"[finalize_game] ❌ Failed ELO update: {e}")
+                return
 
+            # ✅ Process bets
+            if self.game_view:
+                for uid, uname, amount, choice in self.game_view.bets:
+                    won = False
+                    if self.game_type == "singles":
+                        won = (choice == "1" and self.players[0] == winner) or \
+                              (choice == "2" and self.players[1] == winner)
+                    elif self.game_type == "doubles":
+                        won = normalize_team(choice) == normalized_winner
+                    elif self.game_type == "triples":
+                        try:
+                            idx = int(choice) - 1
+                            won = self.players[idx] == winner
+                        except:
+                            won = False
+
+                    await run_db(lambda: supabase
+                        .table("bets")
+                        .update({"won": won})
+                        .eq("player_id", uid)
+                        .eq("game_id", self.game_view.message.id)
+                        .eq("choice", choice)
+                        .execute()
+                    )
+
+                    payout = 0
+                    if won:
+                        odds = await self.game_view.get_odds(choice)
+                        payout = int(amount * (1 / odds)) if odds > 0 else amount
+                        await add_credits_atomic(uid, payout)
+                        print(f"\u2B50 {uname} won! Payout: {payout}")
+                    else:
+                        print(f"❌ {uname} lost {amount}")
+
+                    await run_db(lambda: supabase
+                        .table("bets")
+                        .update({"payout": payout})
+                        .eq("player_id", uid)
+                        .eq("game_id", self.game_view.message.id)
+                        .eq("choice", choice)
+                        .execute()
+                    )
+
+            # ✅ Normalize winner for embed/footer
+            if isinstance(winner, str) and winner.isdigit():
+                idx = int(winner) - 1
+                if 0 <= idx < len(self.players):
+                    winner = self.players[idx]
+
+            # ✅ Final embeds
+            winner_name = winner
             if isinstance(winner, int):
-                await self.on_tournament_complete(winner)
-            elif isinstance(winner, str) and winner.isdigit():
-                await self.on_tournament_complete(int(winner))  # extra fallback
+                member = self.message.guild.get_member(winner)
+                winner_name = member.display_name if member else f"User {winner}"
+
+            embed = await self.build_lobby_end_embed(winner)
+            await self.message.edit(embed=embed, view=None)
+
+            target_message = self.lobby_message or (self.game_view.message if self.game_view else None)
+            if target_message and self.game_view:
+                lobby_embed = await self.game_view.build_embed(
+                    target_message.guild, winner=winner, no_image=True
+                )
+                for item in list(self.game_view.children):
+                    if isinstance(item, BettingButton) or getattr(item, "label", "") == "Place Bet":
+                        self.game_view.remove_item(item)
+                await target_message.edit(embed=lobby_embed, view=self.game_view)
+
+            await self.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
+            await asyncio.sleep(3)
+            await self.channel.edit(archived=True)
+            pending_games.pop((self.game_type, self.channel.id), None)
+
+            if self.is_hourly and winner != "draw":
+                await add_credits_atomic(winner, 50)
+                print(f"[\u2B50] Hourly game: awarded 50 credits to {winner}")
+
+            target_game_id = (
+                str(self.lobby_message.id) if getattr(self, "lobby_message", None) else
+                str(self.game_view.message.id) if getattr(self, "game_view", None) and self.game_view.message else
+                str(self.message.id) if getattr(self, "message", None) else None
+            )
+
+            print(f"[DEBUG] Resolved target_game_id: {target_game_id}")
+
+            if target_game_id:
+                res = await run_db(lambda: supabase
+                    .table("active_games")
+                    .select("*")
+                    .eq("game_id", target_game_id)
+                    .execute()
+                )
+                print(f"[DEBUG] Rows found before delete: {res.data}")
+
+                await run_db(lambda: supabase
+                    .table("active_games")
+                    .delete()
+                    .eq("game_id", target_game_id)
+                    .execute()
+                )
+                print(f"[finalize_game] ✅ Deleted active_game for {target_game_id}")
             else:
-                print(f"[Tournament] ⚠️ Invalid winner — randomly picking from: {self.players}")
-                fallback = random.choice(self.players)
-                await self.on_tournament_complete(fallback)
+                print("[finalize_game] ⚠️ No valid game_id found to delete active_game row.")
 
-        await update_leaderboard(self.bot, self.game_type)
-        print(f"[DEBUG] Finalized winner = {winner}")
-        # ✅ At the very end of finalize_game()
-        if hasattr(self, "vote_timeout") and self.vote_timeout:
-            self.vote_timeout.cancel()
-            self.vote_timeout = None
+            # ✅ Report winner to tournament manager if set
+            if self.on_tournament_complete:
+                print(f"[TOURNAMENT] Reporting winner: {winner} (type: {type(winner)})")
 
-        for pid in getattr(self, "original_players", self.players):
-            await player_manager.deactivate(pid)
+                if isinstance(winner, int):
+                    await self.on_tournament_complete(winner)
+                elif isinstance(winner, str) and winner.isdigit():
+                    await self.on_tournament_complete(int(winner))  # extra fallback
+                else:
+                    print(f"[Tournament] ⚠️ Invalid winner — randomly picking from: {self.players}")
+                    fallback = random.choice(self.players)
+                    await self.on_tournament_complete(fallback)
 
-        self.players = []
+            await update_leaderboard(self.bot, self.game_type)
+            print(f"[DEBUG] Finalized winner = {winner}")
+            # ✅ At the very end of finalize_game()
+            if hasattr(self, "vote_timeout") and self.vote_timeout:
+                self.vote_timeout.cancel()
+                self.vote_timeout = None
+
+            for pid in getattr(self, "original_players", self.players):
+                print(f"[FINALIZE] 🔻 Deactivating player {pid}")
+                try:
+                    await player_manager.deactivate(pid)
+                    print(f"[FINALIZE] ✅ Deactivated player {pid}")
+                except Exception as e:
+                    print(f"[FINALIZE] ❌ Failed to deactivate {pid}: {e}")
+
+            self.players = []
 
 
 class GameEndedButton(discord.ui.Button):
