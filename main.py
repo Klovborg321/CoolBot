@@ -143,6 +143,76 @@ CHANNEL_GAME_MAP = {
     1387489197778010122: ("tournament", 4)
 }
 
+class HandicapModal(ui.Modal, title="Set Handicap"):
+    def __init__(self, user_id: int, course_name: str, course_id: str):
+        super().__init__()
+        self.user_id = user_id
+        self.course_name = course_name
+        self.course_id = course_id
+
+        self.score_input = ui.TextInput(
+            label="Enter best score",
+            placeholder="e.g. -7 or 54",
+            required=True,
+            max_length=10
+        )
+        self.add_item(self.score_input)
+
+    async def on_submit(self, interaction: Interaction):
+        score_raw = self.score_input.value.strip()
+
+        try:
+            # Convert to numeric value (int or float)
+            score = float(score_raw.replace(",", "."))
+        except ValueError:
+            await interaction.response.send_message("❌ Please enter a valid number (e.g. -7 or 54).", ephemeral=True)
+            return
+
+        # Step 1: Fetch avg_par from courses
+        try:
+            course_res = await run_db(lambda: supabase
+                .table("courses")
+                .select("avg_par")
+                .eq("id", self.course_id)
+                .maybe_single()
+                .execute()
+            )
+
+            if not course_res or not course_res.data:
+                await interaction.response.send_message("❌ Course not found.", ephemeral=True)
+                return
+
+            avg_par = course_res.data.get("avg_par")
+            if avg_par is None:
+                await interaction.response.send_message("❌ Course is missing avg_par value.", ephemeral=True)
+                return
+
+            # Step 2: Calculate handicap
+            handicap = score - avg_par
+
+            # Step 3: Upsert score + handicap
+            await run_db(lambda: supabase
+                .table("handicaps")
+                .upsert({
+                    "player_id": str(self.user_id),
+                    "course_id": str(self.course_id),
+                    "score": score,
+                    "handicap": handicap
+                })
+                .execute()
+            )
+
+            await interaction.response.send_message(
+                f"✅ Set handicap for <@{self.user_id}> on **{self.course_name}**:\n"
+                f"• Score: `{score}`\n"
+                f"• Avg Par: `{avg_par}`\n"
+                f"• Handicap: `{handicap:+.1f}`",
+                ephemeral=True
+            )
+
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Failed to save: {e}", ephemeral=True)
+
 async def get_player_handicap(player_id: int, course_id: str):
     # Step 1: Try to fetch this player's handicap for this course
     res = await run_db(lambda: supabase
@@ -4111,29 +4181,57 @@ async def init_tournament(interaction: discord.Interaction):
 
 
 
-@tree.command(name="set_user_handicap")
-async def set_user_handicap(interaction: discord.Interaction):
-    """Update your best score for a course"""
-
-    # ✅ 1) Always defer immediately!
+@tree.command(name="set_user_handicap", description="Set a user's handicap for a specific course.")
+@app_commands.describe(
+    user="Select the user to update",
+    course="Select the course"
+)
+@app_commands.autocomplete(course=lambda interaction, current: autocomplete_course(interaction, current))
+async def set_user_handicap(
+    interaction: discord.Interaction,
+    user: discord.User,
+    course: str
+):
     await interaction.response.defer(ephemeral=True)
 
-    # ✅ 2) Get all courses
-    res = await run_db(lambda: supabase.table("courses").select("*").execute())
-    courses = res.data or []
+    # Optional: Validate course
+    res = await run_db(lambda: supabase
+        .table("courses")
+        .select("id, name")
+        .ilike("name", course)
+        .limit(1)
+        .execute()
+    )
 
-    if not courses:
-        await interaction.followup.send("❌ No courses found.", ephemeral=True)
+    if not res.data:
+        await interaction.followup.send("❌ Course not found.", ephemeral=True)
         return
 
-    # ✅ 3) Build paginated view
-    view = PaginatedCourseView(courses)
-    msg = await interaction.followup.send(
-        "Pick a course to set your best score:",
-        view=view,
+    course_id = res.data[0]["id"]
+    course_name = res.data[0]["name"]
+
+    await interaction.followup.send(
+        f"✅ Selected: **{user.display_name}** for course **{course_name}** (ID: `{course_id}`)\nPrompt for new handicap value...",
         ephemeral=True
     )
-    view.message = msg  # ✅ so view knows where to edit pages
+
+    # TODO: follow-up modal or prompt for actual score entry
+async def autocomplete_course(interaction: discord.Interaction, current: str):
+    try:
+        res = await run_db(lambda: supabase
+            .table("courses")
+            .select("name")
+            .ilike("name", f"%{current}%")
+            .limit(25)
+            .execute()
+        )
+        return [
+            app_commands.Choice(name=course["name"], value=course["name"])
+            for course in res.data
+        ]
+    except Exception as e:
+        print(f"[autocomplete_course] ❌ {e}")
+        return []
 
 
 
