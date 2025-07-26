@@ -1639,6 +1639,7 @@ class RoomView(discord.ui.View):
         self.players = [p.id if hasattr(p, "id") else p for p in players]
         self.game_type = game_type
         self.room_name = room_name
+        self.channel = channel 
         self.message = None  # thread message
         self.lobby_message = lobby_message
         #self.channel = self.message.channel if self.message else None
@@ -2619,6 +2620,7 @@ class GameView(discord.ui.View):
             lobby_message=self.message,
             lobby_embed=thread_embed,
             game_view=self,
+            channel=self.thread,
             course_name=self.course_name,
             course_id=self.course_id,
             max_players=self.max_players,
@@ -3666,12 +3668,13 @@ class TournamentManager:
 
                 # ✅ Instantiate RoomView here
                 room_view = RoomView(
-                    bot=bot,
+                    bot=self.bot,
                     guild=guild,
                     players=[p1, p2],
                     game_type="singles",
                     room_name=room_name,
                     course_name=course_name,
+                    channel=match_thread
                     course_id=course_id,
                     max_players=2,
                     is_tournament=True
@@ -5099,6 +5102,7 @@ async def restore_active_games(bot):
                     room_name="Restored Room",
                     lobby_message=lobby_message,
                     lobby_embed=lobby_embed,
+                    channel=room_thread,
                     game_view=lobby_view,
                     course_name=g.get("course_name"),
                     course_id=g.get("course_id"),
