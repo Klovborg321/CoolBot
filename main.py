@@ -3674,7 +3674,7 @@ class TournamentManager:
                     game_type="singles",
                     room_name=room_name,
                     course_name=course_name,
-                    channel=match_thread
+                    channel=match_thread,
                     course_id=course_id,
                     max_players=2,
                     is_tournament=True
