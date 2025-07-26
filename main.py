@@ -3212,7 +3212,7 @@ class LeaderboardView(discord.ui.View):
                 name = fixed_width_name(name)
             else:
                 name = f"<@{winner}>"
-            name = name[:18].ljust(18)
+                name = name[:18].ljust(18)
 
             # ✅ dynamic rank for this game type
             rank = stats.get("stats", {}).get(self.game_type, {}).get("rank", 1000)
