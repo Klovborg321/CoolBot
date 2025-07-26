@@ -1650,7 +1650,7 @@ class RoomView(discord.ui.View):
         self.betting_closed = False
         self.is_hourly = is_hourly
         self.is_tournament=is_tournament
-
+        self.original_players = list(self.players)
         # ✅ Store course_name robustly:
         self.course_name = course_name or getattr(game_view, "course_name", None)
         self.course_id = course_id or getattr(game_view, "course_id", None)
@@ -2167,7 +2167,7 @@ class RoomView(discord.ui.View):
             self.vote_timeout.cancel()
             self.vote_timeout = None
 
-        for pid in self.players:
+        for pid in getattr(self, "original_players", self.players):
             await player_manager.deactivate(pid)
 
         self.players = []
