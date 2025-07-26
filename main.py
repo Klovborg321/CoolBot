@@ -154,8 +154,8 @@ async def get_player_handicap(player_id: int, course_id: str):
         .execute()
     )
 
-    if res.data and "score" in res.data:
-        return res.data["score"]
+    if res.data and len(res.data) > 0 and "score" in res.data[0]:
+        return res.data[0]["score"]
 
     # Step 2: Fallback – get lowest recorded handicap on this course
     res_fallback = await run_db(lambda: supabase
@@ -167,7 +167,7 @@ async def get_player_handicap(player_id: int, course_id: str):
         .execute()
     )
 
-    if res_fallback.data:
+    if res_fallback.data and len(res_fallback.data) > 0:
         return res_fallback.data[0]["score"]
 
     # Step 3: Final fallback if no scores at all exist
@@ -1697,7 +1697,7 @@ class RoomView(discord.ui.View):
         player_lines = []
 
         ranks = []
-        for p in self.players:
+    for p in self.players:
             pdata = await get_player(p)
             ranks.append(pdata.get("rank", 1000))
 
@@ -1705,7 +1705,7 @@ class RoomView(discord.ui.View):
         odds = []
         odds_a = odds_b = 0.5  # Defaults for safety
 
-        if (self.game_type == "singles" or is_tournament) and len(ranks) == 2:
+        if (self.game_type == "singles" or self.is_tournament) and len(ranks) == 2:
             prob1 = 1 / (1 + 10 ** ((ranks[1] - ranks[0]) / 400))
             prob2 = 1 - prob1
             odds = [prob1, prob2]
@@ -1724,7 +1724,6 @@ class RoomView(discord.ui.View):
         game_full = len(self.players) == self.max_players
 
         # Team A label for doubles:
-        # --- Optional: Add Team A header for doubles ---
         if self.game_type == "doubles":
             player_lines.append("\u200b")
             label = "__**🅰️ Team A**__"
@@ -1739,24 +1738,25 @@ class RoomView(discord.ui.View):
                 raw_name = member.display_name if member else f"Player {idx + 1}"
                 name = f"**{fixed_width_name(raw_name, 20)}**"
 
-                rank = ranks[idx]
+                # ✅ Fetch player stats for wins
+                pdata = await get_player(user_id)
+                wins = pdata.get("wins", 0)
+
                 hcp_txt = ""
                 if hasattr(self, "course_id") and self.course_id:
                     hcp = await get_player_handicap(user_id, self.course_id)
-                    hcp_txt = f" | HCP: {hcp}"  # You can insert actual HCP if available
+                    hcp_txt = f" | HCP: {hcp}"
 
                 # --- Odds display ---
                 if self.game_type == "singles" and game_full and len(ranks) == 2:
                     prob1 = 1 / (1 + 10 ** ((ranks[1] - ranks[0]) / 400))
                     prob2 = 1 - prob1
                     player_odds = prob1 if idx == 0 else prob2
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%{hcp_txt}"
-
+                    line = f"● Player {idx + 1}: {name} 🏆 ({wins}) • {player_odds * 100:.1f}%{hcp_txt}"
                 elif self.game_type == "triples" and game_full and len(odds) == 3:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%{hcp_txt}"
-
+                    line = f"● Player {idx + 1}: {name} 🏆 ({wins}) • {odds[idx] * 100:.1f}%{hcp_txt}"
                 else:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}){hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({wins}){hcp_txt}"
             else:
                 line = f"○ Player {idx + 1}: [Waiting...]"
 
@@ -1769,7 +1769,6 @@ class RoomView(discord.ui.View):
                 if game_full:
                     label += f" • {odds_b * 100:.1f}%"
                 player_lines.append(label)
-
 
         # ✅ 3️⃣ Add Players field BELOW description
         embed.add_field(name="👥 Players", value="\n".join(player_lines), inline=False)
@@ -1784,6 +1783,7 @@ class RoomView(discord.ui.View):
             embed.set_image(url=self.course_image)
 
         return embed
+
 
 
     def get_vote_options(self):
