@@ -4199,11 +4199,12 @@ async def init_tournament(interaction: discord.Interaction):
 
 
 
-@tree.command(name="set_user_handicap", description="Set a user's handicap for a specific course.")
+@tree.command(name="admin_set_user_handicap", description="Set a user's handicap for a specific course.")
 @app_commands.describe(
     user="Select the user to update",
     course="Select the course"
 )
+@app_commands.check(is_admin)
 @app_commands.autocomplete(course=autocomplete_course)
 async def set_user_handicap(
     interaction: discord.Interaction,
@@ -5376,7 +5377,7 @@ default_template = {
     }
 }
 
-@tree.command(name="sync_players", description="Sync all server members to the players table if not already present.")
+@tree.command(name="admin_sync_players", description="Sync all server members to the players table if not already present.")
 @app_commands.checks.has_permissions(administrator=True)
 async def sync_players(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
