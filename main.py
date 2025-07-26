@@ -2115,7 +2115,6 @@ class RoomView(discord.ui.View):
         await asyncio.sleep(3)
         await self.channel.edit(archived=True)
         pending_games.pop((self.game_type, self.channel.id), None)
-        self.players = []
 
         if self.is_hourly and winner != "draw":
             await add_credits_atomic(winner, 50)
@@ -2170,6 +2169,8 @@ class RoomView(discord.ui.View):
 
         for pid in self.players:
             await player_manager.deactivate(pid)
+
+        self.players = []
 
 
 class GameEndedButton(discord.ui.Button):
