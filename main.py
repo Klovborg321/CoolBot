@@ -2186,6 +2186,11 @@ class RoomView(discord.ui.View):
             self.vote_timeout.cancel()
             self.vote_timeout = None
 
+        # ✅ Deactivate all players at end of game
+        for pid in self.players:
+            await player_manager.deactivate(pid)
+            self.players = []
+
 
 class GameEndedButton(discord.ui.Button):
     def __init__(self, view):
