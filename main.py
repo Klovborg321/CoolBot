@@ -1769,7 +1769,7 @@ class RoomView(discord.ui.View):
                 name = f"{fixed_width_name(raw_name, 20)}"
 
                 rank = ranks[idx]
-                win = wins[idx]
+                win = wins[idx] if idx < len(wins) else 0
                 hcp_txt = ""
                 if hasattr(self, "course_id") and self.course_id:
                     hcp = await get_player_handicap(user_id, self.course_id)
