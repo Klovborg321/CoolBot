@@ -174,6 +174,27 @@ async def get_player_handicap(player_id: int, course_id: str):
     return 0
 
 
+async def get_player_display_name(member: discord.Member, supabase, guild_id: str):
+    uid = str(member.id)
+    try:
+        res = await run_db(lambda: supabase
+            .table("players")
+            .select("stats")
+            .eq("id", uid)
+            .maybe_single()
+            .execute()
+        )
+
+        wins = 0
+        if res and res.data and "stats" in res.data:
+            wins = res.data["stats"].get("wins", 0)
+
+        return f"{member.display_name} 🥇{wins}"
+    except Exception as e:
+        print(f"[get_player_display_name] ⚠️ Failed for {uid}: {e}")
+        return f"{member.display_name} 🥇0"
+
+
 
 def get_elo_odds(rank1, rank2):
     """Return win probabilities for both players based on ELO."""
@@ -815,10 +836,11 @@ def format_page(self, guild):
         rank = stats.get("rank", 1000)
         trophies = stats.get("trophies", 0)
         credits = stats.get("credits", 0)
+        wins = stats.get("wins", 0)
 
         badge = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else ""
 
-        line = f"#{i:>2} {name} | 🏆 {trophies:<3} | \u2B50 {credits:<4} | 📈 {rank} {badge}"
+        line = f"#{i:>2} {name} 🏆{wins} | 🏆 {trophies:<3} | \u2B50 {credits:<4} | 📈 {rank} {badge}"
         lines.append(line)
 
     if not lines:
@@ -1066,7 +1088,7 @@ async def start_new_game_button(channel, game_type, max_players=None):
         view = TournamentStartButtonView()
         msg = await channel.send("🏆 Click to start a **Tournament**:", view=view)
     else:
-        view = GameJoinView(game_type, max_players)
+        view = GameJoinView(game_type, max_players, bot=channel.guild._state._get_client())
         msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
 
     # ✅ 4) Store only the message — not the view itself
@@ -1226,7 +1248,7 @@ room_name_generator = RoomNameGenerator()
 
 
 class GameJoinView(discord.ui.View):
-    def __init__(self, game_type, max_players, scheduled_note=None, scheduled_time=None, is_hourly=False):
+    def __init__(self, game_type, max_players, bot=None, scheduled_note=None, scheduled_time=None, is_hourly=False):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.max_players = max_players
@@ -1273,6 +1295,7 @@ class GameJoinView(discord.ui.View):
             interaction.user.id,
             self.max_players,
             interaction.channel,
+            bot = self.bot,
             scheduled_note=self.scheduled_note,
             scheduled_time = self.scheduled_time 
         )
@@ -1699,7 +1722,7 @@ class RoomView(discord.ui.View):
         ranks = []
         for p in self.players:
             pdata = await get_player(p)
-            ranks.append(pdata.get("rank", 1000))
+            ranks.append(pdata.get("wins", 0))
 
         # --- Compute odds ---
         odds = []
@@ -1736,8 +1759,12 @@ class RoomView(discord.ui.View):
             if idx < len(self.players):
                 user_id = self.players[idx]
                 member = guild.get_member(user_id) if guild else None
-                raw_name = member.display_name if member else f"Player {idx + 1}"
-                name = f"**{fixed_width_name(raw_name, 20)}**"
+                if member:
+                    raw_name = await get_wins_display_name(member, supabase)
+                else:
+                    raw_name = f"<@{user_id}>"
+
+                name = f"{fixed_width_name(raw_name, 20)}"
 
                 rank = ranks[idx]
                 hcp_txt = ""
@@ -1750,13 +1777,13 @@ class RoomView(discord.ui.View):
                     prob1 = 1 / (1 + 10 ** ((ranks[1] - ranks[0]) / 400))
                     prob2 = 1 - prob1
                     player_odds = prob1 if idx == 0 else prob2
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%{hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆({rank}) • {player_odds * 100:.1f}%{hcp_txt}"
 
                 elif self.game_type == "triples" and game_full and len(odds) == 3:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%{hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆({rank}) • {odds[idx] * 100:.1f}%{hcp_txt}"
 
                 else:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}){hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆({rank}){hcp_txt}"
             else:
                 line = f"○ Player {idx + 1}: [Waiting...]"
 
@@ -1831,8 +1858,11 @@ class RoomView(discord.ui.View):
             embed.add_field(name="🏁 Result", value="🤝 It's a draw!", inline=False)
         elif isinstance(winner, int):
             member = self.message.guild.get_member(winner)
-            name = member.display_name if member else f"User {winner}"
-            name = fixed_width_name(name)
+            if member:
+                name = await get_wins_display_name(member, supabase)
+                name = fixed_width_name(name)
+            else:
+                name = f"<@{winner}>"
             embed.add_field(name="🏁 Winner", value=f"🎉 {name}", inline=False)
         elif winner in ("Team A", "Team B"):
             embed.add_field(name="🏁 Winner", value=f"🎉 {winner}", inline=False)
@@ -2157,6 +2187,11 @@ class RoomView(discord.ui.View):
         if hasattr(self, "vote_timeout") and self.vote_timeout:
             self.vote_timeout.cancel()
             self.vote_timeout = None
+
+        # ✅ Deactivate all players at end of game
+        for pid in self.players:
+            await player_manager.deactivate(pid)
+            self.players = []
 
 
 class GameEndedButton(discord.ui.Button):
@@ -2599,7 +2634,7 @@ class GameView(discord.ui.View):
         thread_embed.description = f"Course: {self.course_name}"
 
         room_view = RoomView(
-            bot=bot,
+            bot=self.bot,
             guild=interaction.guild,
             players=self.players,
             game_type=self.game_type,
@@ -2808,20 +2843,25 @@ class GameView(discord.ui.View):
             if idx < len(self.players):
                 user_id = self.players[idx]
                 member = guild.get_member(user_id) if guild else None
-                raw_name = member.display_name if member else f"Player {idx + 1}"
-                name = f"**{fixed_width_name(raw_name, 20)}**"
+                if member:
+                    raw_name = await get_wins_display_name(member, supabase)
+                else:
+                    raw_name = f"<@{user_id}>"
+
+                name = f"{fixed_width_name(raw_name, 20)}"
                 rank = ranks[idx]
+                wins = wins[idx]
                 hcp_txt = f" 🎯 HCP: {handicaps[idx]}" if handicaps[idx] is not None else ""
 
                 if self.game_type == "singles" and game_full:
                     e1, e2 = ranks
                     o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
                     player_odds = o1 if idx == 0 else 1 - o1
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {player_odds * 100:.1f}%{hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆({wins}) • {player_odds * 100:.1f}%{hcp_txt}"
                 elif self.game_type == "triples" and game_full:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%{hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆({wins}) • {odds[idx] * 100:.1f}%{hcp_txt}"
                 else:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}){hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆({wins}){hcp_txt}"
             else:
                 line = f"○ Player {idx + 1}: [Waiting...]"
             player_lines.append(line)
@@ -2864,7 +2904,11 @@ class GameView(discord.ui.View):
             embed.set_footer(text="🎮 Game has ended.")
         elif isinstance(winner, int):
             member = guild.get_member(winner) if guild else None
-            winner_name = member.display_name if member else f"User {winner}"
+            if member:
+                winner_name = await get_wins_display_name(member, supabase)
+                winner_name = fixed_width_name(name)
+            else:
+                winner_name = f"<@{winner}>"
             credit_note = " — 🏆 +50 stars!" if self.is_hourly else ""
             embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}{credit_note}")
         elif winner in ("Team A", "Team B"):
@@ -3163,7 +3207,7 @@ class LeaderboardView(discord.ui.View):
         if (self.page + 1) * self.page_size < len(self.entries):
             self.add_item(self.NextButton(self))
 
-    def format_page(self, guild):
+    async def format_page(self, guild):
         start = self.page * self.page_size
         end = start + self.page_size
         lines = []
@@ -3171,16 +3215,20 @@ class LeaderboardView(discord.ui.View):
         for i, entry in enumerate(self.entries[start:end], start=start + 1):
             uid, stats = entry if isinstance(entry, tuple) else (entry.get("id"), entry)
             member = guild.get_member(int(uid))
-            display = member.display_name if member else f"User {uid}"
-            name = display[:18].ljust(18)
+            if member:
+                name = await get_wins_display_name(member, supabase)
+                name = fixed_width_name(name)
+            else:
+                name = f"<@{winner}>"
+                name = name[:18].ljust(18)
 
             # ✅ dynamic rank for this game type
             rank = stats.get("stats", {}).get(self.game_type, {}).get("rank", 1000)
             trophies = stats.get("stats", {}).get(self.game_type, {}).get("trophies", 0)
             credits = stats.get("credits", 0)
-
+            wins = stats.get("wins", 0)
             badge = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else ""
-            line = f"#{i:>2} {name} | 📈 {rank} {badge} | 🏆 {trophies:<3} | \u2B50 {credits:<4}"
+            line = f"#{i:>2} {name} 🏆{wins}  | 📈 {rank} {badge} | 🏆 {trophies:<3} | \u2B50 {credits:<4}"
             lines.append(line)
 
         if not lines:
