@@ -1777,7 +1777,7 @@ class RoomView(discord.ui.View):
                     prob1 = 1 / (1 + 10 ** ((ranks[1] - ranks[0]) / 400))
                     prob2 = 1 - prob1
                     player_odds = prob1 if idx == 0 else prob2
-                    line = f"● Player {idx + 1}: {name} 🏆({rank}) • {player_odds * 100:.1f}%{hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({wins}) • {player_odds * 100:.1f}%{hcp_txt}"
 
                 elif self.game_type == "triples" and game_full and len(odds) == 3:
                     line = f"● Player {idx + 1}: {name} 🏆({rank}) • {odds[idx] * 100:.1f}%{hcp_txt}"
@@ -2857,11 +2857,11 @@ class GameView(discord.ui.View):
                     e1, e2 = ranks
                     o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
                     player_odds = o1 if idx == 0 else 1 - o1
-                    line = f"● Player {idx + 1}: {name} 🏆({wins}) • {player_odds * 100:.1f}%{hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({wins}) • {player_odds * 100:.1f}%{hcp_txt}"
                 elif self.game_type == "triples" and game_full:
-                    line = f"● Player {idx + 1}: {name} 🏆({wins}) • {odds[idx] * 100:.1f}%{hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({wins}) • {odds[idx] * 100:.1f}%{hcp_txt}"
                 else:
-                    line = f"● Player {idx + 1}: {name} 🏆({wins}){hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({wins}){hcp_txt}"
             else:
                 line = f"○ Player {idx + 1}: [Waiting...]"
             player_lines.append(line)
