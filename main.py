@@ -1247,7 +1247,7 @@ room_name_generator = RoomNameGenerator()
 
 
 class GameJoinView(discord.ui.View):
-    def __init__(self, bot=None, game_type, max_players, scheduled_note=None, scheduled_time=None, is_hourly=False):
+    def __init__(self, game_type, max_players, bot=None, scheduled_note=None, scheduled_time=None, is_hourly=False):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.max_players = max_players
