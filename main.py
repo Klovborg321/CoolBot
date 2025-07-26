@@ -2747,44 +2747,12 @@ class GameView(discord.ui.View):
         if not no_image and self.course_image:
             embed.set_image(url=self.course_image)
 
-        ranks, handicaps = [], []
+        ranks, wins = [], []
         for p in self.players:
             pdata = await get_player(p)
-            ranks.append(pdata.get("rank", 1000))
-
-            hcp = "-"  # Default placeholder
-            if not no_image and getattr(self, "course_name", None):
-                if self.course_name and self.course_id:
-                    try:
-                        # Fetch player-specific handicap
-                        res = await run_db(lambda: supabase
-                            .table("handicaps")
-                            .select("handicap")
-                            .eq("player_id", str(p))
-                            .eq("course_id", self.course_id)
-                            .limit(1)
-                            .execute()
-                        )
-                        if res and res.data:
-                            hval = res.data[0].get("handicap")  # ✅ FIXED: data[0] is the row
-                            hcp = round(hval, 1) if hval is not None else "10"
-                        else:
-                            # Fallback: worst handicap for this course
-                            worst = await run_db(lambda: supabase
-                                .table("handicaps")
-                                .select("handicap")
-                                .eq("course_id", self.course_id)
-                                .order("handicap", desc=True)
-                                .limit(1)
-                                .execute()
-                            )
-                            hcp = round(worst.data[0]["handicap"], 1) if worst.data else 10
-                    except Exception as e:
-                        print(f"[WARN] Failed handicap fetch for player {p} / course {self.course_id}: {e}")
-                        hcp = 10
-                else:
-                    hcp = "10"
-            handicaps.append(hcp)
+            game_stats = pdata.get("stats", {}).get(self.game_type, {})
+            ranks.append(game_stats.get("rank", 1000))
+            wins.append(game_stats.get("wins", 0))
 
 
         game_full = len(self.players) == self.max_players
@@ -2814,7 +2782,7 @@ class GameView(discord.ui.View):
                 raw_name = member.display_name if member else f"Player {idx + 1}"
                 name = f"**{fixed_width_name(raw_name, 20)}**"
 
-                win = (await get_player(user_id)).get("wins", 0)  # ✅ Use wins instead of rank
+                win = wins[idx]
                 hcp_txt = ""  # 🎯 Handicap removed
 
                 if self.game_type == "singles" and game_full:
