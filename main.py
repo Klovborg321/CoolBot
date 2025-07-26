@@ -1697,7 +1697,7 @@ class RoomView(discord.ui.View):
         player_lines = []
 
         ranks = []
-    for p in self.players:
+        for p in self.players:
             pdata = await get_player(p)
             ranks.append(pdata.get("rank", 1000))
 
