@@ -4186,15 +4186,13 @@ async def init_tournament(interaction: discord.Interaction):
     user="Select the user to update",
     course="Select the course"
 )
-@app_commands.autocomplete(course=lambda interaction, current: autocomplete_course(interaction, current))
+@app_commands.autocomplete(course=autocomplete_course)
 async def set_user_handicap(
     interaction: discord.Interaction,
     user: discord.User,
     course: str
 ):
-    await interaction.response.defer(ephemeral=True)
-
-    # Optional: Validate course
+    # Validate course name (resolve to ID)
     res = await run_db(lambda: supabase
         .table("courses")
         .select("id, name")
@@ -4204,34 +4202,15 @@ async def set_user_handicap(
     )
 
     if not res.data:
-        await interaction.followup.send("❌ Course not found.", ephemeral=True)
+        await interaction.response.send_message("❌ Course not found.", ephemeral=True)
         return
 
     course_id = res.data[0]["id"]
     course_name = res.data[0]["name"]
 
-    await interaction.followup.send(
-        f"✅ Selected: **{user.display_name}** for course **{course_name}** (ID: `{course_id}`)\nPrompt for new handicap value...",
-        ephemeral=True
+    await interaction.response.send_modal(
+        HandicapModal(user_id=user.id, course_name=course_name, course_id=course_id)
     )
-
-    # TODO: follow-up modal or prompt for actual score entry
-async def autocomplete_course(interaction: discord.Interaction, current: str):
-    try:
-        res = await run_db(lambda: supabase
-            .table("courses")
-            .select("name")
-            .ilike("name", f"%{current}%")
-            .limit(25)
-            .execute()
-        )
-        return [
-            app_commands.Choice(name=course["name"], value=course["name"])
-            for course in res.data
-        ]
-    except Exception as e:
-        print(f"[autocomplete_course] ❌ {e}")
-        return []
 
 
 
