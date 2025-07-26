@@ -174,6 +174,27 @@ async def get_player_handicap(player_id: int, course_id: str):
     return 0
 
 
+async def get_player_display_name(member: discord.Member, supabase, guild_id: str):
+    uid = str(member.id)
+    try:
+        res = await run_db(lambda: supabase
+            .table("players")
+            .select("stats")
+            .eq("id", uid)
+            .maybe_single()
+            .execute()
+        )
+
+        wins = 0
+        if res and res.data and "stats" in res.data:
+            wins = res.data["stats"].get("wins", 0)
+
+        return f"{member.display_name} 🥇{wins}"
+    except Exception as e:
+        print(f"[get_player_display_name] ⚠️ Failed for {uid}: {e}")
+        return f"{member.display_name} 🥇0"
+
+
 
 def get_elo_odds(rank1, rank2):
     """Return win probabilities for both players based on ELO."""
@@ -1736,8 +1757,12 @@ class RoomView(discord.ui.View):
             if idx < len(self.players):
                 user_id = self.players[idx]
                 member = guild.get_member(user_id) if guild else None
-                raw_name = member.display_name if member else f"Player {idx + 1}"
-                name = f"**{fixed_width_name(raw_name, 20)}**"
+                if member:
+                    raw_name = await get_wins_display_name(member, supabase)
+                else:
+                    raw_name = f"<@{user_id}>"
+
+                name = f"{fixed_width_name(raw_name, 20)}"
 
                 rank = ranks[idx]
                 hcp_txt = ""
@@ -1831,8 +1856,11 @@ class RoomView(discord.ui.View):
             embed.add_field(name="🏁 Result", value="🤝 It's a draw!", inline=False)
         elif isinstance(winner, int):
             member = self.message.guild.get_member(winner)
-            name = member.display_name if member else f"User {winner}"
-            name = fixed_width_name(name)
+            if member:
+                name = await get_wins_display_name(member, supabase)
+                name = fixed_width_name(name)
+            else:
+                name = f"<@{winner}>"
             embed.add_field(name="🏁 Winner", value=f"🎉 {name}", inline=False)
         elif winner in ("Team A", "Team B"):
             embed.add_field(name="🏁 Winner", value=f"🎉 {winner}", inline=False)
@@ -2808,8 +2836,12 @@ class GameView(discord.ui.View):
             if idx < len(self.players):
                 user_id = self.players[idx]
                 member = guild.get_member(user_id) if guild else None
-                raw_name = member.display_name if member else f"Player {idx + 1}"
-                name = f"**{fixed_width_name(raw_name, 20)}**"
+                if member:
+                    raw_name = await get_wins_display_name(member, supabase)
+                else:
+                    raw_name = f"<@{user_id}>"
+
+                name = f"{fixed_width_name(raw_name, 20)}"
                 rank = ranks[idx]
                 hcp_txt = f" 🎯 HCP: {handicaps[idx]}" if handicaps[idx] is not None else ""
 
@@ -2864,7 +2896,11 @@ class GameView(discord.ui.View):
             embed.set_footer(text="🎮 Game has ended.")
         elif isinstance(winner, int):
             member = guild.get_member(winner) if guild else None
-            winner_name = member.display_name if member else f"User {winner}"
+            if member:
+                winner_name = await get_wins_display_name(member, supabase)
+                winner_name = fixed_width_name(name)
+            else:
+                winner_name = f"<@{winner}>"
             credit_note = " — 🏆 +50 stars!" if self.is_hourly else ""
             embed.set_footer(text=f"🎮 Game has ended. Winner: {winner_name}{credit_note}")
         elif winner in ("Team A", "Team B"):
@@ -3171,8 +3207,12 @@ class LeaderboardView(discord.ui.View):
         for i, entry in enumerate(self.entries[start:end], start=start + 1):
             uid, stats = entry if isinstance(entry, tuple) else (entry.get("id"), entry)
             member = guild.get_member(int(uid))
-            display = member.display_name if member else f"User {uid}"
-            name = display[:18].ljust(18)
+            if member:
+                name = await get_wins_display_name(member, supabase)
+                name = fixed_width_name(name)
+            else:
+                name = f"<@{winner}>"
+            name = name[:18].ljust(18)
 
             # ✅ dynamic rank for this game type
             rank = stats.get("stats", {}).get(self.game_type, {}).get("rank", 1000)
