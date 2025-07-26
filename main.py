@@ -2632,7 +2632,7 @@ class GameView(discord.ui.View):
         thread_embed.description = f"Course: {self.course_name}"
 
         room_view = RoomView(
-            bot=bot,
+            bot=self.bot,
             guild=interaction.guild,
             players=self.players,
             game_type=self.game_type,
