@@ -1822,7 +1822,8 @@ class RoomView(discord.ui.View):
                 except Exception as e:
                     print(f"[RoomView] ⚠️ Handicap fetch failed for {p}: {e}")
 
-            lines.append(f"<@{p}> | Rank: {rank} | Trophies: {trophies} | 🎯 HCP: {hcp}")
+            wins = pdata.get("wins", 0)
+            lines.append(f"<@{p}> | Wins: {wins} | Trophies: {trophies} | 🎯 HCP: {hcp}")
 
         embed.description = "\n".join(lines)
         embed.add_field(name="🎮 Status", value="Game has ended.", inline=True)
@@ -1833,7 +1834,12 @@ class RoomView(discord.ui.View):
             member = self.message.guild.get_member(winner)
             name = member.display_name if member else f"User {winner}"
             name = fixed_width_name(name)
-            embed.add_field(name="🏁 Winner", value=f"🎉 {name}", inline=False)
+
+            # ✅ Get wins from stats
+            pdata = await get_player(winner)
+            wins = pdata.get("wins", 0)
+
+            embed.add_field(name="🏁 Winner", value=f"🎉 {name} ({wins} wins)", inline=False)
         elif winner in ("Team A", "Team B"):
             embed.add_field(name="🏁 Winner", value=f"🎉 {winner}", inline=False)
 
@@ -1907,6 +1913,9 @@ class RoomView(discord.ui.View):
         except Exception as e:
             print(f"[Voting] ❌ Error inside end_voting_after_timeout: {e}")
 
+        if not self.voting_closed:
+            print("[Voting] 🔁 Force finalizing due to timeout with no votes.")
+            await self.finalize_game(winner="draw")
 
     async def safe_edit_message(message, **kwargs):
         try:
@@ -3142,19 +3151,21 @@ class LeaderboardView(discord.ui.View):
         end = start + self.page_size
         lines = []
 
+        # Header row (plain text, no emojis in labels except for rank/trophy/stars)
+        lines.append(f"{'#':<3} {'Name (wins)':<24} {'📈':<6} {'🏆':<3} {'⭐':<4}")
+
         for i, entry in enumerate(self.entries[start:end], start=start + 1):
             uid, stats = entry if isinstance(entry, tuple) else (entry.get("id"), entry)
             member = guild.get_member(int(uid))
             display = member.display_name if member else f"User {uid}"
-            name = display[:18].ljust(18)
-
-            # ✅ dynamic rank for this game type
-            rank = stats.get("stats", {}).get(self.game_type, {}).get("rank", 1000)
+            name = display[:18]  # truncate if needed
+            wins = stats.get("stats", {}).get(self.game_type, {}).get("wins", 0)
             trophies = stats.get("stats", {}).get(self.game_type, {}).get("trophies", 0)
             credits = stats.get("credits", 0)
+            rank = stats.get("stats", {}).get(self.game_type, {}).get("rank", 1000)
 
-            badge = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else ""
-            line = f"#{i:>2} {name} | 📈 {rank} {badge} | 🏆 {trophies:<3} | \u2B50 {credits:<4}"
+            name_with_wins = f"{name} ({wins})"
+            line = f"{i:<3} {name_with_wins:<24} {rank:<6} {trophies:<3} {credits:<4}"
             lines.append(line)
 
         if not lines:
@@ -3162,6 +3173,7 @@ class LeaderboardView(discord.ui.View):
 
         page_info = f"Page {self.page + 1} of {max(1, (len(self.entries) + self.page_size - 1) // self.page_size)}"
         return f"```{chr(10).join(lines)}\n\n{page_info}```"
+
 
     async def update(self, interaction: discord.Interaction):
         self.update_buttons()
