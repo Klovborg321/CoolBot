@@ -1133,15 +1133,19 @@ class PlayerManager:
             print(f"[PlayerManager.is_active] Error checking active for {user_id}: {e}")
             return False
 
-    async def activate(self, user_id: str | int):
+    async def activate(self, user_id: str | int, thread_id: str | int = None):
         user_id = str(user_id)
+        payload = {"player_id": user_id}
+        if thread_id:
+            payload["thread_id"] = str(thread_id)
+
         try:
             await run_db(lambda: supabase
                 .table("active_players")
-                .upsert({"player_id": user_id})
+                .upsert(payload)
                 .execute()
             )
-            print(f"[PlayerManager.activate] Activated player {user_id}")
+            print(f"[PlayerManager.activate] Activated player {user_id} (thread {thread_id})")
         except Exception as e:
             print(f"[PlayerManager.activate] Failed to activate {user_id}: {e}")
 
@@ -1157,6 +1161,19 @@ class PlayerManager:
             print(f"[PlayerManager.deactivate] Deactivated player {user_id}")
         except Exception as e:
             print(f"[PlayerManager.deactivate] Failed to deactivate {user_id}: {e}")
+
+    async def deactivate_by_thread(self, thread_id: str | int):
+        thread_id = str(thread_id)
+        try:
+            await run_db(lambda: supabase
+                .table("active_players")
+                .delete()
+                .eq("thread_id", thread_id)
+                .execute()
+            )
+            print(f"[PlayerManager] 🔻 Deactivated all players in thread {thread_id}")
+        except Exception as e:
+            print(f"[PlayerManager] ❌ Failed to deactivate players in thread {thread_id}: {e}")
 
     async def deactivate_many(self, user_ids: list[str | int]):
         for uid in user_ids:
@@ -1277,14 +1294,14 @@ class GameJoinView(discord.ui.View):
             scheduled_time = self.scheduled_time 
         )
 
-        await player_manager.activate(interaction.user.id)
+        await player_manager.activate(interaction.user.id, interaction.channel.id)
 
         # ✅ TEST MODE: auto-fill dummy players
         if IS_TEST_MODE:
             for pid in TEST_PLAYER_IDS:
                 if pid != interaction.user.id and pid not in view.players and len(view.players) < view.max_players:
                     view.players.append(pid)
-                    await player_manager.activate(pid)
+                    await player_manager.activate(pid, interaction.channel.id)
 
         # ✅ Post the lobby
         embed = await view.build_embed(interaction.guild, no_image=True)
@@ -2166,13 +2183,12 @@ class RoomView(discord.ui.View):
                 self.vote_timeout.cancel()
                 self.vote_timeout = None
 
-            for pid in getattr(self, "original_players", self.players):
-                print(f"[FINALIZE] 🔻 Deactivating player {pid}")
-                try:
-                    await player_manager.deactivate(pid)
-                    print(f"[FINALIZE] ✅ Deactivated player {pid}")
-                except Exception as e:
-                    print(f"[FINALIZE] ❌ Failed to deactivate {pid}: {e}")
+            print("[FINALIZE] 🔻 Deactivating all players")
+            try:
+                await player_manager.deactivate_by_thread(self.channel.id)
+                print(f"[FINALIZE] ✅ Deactivated players in thread {self.channel.id}")
+            except Exception as e:
+                print(f"[FINALIZE] ❌ Failed to deactivate for thread {self.channel.id}")
 
             self.players = []
 
@@ -2344,8 +2360,7 @@ async def _void_if_not_started(self):
         self.hourly_start_task = None
         self.cancel_betting_task()
 
-        for p in self.players:
-            await player_manager.deactivate(p)
+        await player_manager.deactivate_by_thread(self.channel.id)
 
     except asyncio.CancelledError:
         print("[HOURLY] 🛑 Void countdown cancelled.")
@@ -2667,7 +2682,7 @@ class GameView(discord.ui.View):
             await self.safe_send(interaction, "🚫 You are already in another active game or must finish voting first.", ephemeral=True)
             return
 
-        await player_manager.activate(interaction.user.id)
+        await player_manager.activate(interaction.user.id, interaction.channel.id)
         self.players.append(interaction.user.id)
 
         if not self.channel:
