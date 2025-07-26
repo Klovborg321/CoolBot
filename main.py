@@ -1087,7 +1087,7 @@ async def start_new_game_button(channel, game_type, max_players=None):
         view = TournamentStartButtonView()
         msg = await channel.send("🏆 Click to start a **Tournament**:", view=view)
     else:
-        view = GameJoinView(game_type, max_players)
+        view = GameJoinView(game_type, max_players, bot=channel.guild._state._get_client())
         msg = await channel.send(f"🎮 Start a new {game_type} game:", view=view)
 
     # ✅ 4) Store only the message — not the view itself
@@ -1247,7 +1247,7 @@ room_name_generator = RoomNameGenerator()
 
 
 class GameJoinView(discord.ui.View):
-    def __init__(self, game_type, max_players, scheduled_note=None, scheduled_time=None, is_hourly=False):
+    def __init__(self, bot=None, game_type, max_players, scheduled_note=None, scheduled_time=None, is_hourly=False):
         super().__init__(timeout=None)
         self.game_type = game_type
         self.max_players = max_players
@@ -1294,6 +1294,7 @@ class GameJoinView(discord.ui.View):
             interaction.user.id,
             self.max_players,
             interaction.channel,
+            bot = self.bot,
             scheduled_note=self.scheduled_note,
             scheduled_time = self.scheduled_time 
         )
