@@ -3199,7 +3199,7 @@ class LeaderboardView(discord.ui.View):
         if (self.page + 1) * self.page_size < len(self.entries):
             self.add_item(self.NextButton(self))
 
-    def format_page(self, guild):
+    async def format_page(self, guild):
         start = self.page * self.page_size
         end = start + self.page_size
         lines = []
