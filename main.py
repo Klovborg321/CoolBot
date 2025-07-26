@@ -1720,11 +1720,9 @@ class RoomView(discord.ui.View):
         player_lines = []
 
         ranks = []
-        wins = []
         for p in self.players:
             pdata = await get_player(p)
             ranks.append(pdata.get("rank", 1000))
-            wins.append(pdata.get("wins", 0))
 
         # --- Compute odds ---
         odds = []
@@ -1769,7 +1767,6 @@ class RoomView(discord.ui.View):
                 name = f"{fixed_width_name(raw_name, 20)}"
 
                 rank = ranks[idx]
-                win = wins[idx] if idx < len(wins) else 0
                 hcp_txt = ""
                 if hasattr(self, "course_id") and self.course_id:
                     hcp = await get_player_handicap(user_id, self.course_id)
@@ -1780,13 +1777,13 @@ class RoomView(discord.ui.View):
                     prob1 = 1 / (1 + 10 ** ((ranks[1] - ranks[0]) / 400))
                     prob2 = 1 - prob1
                     player_odds = prob1 if idx == 0 else prob2
-                    line = f"● Player {idx + 1}: {name} 🏆({win}) - ({rank}) • {player_odds * 100:.1f}%{hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({w}) • {player_odds * 100:.1f}%{hcp_txt}"
 
                 elif self.game_type == "triples" and game_full and len(odds) == 3:
-                    line = f"● Player {idx + 1}: {name} 🏆({win}) - ({rank}) • {odds[idx] * 100:.1f}%{hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}) • {odds[idx] * 100:.1f}%{hcp_txt}"
 
                 else:
-                    line = f"● Player {idx + 1}: {name} 🏆({win}) -({rank}){hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({rank}){hcp_txt}"
             else:
                 line = f"○ Player {idx + 1}: [Waiting...]"
 
