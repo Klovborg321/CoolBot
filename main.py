@@ -2158,6 +2158,9 @@ class RoomView(discord.ui.View):
             self.vote_timeout.cancel()
             self.vote_timeout = None
 
+        for pid in self.players:
+            await player_manager.deactivate(pid)
+
 
 class GameEndedButton(discord.ui.Button):
     def __init__(self, view):
