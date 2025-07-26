@@ -1632,7 +1632,7 @@ class BetDropdown(discord.ui.Select):
 
 
 class RoomView(discord.ui.View):
-    def __init__(self, bot, guild, players, game_type, room_name, lobby_message=None, lobby_embed=None, game_view=None, course_name=None, course_id=None, max_players=2, is_hourly=False, is_tournament=False):
+    def __init__(self, bot, guild, players, game_type, room_name, channel=None, lobby_message=None, lobby_embed=None, game_view=None, course_name=None, course_id=None, max_players=2, is_hourly=False, is_tournament=False):
         super().__init__(timeout=None)
         self.bot = bot             # ✅ store bot
         self.guild = guild     
