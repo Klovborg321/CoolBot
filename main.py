@@ -5329,6 +5329,107 @@ async def golden_hour(interaction: discord.Interaction):
     msg = await interaction.channel.send("⏳ Countdown starting...", view=view)
     view.message = msg
 
+
+default_template = {
+    "credits": 1000,
+    "stats": {
+        "singles": {
+            "rank": 1000,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "games_played": 0,
+            "current_streak": 0,
+            "best_streak": 0,
+            "trophies": 0
+        },
+        "doubles": {
+            "rank": 1000,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "games_played": 0,
+            "current_streak": 0,
+            "best_streak": 0,
+            "trophies": 0
+        },
+        "triples": {
+            "rank": 1000,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "games_played": 0,
+            "current_streak": 0,
+            "best_streak": 0,
+            "trophies": 0
+        },
+        "tournament": {
+            "rank": 1000,
+            "wins": 0,
+            "losses": 0,
+            "draws": 0,
+            "games_played": 0,
+            "current_streak": 0,
+            "best_streak": 0,
+            "trophies": 0
+        }
+    }
+}
+
+@tree.command(name="sync_players", description="Sync all server members to the players table if not already present.")
+@app_commands.checks.has_permissions(administrator=True)
+async def sync_players(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
+    guild = interaction.guild
+    if not guild:
+        await interaction.followup.send("❌ This command must be used inside a server.", ephemeral=True)
+        return
+
+    members = guild.members
+    guild_id = str(guild.id)
+    added, skipped = 0, 0
+
+    for member in members:
+        if member.bot:
+            continue
+
+        user_id = str(member.id)
+
+        try:
+            exists = await run_db(lambda: supabase
+                .table("players")
+                .select("id")
+                .eq("id", user_id)
+                .maybe_single()
+                .execute()
+            )
+
+            if exists and exists.data:
+                skipped += 1
+                continue
+
+            await run_db(lambda: supabase
+                .table("players")
+                .insert({
+                    "id": user_id,
+                    "credits": default_template["credits"],
+                    "stats": default_template["stats"]
+                })
+                .execute()
+            )
+            added += 1
+
+        except Exception as e:
+            print(f"[sync_players] ❌ Failed to sync {user_id}: {e}")
+
+    await interaction.followup.send(
+        f"✅ Player sync complete:\n• Added: `{added}`\n• Skipped (already existed): `{skipped}`",
+        ephemeral=True
+    )
+
+
+
 @bot.event
 async def on_ready():
     await tree.sync()
