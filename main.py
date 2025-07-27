@@ -157,7 +157,7 @@ class HandicapPaginationView(discord.ui.View):
         for row in rows:
             course = row.get("course_name", "?")[:24]
             par = str(int(row["course_par"])) if row.get("course_par") is not None else "-"
-            avg = f"{round(row['avg_par'], 2):.2f}" if row.get("avg_par") is not None else "-"
+            avg = str(int(round(row["avg_par"]))) if row.get("avg_par") is not None else "-"
             best = str(int(row["best_score"])) if row.get("best_score") is not None else "-"
             hcp = f"{round(row['handicap'], 2):+5}" if row.get("handicap") is not None else "-"
 
