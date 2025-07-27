@@ -4812,47 +4812,6 @@ async def handicap_index(interaction: discord.Interaction, user: discord.User = 
     )
 
 
-@tree.command(
-    name="my_handicaps",
-    description="See all your submitted scores and handicap differentials"
-)
-async def my_handicaps(interaction: discord.Interaction, user: discord.User = None):
-    await interaction.response.defer(ephemeral=True)
-    target = user or interaction.user
-
-    try:
-        res = await run_db(lambda: supabase
-            .table("handicaps")
-            .select("score,handicap,course_id,courses(name)")
-            .eq("player_id", str(target.id))
-            .order("score")
-            .execute()
-        )
-    except Exception as e:
-        await interaction.followup.send(f"❌ Database error: {e}", ephemeral=True)
-        return
-
-    if not res.data:
-        await interaction.followup.send(f"❌ No scores found for {target.display_name}.", ephemeral=True)
-        return
-
-    embed = discord.Embed(
-        title=f"🏌️ {target.display_name}'s Handicap Records",
-        color=discord.Color.green()
-    )
-
-    for h in res.data:
-        course_name = h["courses"]["name"]
-        score = h["score"]
-        differential = h.get("handicap", "N/A")
-
-        embed.add_field(
-            name=course_name,
-            value=f"Score: **{score}**\nDifferential: **{differential:.2f}**" if isinstance(differential, (int, float)) else f"Score: **{score}**\nDifferential: **{differential}**",
-            inline=False
-        )
-
-    await interaction.followup.send(embed=embed, ephemeral=True)
 
 @tree.command(
     name="handicap_leaderboard",
