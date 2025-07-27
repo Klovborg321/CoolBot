@@ -151,21 +151,17 @@ class HandicapPaginationView(discord.ui.View):
         self.display_name = display_name
         self.current = 0
 
-        if len(pages) > 1:
-            self.add_item(self.prev_button)
-            self.add_item(self.next_button)
-
     def build_embed(self):
         rows = self.pages[self.current]
         lines = [f"{'Course':<24} {'Par':>3} {'Avg':>5} {'Best':>5} {'HCP':>5}"]
         for row in rows:
-            lines.append(
-                f"{row['course_name'][:24]:<24} "
-                f"{int(row['course_par']):>3} "
-                f"{round(row['avg_par'],2):>5} "
-                f"{int(row['best_score']):>5} "
-                f"{round(row['handicap'],2):>+5}"
-            )
+            course = row.get("course_name", "?")[:24]
+            par = str(int(row["course_par"])) if row.get("course_par") is not None else "-"
+            avg = f"{round(row['avg_par'], 2):.2f}" if row.get("avg_par") is not None else "-"
+            best = str(int(row["best_score"])) if row.get("best_score") is not None else "-"
+            hcp = f"{round(row['handicap'], 2):+5}" if row.get("handicap") is not None else "-"
+
+            lines.append(f"{course:<24} {par:>3} {avg:>5} {best:>5} {hcp:>5}")
 
         embed = discord.Embed(
             title=f"⛳ {self.display_name}'s Handicaps",
@@ -5432,23 +5428,33 @@ async def sync_players(interaction: discord.Interaction):
         ephemeral=True
     )
 
-
 @tree.command(name="my_handicaps", description="Show your handicap per course with pagination.")
-async def my_handicaps(interaction: discord.Interaction):
+@app_commands.describe(user="(Optional) Show another user's handicaps")
+async def my_handicaps(interaction: discord.Interaction, user: discord.User = None):
     await interaction.response.defer(ephemeral=True)
-    player_id = str(interaction.user.id)
-    display_name = interaction.user.display_name
 
-    res = await run_db(lambda: supabase
-        .rpc("get_player_handicaps", {
-            "player_id_input": player_id
-        }).execute()
-    )
+    target = user or interaction.user
+    player_id = str(target.id)
+    display_name = target.display_name
+
+    try:
+        res = await run_db(lambda: supabase
+            .rpc("get_player_handicaps", {
+                "player_id_input": player_id
+            }).execute()
+        )
+    except Exception as e:
+        print(f"[my_handicaps] RPC call failed: {e}")
+        await interaction.followup.send("❌ Failed to fetch data from database.", ephemeral=True)
+        return
 
     data = res.data if res and res.data else []
 
     if not data:
-        await interaction.followup.send("❌ No handicap data found for you.", ephemeral=True)
+        await interaction.followup.send(
+            f"📭 No handicap data found for {display_name}. Play some games to record scores!",
+            ephemeral=True
+        )
         return
 
     # Paginate in chunks of 10
