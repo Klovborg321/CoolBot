@@ -143,6 +143,50 @@ CHANNEL_GAME_MAP = {
     1387489197778010122: ("tournament", 4)
 }
 
+
+class HandicapPaginationView(discord.ui.View):
+    def __init__(self, pages, display_name):
+        super().__init__(timeout=None)
+        self.pages = pages
+        self.display_name = display_name
+        self.current = 0
+
+        if len(pages) > 1:
+            self.add_item(self.prev_button)
+            self.add_item(self.next_button)
+
+    def build_embed(self):
+        rows = self.pages[self.current]
+        lines = [f"{'Course':<24} {'Par':>3} {'Avg':>5} {'Best':>5} {'HCP':>5}"]
+        for row in rows:
+            lines.append(
+                f"{row['course_name'][:24]:<24} "
+                f"{int(row['course_par']):>3} "
+                f"{round(row['avg_par'],2):>5} "
+                f"{int(row['best_score']):>5} "
+                f"{round(row['handicap'],2):>+5}"
+            )
+
+        embed = discord.Embed(
+            title=f"⛳ {self.display_name}'s Handicaps",
+            description=f"```{chr(10).join(lines)}```",
+            color=discord.Color.green()
+        )
+        embed.set_footer(text=f"Page {self.current+1}/{len(self.pages)} — Total: {sum(len(p) for p in self.pages)} courses")
+        return embed
+
+    @discord.ui.button(label="⬅️ Previous", style=discord.ButtonStyle.secondary)
+    async def prev_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current = (self.current - 1) % len(self.pages)
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    @discord.ui.button(label="➡️ Next", style=discord.ButtonStyle.secondary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current = (self.current + 1) % len(self.pages)
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+
+
 async def autocomplete_course(interaction: discord.Interaction, current: str):
     try:
         res = await run_db(lambda: supabase
@@ -5428,6 +5472,30 @@ async def sync_players(interaction: discord.Interaction):
         f"✅ Player sync complete:\n• Added: `{added}`\n• Skipped (already existed): `{skipped}`",
         ephemeral=True
     )
+
+
+@tree.command(name="my_handicaps", description="Show your handicap per course with pagination.")
+async def my_handicaps(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    player_id = str(interaction.user.id)
+    display_name = interaction.user.display_name
+
+    res = await run_db(lambda: supabase
+        .rpc("get_player_handicaps", {
+            "player_id_input": player_id
+        }).execute()
+    )
+
+    data = res.data if res and res.data else []
+
+    if not data:
+        await interaction.followup.send("❌ No handicap data found for you.", ephemeral=True)
+        return
+
+    # Paginate in chunks of 10
+    pages = [data[i:i+10] for i in range(0, len(data), 10)]
+    view = HandicapPaginationView(pages, display_name)
+    await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True)
 
 
 
