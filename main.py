@@ -3262,7 +3262,7 @@ async def update_leaderboard(bot, game_type="singles"):
     res = await run_db(lambda: supabase.table("players").select("*").execute())
     players = res.data or []
     players.sort(
-        key=lambda p: int(p.get("stats", {}).get(game_type, {}).get("rank", 1000)),
+        key=lambda p: int(p.get("stats", {}).get(game_type, {}).get("wins", 0)),
         reverse=True
     )
 
@@ -3314,8 +3314,8 @@ class LeaderboardView(discord.ui.View):
             credits = stats.get("credits", 0)
             rank = stats.get("stats", {}).get(self.game_type, {}).get("rank", 1000)
 
-            #name_with_wins = f"{name}"
-            line = f"{i:<3} {name:<30} {wins:<3} {rank:<6} {credits:<4}"
+            name_with_wins = f"{name}"
+            line = f"{i:<3} {name_with_wins:<30} {wins:<3} {rank:<6} {credits:<4}"
             lines.append(line)
 
         if not lines:
