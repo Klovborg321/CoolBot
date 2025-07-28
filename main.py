@@ -4392,12 +4392,11 @@ async def admin_leaderboard(
         color=discord.Color.gold()
     )
 
-     # ✅ Send banner image first to appear visually on top
-    await interaction.followup.send(
-        content="‎",  # invisible character to avoid blank
-        file=discord.File("https://cdn.discordapp.com/attachments/1378860910310854666/1399307003284815892/leaderboard_banner.png")  # or use a local path or URL
-    )
+    image_embed = discord.Embed()
+    image_embed.set_image(url="https://cdn.discordapp.com/attachments/1378860910310854666/1399307003284815892/leaderboard_banner.png")
 
+    await interaction.followup.send(embed=image_embed)
+    
     await interaction.followup.send(embed=embed, view=view)
     view.message = await interaction.original_response()
 
