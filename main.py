@@ -4395,7 +4395,7 @@ async def admin_leaderboard(
      # ✅ Send banner image first to appear visually on top
     await interaction.followup.send(
         content="‎",  # invisible character to avoid blank
-        file=discord.File("https://nxybekwiefwxnijrwuas.supabase.co/storage/v1/object/public/game-images/leaderboard_banner.png")  # or use a local path or URL
+        file=discord.File("https://cdn.discordapp.com/attachments/1378860910310854666/1399307003284815892/leaderboard_banner.png")  # or use a local path or URL
     )
 
     await interaction.followup.send(embed=embed, view=view)
