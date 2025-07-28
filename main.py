@@ -3302,20 +3302,20 @@ class LeaderboardView(discord.ui.View):
         lines = []
 
         # Header row (plain text, no emojis in labels except for rank/trophy/stars)
-        lines.append(f"{'#':<3} {'Name (wins)':<24} {'📈':<6} {'🏆':<3} {'⭐':<4}")
+        lines.append(f"{'#':<3} {'Name':<30} {'🏆':<3'} {'📈':<6} {'⭐':<4}")
 
         for i, entry in enumerate(self.entries[start:end], start=start + 1):
             uid, stats = entry if isinstance(entry, tuple) else (entry.get("id"), entry)
             member = guild.get_member(int(uid))
             display = member.display_name if member else f"User {uid}"
-            name = display[:18]  # truncate if needed
+            name = display[:24]  # truncate if needed
             wins = stats.get("stats", {}).get(self.game_type, {}).get("wins", 0)
-            trophies = stats.get("stats", {}).get(self.game_type, {}).get("trophies", 0)
+            #trophies = stats.get("stats", {}).get(self.game_type, {}).get("trophies", 0)
             credits = stats.get("credits", 0)
             rank = stats.get("stats", {}).get(self.game_type, {}).get("rank", 1000)
 
-            name_with_wins = f"{name} ({wins})"
-            line = f"{i:<3} {name_with_wins:<24} {rank:<6} {trophies:<3} {credits:<4}"
+            #name_with_wins = f"{name}"
+            line = f"{i:<3} {name:<30} {wins:<3} {rank:<6} {credits:<4}"
             lines.append(line)
 
         if not lines:
@@ -4362,7 +4362,7 @@ async def admin_leaderboard(
 
     # ✅ Sort numerically by selected game type rank
     players.sort(
-        key=lambda p: int(p.get("stats", {}).get(game_type, {}).get("rank", 1000)),
+        key=lambda p: int(p.get("stats", {}).get(game_type, {}).get("wins", 0)),
         reverse=True
     )
 
