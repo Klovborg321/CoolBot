@@ -4391,6 +4391,9 @@ async def admin_leaderboard(
         description=view.format_page(interaction.guild),
         color=discord.Color.gold()
     )
+
+    embed.set_image(url="https://nxybekwiefwxnijrwuas.supabase.co/storage/v1/object/public/game-images//leaderboard_banner.png")
+
     await interaction.followup.send(embed=embed, view=view)
     view.message = await interaction.original_response()
 
