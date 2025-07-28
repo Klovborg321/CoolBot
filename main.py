@@ -1435,7 +1435,7 @@ class GameJoinView(discord.ui.View):
         embed = await view.build_embed(interaction.guild, no_image=True)
 
         image_embed = discord.Embed()
-        image_embed.set_image(url="https://cdn.discordapp.com/attachments/1378860910310854666/1399339302818676808/game_banner.png")
+        image_embed.set_image(url="https://cdn.discordapp.com/attachments/1378860910310854666/1399345754723581972/lobby_banner.png")
 
         view.message = await interaction.channel.send(embeds=[image_embed, embed], view=view)
         #channel_id = self.channel.id if self.channel else self.message.channel.id
@@ -2898,8 +2898,7 @@ class GameView(discord.ui.View):
             timestamp=discord.utils.utcnow()
         )
         embed.set_author(
-            name="******************PUTT CLUB CHANNEL******************",
-            icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1395849001756131479/logo.webp"
+            name="🏌️ ****************** PUTT CLUB CHANNEL ****************** 🏌️"
         )
 
         if self.scheduled_time:
