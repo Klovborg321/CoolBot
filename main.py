@@ -1435,7 +1435,7 @@ class GameJoinView(discord.ui.View):
         embed = await view.build_embed(interaction.guild, no_image=True)
 
         image_embed = discord.Embed()
-        image_embed.set_image(url="https://cdn.discordapp.com/attachments/1378860910310854666/1399345754723581972/lobby_banner.png")
+        image_embed.set_image(url="https://cdn.discordapp.com/attachments/1378860910310854666/1399365960195903639/new_game_logo.png")
 
         view.message = await interaction.channel.send(embeds=[image_embed, embed], view=view)
         #channel_id = self.channel.id if self.channel else self.message.channel.id
