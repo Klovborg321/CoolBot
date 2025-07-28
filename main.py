@@ -4397,7 +4397,7 @@ async def admin_leaderboard(
 
     #await interaction.followup.send(embed=image_embed)
     
-    await interaction.followup.send(embed=[image_embed,embed], view=view)
+    await interaction.followup.send(embeds=[image_embed,embed], view=view)
     view.message = await interaction.original_response()
 
     # ✅ Store channel/message IDs PER game type for auto-update
