@@ -2380,7 +2380,10 @@ class GameEndedButton(discord.ui.Button):
                     if isinstance(item, (BettingButtonDropdown, BettingButton)):
                         self.view_obj.game_view.remove_item(item)
 
-                await target_message.edit(embed=updated_embed, view=self.view_obj.game_view)
+                image_embed = discord.Embed()
+                image_embed.set_image(url="https://cdn.discordapp.com/attachments/1378860910310854666/1399404868283793552/end_game_logo.png")
+
+                await target_message.edit(embeds=[image_embed, updated_embed], view=self.view_obj.game_view)
             except Exception as e:
                 print(f"[GameEndedButton] ⚠️ Failed to update lobby message: {e}")
 
