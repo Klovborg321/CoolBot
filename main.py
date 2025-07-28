@@ -4393,7 +4393,7 @@ async def admin_leaderboard(
     )
 
     image_embed = discord.Embed()
-    image_embed.set_image(url="https://cdn.discordapp.com/attachments/1378860910310854666/1399307003284815892/leaderboard_banner.png")
+    image_embed.set_image(url="https://cdn.discordapp.com/attachments/1378860910310854666/1399313932732207115/leaderboard_banner.png")
 
     #await interaction.followup.send(embed=image_embed)
     
