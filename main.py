@@ -3302,8 +3302,8 @@ class LeaderboardView(discord.ui.View):
         lines = []
 
         # Header row (plain text, no emojis in labels except for rank/trophy/stars)
-        lines.append(f"{'#':<3} {'Name':<30} {'🏆 wins':<7} {'📈 Rank':<10} {'⭐ Stars':<9}")
-        lines.append("-------------------------------------------------------")
+        lines.append(f"{'#':<3} {'Name':<28} {'🏆 wins':<7} {'📈 Rank':<10} {'⭐ Stars':<9}")
+        lines.append("-------------------------------------------")
 
         for i, entry in enumerate(self.entries[start:end], start=start + 1):
             uid, stats = entry if isinstance(entry, tuple) else (entry.get("id"), entry)
