@@ -546,7 +546,7 @@ async def send_global_notification(game_type: str, lobby_link: str, guild: disco
         color=discord.Color.green()
     )
     embed.set_image(
-        url="https://nxybekwiefwxnijrwuas.supabase.co/storage/v1/object/public/game-images/banner.png"
+        url="https://cdn.discordapp.com/attachments/1378860910310854666/1399365960195903639/new_game_logo.png"
     )
     embed.set_footer(text="Putt Club")
 
