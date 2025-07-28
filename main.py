@@ -23,9 +23,6 @@ from discord.ext import tasks
 from discord import TextChannel, utils
 from types import SimpleNamespace
 import copy
-import aiohttp
-import io
-
 
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -4364,20 +4361,23 @@ async def admin_leaderboard(
     res = await run_db(lambda: supabase.table("players").select("*").execute())
     players = res.data or []
 
-    # ✅ Sort by wins in that game type
+    # ✅ Sort numerically by selected game type rank
     players.sort(
         key=lambda p: int(p.get("stats", {}).get(game_type, {}).get("wins", 0)),
         reverse=True
     )
 
     if not players:
-        await interaction.followup.send("📭 No players found.", ephemeral=True)
+        await interaction.followup.send(
+            "📭 No players found.",
+            ephemeral=True  # error stays private
+        )
         return
 
     # ✅ Format entries for the view
     entries = [(p["id"], p) for p in players]
 
-    # ✅ Create the leaderboard view
+    # ✅ Create view with game_type
     view = LeaderboardView(
         entries,
         page_size=10,
@@ -4385,34 +4385,24 @@ async def admin_leaderboard(
         game_type=game_type
     )
 
-    # ✅ Prepare embed
+    # ✅ Send the leaderboard PUBLICLY in channel
     embed = discord.Embed(
         title=view.title,
         description=view.format_page(interaction.guild),
         color=discord.Color.gold()
     )
 
-    # ✅ Download banner from Supabase and send it as file
-    banner_url = "https://nxybekwiefwxnijrwuas.supabase.co/storage/v1/object/public/game-images/leaderboard_banner.png"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(banner_url) as resp:
-            if resp.status != 200:
-                await interaction.followup.send("❌ Failed to load leaderboard banner image.")
-                return
-            image_data = io.BytesIO(await resp.read())
-            await interaction.followup.send(
-                content="‎",  # invisible char so image appears
-                file=discord.File(image_data, filename="leaderboard_banner.png")
-            )
+    image_embed = discord.Embed(title="   ")
+    image_embed.set_image(url="https://cdn.discordapp.com/attachments/1378860910310854666/1399307003284815892/leaderboard_banner.png")
 
-    # ✅ Now send leaderboard embed with view
-    await interaction.followup.send(embed=embed, view=view)
+    #await interaction.followup.send(embed=image_embed)
+    
+    await interaction.followup.send(embeds=[image_embed,embed], view=view)
     view.message = await interaction.original_response()
 
-    # ✅ Store message/channel IDs for future updates
+    # ✅ Store channel/message IDs PER game type for auto-update
     await set_parameter(f"{game_type}_leaderboard_channel_id", str(interaction.channel.id))
     await set_parameter(f"{game_type}_leaderboard_message_id", str(view.message.id))
-
 
 
 
