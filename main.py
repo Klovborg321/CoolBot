@@ -2727,6 +2727,9 @@ class GameView(discord.ui.View):
         lobby_embed.title = f"{self.game_type.title()} Game Lobby"
         lobby_embed.color = discord.Color.orange()
 
+        image_embed = discord.Embed()
+        image_embed.set_image(url="https://cdn.discordapp.com/attachments/1378860910310854666/1399416653317672970/game_progress_logo.png")
+
         self.clear_items()  # ✅ Clear old buttons
         self.betting_button = BettingButtonDropdown(self)
         self.add_item(self.betting_button)
@@ -2736,11 +2739,11 @@ class GameView(discord.ui.View):
 
         if self.message:
             try:
-                await self.message.edit(embed=lobby_embed, view=self)  # ✅ Edit early with new buttons
+                await self.message.edit(embeds=[image_embed, lobby_embed], view=self)  # ✅ Edit early with new buttons
             except discord.NotFound:
-                self.message = await self.channel.send(embed=lobby_embed, view=self)
+                self.message = await self.channel.send(embeds=[image_embed, lobby_embed], view=self)
         else:
-            self.message = await self.channel.send(embed=lobby_embed, view=self)
+            self.message = await self.channel.send(embeds=[image_embed, lobby_embed], view=self)
 
         # 📦 Continue with DB and thread logic after UI feedback is done
         res = await run_db(lambda: supabase.table("courses").select("id", "name", "image_url").execute())
