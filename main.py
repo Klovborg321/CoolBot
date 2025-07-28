@@ -2898,7 +2898,7 @@ class GameView(discord.ui.View):
             timestamp=discord.utils.utcnow()
         )
         embed.set_author(
-            name="PUTT CLUB CHANNEL",
+            name="******************PUTT CLUB CHANNEL******************",
             icon_url="https://cdn.discordapp.com/attachments/1378860910310854666/1395849001756131479/logo.webp"
         )
 
