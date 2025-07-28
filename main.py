@@ -2897,10 +2897,14 @@ class GameView(discord.ui.View):
             color=discord.Color.orange() if not winner else discord.Color.dark_gray(),
             timestamp=discord.utils.utcnow()
         )
-        embed.set_author(
-            name="🏌️ ****************** PUTT CLUB CHANNEL ****************** 🏌️"
-        )
-
+        if no_image:
+            embed.set_author(
+                name="🏌️ ****************** PUTT CLUB CHANNEL ****************** 🏌️"
+            )
+        else:
+            embed.set_author(
+                name="🏌️ PUTT CLUB CHANNEL 🏌️"
+            )
         if self.scheduled_time:
             void_time = self.scheduled_time + timedelta(minutes=30)
             ts = int(void_time.timestamp())
