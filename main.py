@@ -4342,7 +4342,7 @@ async def init_triples(interaction: discord.Interaction):
 @app_commands.describe(
     game_type="Which game type to show (singles, doubles, triples, tournament)"
 )
-@app_commands.check(is_admin)
+@app_commands.check(is_admin)  # ✅ only admins can run
 async def admin_leaderboard(
     interaction: discord.Interaction,
     game_type: str
@@ -4355,53 +4355,56 @@ async def admin_leaderboard(
         )
         return
 
-    await interaction.response.defer()
+    await interaction.response.defer()  # ✅ public defer
 
     # ✅ Fetch all players
     res = await run_db(lambda: supabase.table("players").select("*").execute())
     players = res.data or []
 
-    # ✅ Sort numerically by selected game type wins
+    # ✅ Sort numerically by selected game type rank
     players.sort(
         key=lambda p: int(p.get("stats", {}).get(game_type, {}).get("wins", 0)),
         reverse=True
     )
 
     if not players:
-        await interaction.followup.send("📭 No players found.", ephemeral=True)
+        await interaction.followup.send(
+            "📭 No players found.",
+            ephemeral=True  # error stays private
+        )
         return
 
     # ✅ Format entries for the view
     entries = [(p["id"], p) for p in players]
 
-    # ✅ Create LeaderboardView
+    # ✅ Create view with game_type
     view = LeaderboardView(
-        entries=entries,
+        entries,
         page_size=10,
         title=f"🏆 {game_type.capitalize()} Leaderboard",
         game_type=game_type
     )
 
-    # ✅ Create embed with stats
+    # ✅ Send the leaderboard PUBLICLY in channel
     embed = discord.Embed(
         title=view.title,
         description=view.format_page(interaction.guild),
         color=discord.Color.gold()
     )
 
-    # ✅ Send banner image first to appear visually on top
+     # ✅ Send banner image first to appear visually on top
     await interaction.followup.send(
         content="‎",  # invisible character to avoid blank
         file=discord.File("https://nxybekwiefwxnijrwuas.supabase.co/storage/v1/object/public/game-images/leaderboard_banner.png")  # or use a local path or URL
     )
 
-    # ✅ Then send the embed below
     await interaction.followup.send(embed=embed, view=view)
     view.message = await interaction.original_response()
 
-    # ✅ Track this leaderboard message for future updates
+    # ✅ Store channel/message IDs PER game type for auto-update
     await set_parameter(f"{game_type}_leaderboard_channel_id", str(interaction.channel.id))
     await set_parameter(f"{game_type}_leaderboard_message_id", str(view.message.id))
+
 
 
 @tree.command(name="admin_stats_reset", description="Admin: Reset a user's stats")
