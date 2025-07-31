@@ -85,8 +85,8 @@ WORDS = ["alpha", "bravo", "delta", "foxtrot", "gamma"]
 
 default_template = {
     "credits": 1000,
-    "games_since_credit": 0,
     "stats": {
+        "games_since_credit": 0,
         "singles": {
             "rank": 1000,
             "wins": 0,
