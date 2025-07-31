@@ -1894,6 +1894,7 @@ class RoomView(discord.ui.View):
 
                 hcp_txt = ""
                 if hasattr(self, "course_id") and self.course_id:
+                    print(f"[HCP] Fetching handicap for player {pid}, course {self.course_id}")
                     hcp = await get_player_handicap(user_id, self.course_id)
                     hcp_txt = f"HCP: {hcp}"
 
@@ -2972,21 +2973,10 @@ class GameView(discord.ui.View):
                 win = wins[idx]
                 hcp_txt = ""  # 🎯 Handicap removed
 
-                if self.course_id:
-                    try:
-                        row = await run_db(lambda: supabase
-                            .table("league_handicaps")
-                            .select("handicap")
-                            .eq("player_id", str(pid))
-                            .eq("course_id", str(self.course_id))
-                            .maybe_single()
-                            .execute()
-                        )
-                        if row.data and row.data.get("handicap") is not None:
-                            hcp = round(-row.data["handicap"], 1)  # Negate and round
-                            hcp_txt = f" (HCP {hcp:+.1f})"
-                    except Exception as e:
-                        print(f"[Handicap] ⚠️ Failed to fetch handicap for {pid}: {e}")
+                if hasattr(self, "course_id") and self.course_id:
+                    print(f"[HCP] Fetching handicap for player {pid}, course {self.course_id}")
+                    hcp = await get_player_handicap(user_id, self.course_id)
+                    hcp_txt = f"HCP: {hcp}"
 
                 if self.game_type == "singles" and game_full:
                     e1, e2 = ranks
