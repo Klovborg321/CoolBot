@@ -275,7 +275,7 @@ async def get_player_handicap(player_id: int, course_id: str):
     # Step 1: Try to fetch this player's handicap for this course
     res = await run_db(lambda: supabase
         .table("handicaps")
-        .select("score")
+        .select("handicap")
         .eq("player_id", str(player_id))
         .eq("course_id", course_id)
         .limit(1)
@@ -288,7 +288,7 @@ async def get_player_handicap(player_id: int, course_id: str):
     # Step 2: Fallback – get best (lowest) recorded handicap on this course
     res_fallback = await run_db(lambda: supabase
         .table("handicaps")
-        .select("score")
+        .select("handicap")
         .eq("course_id", course_id)
         .order("score", desc=False)  # ✅ Best handicap (lowest score)
         .limit(1)
@@ -296,7 +296,7 @@ async def get_player_handicap(player_id: int, course_id: str):
     )
 
     if res_fallback.data and len(res_fallback.data) > 0:
-        return res_fallback.data[0]["score"]
+        return res_fallback.data[0]["handicap"]
 
     # Step 3: Final fallback if no scores at all exist
     return 0
@@ -2034,7 +2034,7 @@ class RoomView(discord.ui.View):
         embeds = [embed]
         if getattr(self, "image_embed", None): 
             embeds.insert(0, self.image_embed)
-        await self.message.edit(embeds=embeds, view=None)
+        await self.message.edit(embeds=embeds, view=self)
 
         # ✅ Optional: post 1-minute warning at 9 minutes
         async def warn_before_finalizing():
