@@ -2724,11 +2724,28 @@ class GameView(discord.ui.View):
         self.betting_button = BettingButtonDropdown(self)
         self.add_item(self.betting_button)
 
+        # ✅ Update thread message (optional)
         if self.message:
             await self.update_message(status="✅ Match is full. Place your bets!")
         else:
             print("[TEST_MODE] No message to update for betting phase.")
 
+        # ✅ Update main lobby message (preserve image_embed!)
+        if self.lobby_message:
+            updated_embed = await self.build_embed(
+                self.lobby_message.guild,
+                status="💰 Betting is open!"
+            )
+
+            embeds = [updated_embed]
+            if getattr(self, "image_embed", None):
+                embeds.insert(0, self.image_embed)
+
+            await self.lobby_message.edit(embeds=embeds, view=self)
+        else:
+            print("[show_betting_phase] ⚠️ No lobby_message to update with betting button.")
+
+        # ✅ Start betting timer
         if self.betting_task:
             self.betting_task.cancel()
         self.betting_task = asyncio.create_task(self._betting_countdown(self.instance_id))
