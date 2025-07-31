@@ -1936,7 +1936,7 @@ class RoomView(discord.ui.View):
                     print(f"[RoomView] ⚠️ Handicap fetch failed for {p}: {e}")
 
             wins = pdata.get("wins", 0)
-            lines.append(f"Player {idx + 1}: <@{p}> 🏆 ({wins}) • {hcp_txt}")
+            lines.append(f"● Player {idx + 1}: <@{p}> 🏆 ({wins}) • {hcp_txt}")
 
 
         if winner == "draw":
