@@ -5356,33 +5356,58 @@ async def init_selected(interaction: discord.Interaction):
 
 @tree.command(name="show_stat", description="Show your stats across all game types.")
 async def show_stat(interaction: discord.Interaction):
-    user_id = interaction.user.id
-    pdata = await get_player(user_id)
+    await interaction.response.defer(ephemeral=True)
 
-    if not pdata:
-        await interaction.response.send_message("❌ No stats found for you.", ephemeral=True)
-        return
+    user = interaction.user
 
-    stats = pdata.get("stats", {})
-    embed = discord.Embed(title=f"📊 Stats for {interaction.user.display_name}", color=discord.Color.green())
+    # ✅ Fetch player row
+    res = await run_db(
+        lambda: supabase.table("players").select("*").eq("id", str(user.id)).single().execute()
+    )
+    player = res.data or {}
 
-    for game_type, s in stats.items():
-        embed.add_field(
-            name=game_type.title(),
-            value=(
-                f"🏆 Wins: {s.get('wins', 0)}\n"
-                f"❌ Losses: {s.get('losses', 0)}\n"
-                f"🤝 Draws: {s.get('draws', 0)}\n"
-                f"🎮 Games Played: {s.get('games_played', 0)}\n"
-                f"🔥 Current Streak: {s.get('current_streak', 0)}\n"
-                f"📈 Best Streak: {s.get('best_streak', 0)}\n"
-                f"🎖️ Trophies: {s.get('trophies', 0)}\n"
-                f"⭐ Rank: {s.get('rank', 1000)}"
-            ),
-            inline=False
-        )
+    credits = player.get("credits", 1000)
+    stats_data = player.get("stats", {})
+    games_since_credit = stats_data.get("games_since_credit", 0)
+    remaining_games = max(0, 10 - games_since_credit)
 
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    # ✅ Build blocks per game type
+    blocks = []
+    for game_type in ("singles", "doubles", "triples", "tournament"):
+        stats = stats_data.get(game_type, {})
+        rank = stats.get("rank", 1000)
+        trophies = stats.get("trophies", 0)
+        games = stats.get("games_played", 0)
+        wins = stats.get("wins", 0)
+        losses = stats.get("losses", 0)
+        draws = stats.get("draws", 0)
+        streak = stats.get("current_streak", 0)
+        best_streak = stats.get("best_streak", 0)
+
+        block = [
+            f"{'📈 Rank':<20}: {rank}",
+            f"{'🏆 Trophies':<20}: {trophies}",
+            f"{'🎮 Games Played':<20}: {games}",
+            f"{'✅ Wins':<20}: {wins}",
+            f"{'❌ Losses':<20}: {losses}",
+            f"{'➖ Draws':<20}: {draws}",
+            f"{'🔥 Current Streak':<20}: {streak}",
+            f"{'🏅 Best Streak':<20}: {best_streak}"
+        ]
+        blocks.append(f"**{game_type.title()} Stats**\n```" + "\n".join(block) + "```")
+
+    # ✅ Add credit info
+    blocks.insert(0, f"**⭐ Credits:** `{credits}`\n🕒 Next reward in `{remaining_games}` more game(s)")
+
+    # ✅ Build embed
+    embed = discord.Embed(
+        title=f"📊 Stats for {user.display_name}",
+        description="\n\n".join(blocks),
+        color=discord.Color.green()
+    )
+
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 @tree.command(name="show_stars", description="See how many stars you have.")
 async def show_stars(interaction: discord.Interaction):
