@@ -85,6 +85,7 @@ WORDS = ["alpha", "bravo", "delta", "foxtrot", "gamma"]
 
 default_template = {
     "credits": 1000,
+    "games_since_credit": 0,
     "stats": {
         "singles": {
             "rank": 1000,
@@ -2102,6 +2103,16 @@ class RoomView(discord.ui.View):
                 pdata["draws"] += 1
                 pdata["games_played"] += 1
                 pdata["current_streak"] = 0
+
+                # 🎁 CREDIT REWARD LOGIC
+                stats = pdata.get("stats", {})
+                stats["games_since_credit"] = stats.get("games_since_credit", 0) + 1
+                if stats["games_since_credit"] >= 10:
+                    stats["games_since_credit"] = 0
+                    pdata["credits"] = pdata.get("credits", 0) + 100
+                    await self.channel.send(f"💸 <@{p}> played 10 games and earned **+100 credits!**")
+                pdata["stats"] = stats
+
                 await save_player(p, pdata)
 
             if self.game_view:
@@ -2169,6 +2180,34 @@ class RoomView(discord.ui.View):
             except Exception as e:
                 print(f"[finalize_game] ❌ Failed ELO update: {e}")
                 return
+
+
+            # ✅ Update player stats and handle +100 credits for 10 games played
+            for p in self.players:
+                pdata = await get_player(p)
+                stats = pdata.get("stats", {})
+
+                # Determine win/loss
+                if p == winner:
+                    pdata["wins"] = pdata.get("wins", 0) + 1
+                    pdata["current_streak"] = pdata.get("current_streak", 0) + 1
+                    pdata["best_streak"] = max(pdata.get("best_streak", 0), pdata["current_streak"])
+                else:
+                    pdata["losses"] = pdata.get("losses", 0) + 1
+                    pdata["current_streak"] = 0
+
+                pdata["games_played"] = pdata.get("games_played", 0) + 1
+
+                # 🎁 CREDIT REWARD LOGIC
+                stats["games_since_credit"] = stats.get("games_since_credit", 0) + 1
+                if stats["games_since_credit"] >= 10:
+                    stats["games_since_credit"] = 0
+                    pdata["credits"] = pdata.get("credits", 0) + 100
+                    await self.channel.send(f"💸 <@{p}> played 10 games and earned **+100 credits!**")
+
+                pdata["stats"] = stats
+                await save_player(p, pdata)
+
 
             # ✅ Process bets
             if self.game_view:
