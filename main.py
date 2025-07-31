@@ -3878,9 +3878,15 @@ class TournamentManager:
                 try:
                     embed = await room_view.build_room_embed()
 
+                    embeds = [embed]
+                    if getattr(self, "image_embed", None):
+                        embeds.insert(0, self.image_embed)
+
+                    await self.message.edit(embeds=embeds, view=self)
+
                     msg = await match_thread.send(
                         content=f"{mentions}\n🏆 This match is part of the tournament!",
-                        embed=embed,
+                        embeds=embeds,
                         view=room_view
                     )
 
