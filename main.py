@@ -2861,7 +2861,7 @@ class GameView(discord.ui.View):
 
         embeds = [embed]
         if hasattr(self, "image_embed") and self.image_embed:
-            embeds.append(self.image_embed)
+            embeds.insert(0, self.image_embed)  # ✅ put image_embed first
 
         await self.message.edit(embeds=embeds, view=self)
 
