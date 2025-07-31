@@ -1895,18 +1895,18 @@ class RoomView(discord.ui.View):
                 hcp_txt = ""
                 if hasattr(self, "course_id") and self.course_id:
                     hcp = await get_player_handicap(user_id, self.course_id)
-                    hcp_txt = f" | HCP: {hcp}"
+                    hcp_txt = f"HCP: {hcp}"
 
                 # --- Odds display ---
                 if self.game_type == "singles" and game_full and len(ranks) == 2:
                     prob1 = 1 / (1 + 10 ** ((ranks[1] - ranks[0]) / 400))
                     prob2 = 1 - prob1
                     player_odds = prob1 if idx == 0 else prob2
-                    line = f"● Player {idx + 1}: {name} 🏆 ({wins}) • {player_odds * 100:.1f}%{hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({wins}) • {hcp_txt} • {player_odds * 100:.1f}%"
                 elif self.game_type == "triples" and game_full and len(odds) == 3:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({wins}) • {odds[idx] * 100:.1f}%{hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({wins}) • {hcp_txt} • {odds[idx] * 100:.1f}%"
                 else:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({wins}){hcp_txt}"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({wins}) • {hcp_txt}"
             else:
                 line = f"○ Player {idx + 1}: [Waiting...]"
 
@@ -2030,7 +2030,10 @@ class RoomView(discord.ui.View):
 
         # ✅ Rebuild embed for voting AND attach the updated view (important!)
         embed = await self.build_lobby_end_embed(winner=None)
-        await self.message.edit(embed=embed, view=self)  # ✅ this line was missing
+        embeds = [embed]
+        if getattr(self, "image_embed", None): 
+            embeds.insert(0, self.image_embed)
+        await self.message.edit(embeds=embeds, view=None)
 
         # ✅ Optional: post 1-minute warning at 9 minutes
         async def warn_before_finalizing():
@@ -2153,7 +2156,11 @@ class RoomView(discord.ui.View):
                 lobby_embed = await self.game_view.build_embed(
                     self.lobby_message.guild, winner=winner, no_image=True
                 )
-                await self.lobby_message.edit(embed=lobby_embed, view=None)
+                embeds = [lobby_embed]
+                if getattr(self.game_view, "image_embed", None):
+                    embeds.insert(0, self.game_view.image_embed)
+
+                await self.lobby_message.edit(embeds=embeds, view=None)
 
             await self.channel.send("🤝 Voting ended in a **draw** — all bets refunded.")
             try:
@@ -2257,7 +2264,11 @@ class RoomView(discord.ui.View):
                 for item in list(self.game_view.children):
                     if isinstance(item, BettingButton) or getattr(item, "label", "") == "Place Bet":
                         self.game_view.remove_item(item)
-                await target_message.edit(embed=lobby_embed, view=self.game_view)
+                #await target_message.edit(embed=lobby_embed, view=self.game_view)
+                embeds = [lobby_embed]
+                if getattr(self.game_view, "image_embed", None):
+                    embeds.insert(0, self.game_view.image_embed)
+                await target_message.edit(embeds=embeds, view=self.game_view)
 
             await self.channel.send(f"🏁 Voting ended. Winner: **{winner_name}**")
             await asyncio.sleep(3)
@@ -2382,6 +2393,8 @@ class GameEndedButton(discord.ui.Button):
 
                 image_embed = discord.Embed()
                 image_embed.set_image(url="https://cdn.discordapp.com/attachments/1378860910310854666/1399404868283793552/end_game_logo.png")
+
+                self.view_obj.game_view.image_embed = image_embed
 
                 await target_message.edit(embeds=[image_embed, updated_embed], view=self.view_obj.game_view)
             except Exception as e:
@@ -2652,7 +2665,7 @@ class GameView(discord.ui.View):
                 # ✅ Schedule message deletion after 10 seconds
                 msg = self.message  # Save a reference to the message
                 async def delete_after_delay():
-                    await asyncio.sleep(10)
+                    await asyncio.sleep(1)
                     try:
                         await msg.delete()
                     except discord.NotFound:
@@ -2842,9 +2855,7 @@ class GameView(discord.ui.View):
         embed = await self.build_embed(self.message.guild, bets=self.bets, status=status)
         self.clear_items()
 
-        # ✅ Only show Join/Leave if game hasn't started or ended AND not full
         if not self.betting_closed and not self.has_started and len(self.players) < self.max_players:
-            # Reuse the original join button (if possible) instead of re-creating it
             self.add_item(LeaveGameButton(self))
 
             join_button = discord.ui.Button(label="Join Game", style=discord.ButtonStyle.success)
@@ -2855,11 +2866,15 @@ class GameView(discord.ui.View):
             join_button.callback = join_callback
             self.add_item(join_button)
 
-        # ✅ Betting button is still allowed until betting is closed
         if not self.betting_closed and hasattr(self, "betting_button"):
             self.add_item(self.betting_button)
 
-        await self.message.edit(embed=embed, view=self)
+        embeds = [embed]
+        if hasattr(self, "image_embed") and self.image_embed:
+            embeds.append(self.image_embed)
+
+        await self.message.edit(embeds=embeds, view=self)
+
 
 
     #async def join_callback(interaction: discord.Interaction):
@@ -2957,13 +2972,29 @@ class GameView(discord.ui.View):
                 win = wins[idx]
                 hcp_txt = ""  # 🎯 Handicap removed
 
+                if self.course_id:
+                    try:
+                        row = await run_db(lambda: supabase
+                            .table("league_handicaps")
+                            .select("handicap")
+                            .eq("player_id", str(pid))
+                            .eq("course_id", str(self.course_id))
+                            .maybe_single()
+                            .execute()
+                        )
+                        if row.data and row.data.get("handicap") is not None:
+                            hcp = round(-row.data["handicap"], 1)  # Negate and round
+                            hcp_txt = f" (HCP {hcp:+.1f})"
+                    except Exception as e:
+                        print(f"[Handicap] ⚠️ Failed to fetch handicap for {pid}: {e}")
+
                 if self.game_type == "singles" and game_full:
                     e1, e2 = ranks
                     o1 = 1 / (1 + 10 ** ((e2 - e1) / 400))
                     player_odds = o1 if idx == 0 else 1 - o1
-                    line = f"● Player {idx + 1}: {name} 🏆 ({win}) • {player_odds * 100:.1f}%"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({win}) • {hcp_txt} • {player_odds * 100:.1f}%"
                 elif self.game_type == "triples" and game_full:
-                    line = f"● Player {idx + 1}: {name} 🏆 ({win}) • {odds[idx] * 100:.1f}%"
+                    line = f"● Player {idx + 1}: {name} 🏆 ({win}) • {hcp_txt} • {odds[idx] * 100:.1f}%"
                 else:
                     line = f"● Player {idx + 1}: {name} 🏆 ({win})"
             else:
