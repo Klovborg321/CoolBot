@@ -277,16 +277,15 @@ async def get_player_handicap(player_id: int, course_id: str):
     res = await run_db(lambda: supabase
         .table("handicaps")
         .select("handicap")
-        .eq("player_id", str(p))
-        .eq("course_id", self.course_id)
+        .eq("player_id", str(player_id))
+        .eq("course_id", course_id)
         .limit(1)
         .execute()
     )
     if res.data and len(res.data) > 0:
         hval = res.data[0].get("handicap")
         if hval is not None:
-            hcp = round(hval, 1)
-            return hcp
+            return round(hval, 1)
 
     # Step 2: Fallback – get best (lowest) recorded handicap on this course
     res_fallback = await run_db(lambda: supabase
@@ -303,7 +302,6 @@ async def get_player_handicap(player_id: int, course_id: str):
 
     # Step 3: Final fallback if no scores at all exist
     return 0
-
 
 
 def get_elo_odds(rank1, rank2):
