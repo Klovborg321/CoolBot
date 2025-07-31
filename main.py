@@ -285,12 +285,12 @@ async def get_player_handicap(player_id: int, course_id: str):
     if res.data and len(res.data) > 0 and "score" in res.data[0]:
         return res.data[0]["score"]
 
-    # Step 2: Fallback – get lowest recorded handicap on this course
+    # Step 2: Fallback – get best (lowest) recorded handicap on this course
     res_fallback = await run_db(lambda: supabase
         .table("handicaps")
         .select("score")
         .eq("course_id", course_id)
-        .order("score", desc=False)
+        .order("score", desc=False)  # ✅ Best handicap (lowest score)
         .limit(1)
         .execute()
     )
@@ -1894,7 +1894,7 @@ class RoomView(discord.ui.View):
 
                 hcp_txt = ""
                 if hasattr(self, "course_id") and self.course_id:
-                    print(f"[HCP] Fetching handicap for player {pid}, course {self.course_id}")
+                    print(f"[HCP] Fetching handicap for player {user_id}, course {self.course_id}")
                     hcp = await get_player_handicap(user_id, self.course_id)
                     hcp_txt = f"HCP: {hcp}"
 
@@ -2974,7 +2974,7 @@ class GameView(discord.ui.View):
                 hcp_txt = ""  # 🎯 Handicap removed
 
                 if hasattr(self, "course_id") and self.course_id:
-                    print(f"[HCP] Fetching handicap for player {pid}, course {self.course_id}")
+                    print(f"[HCP] Fetching handicap for player {user_id}, course {self.course_id}")
                     hcp = await get_player_handicap(user_id, self.course_id)
                     hcp_txt = f"HCP: {hcp}"
 
