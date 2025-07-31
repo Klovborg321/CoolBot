@@ -275,16 +275,18 @@ class HandicapModal(ui.Modal, title="Set Handicap"):
 async def get_player_handicap(player_id: int, course_id: str):
     # Step 1: Try to fetch this player's handicap for this course
     res = await run_db(lambda: supabase
-        .table("handicaps")
+        table("handicaps")
         .select("handicap")
-        .eq("player_id", str(player_id))
-        .eq("course_id", course_id)
+        .eq("player_id", str(p))
+        .eq("course_id", self.course_id)
         .limit(1)
         .execute()
     )
-
-    if res.data and len(res.data) > 0 and "score" in res.data[0]:
-        return res.data[0]["score"]
+    if res.data and len(res.data) > 0:
+        hval = res.data[0].get("handicap")
+        if hval is not None:
+            hcp = round(hval, 1)
+            return hcp
 
     # Step 2: Fallback – get best (lowest) recorded handicap on this course
     res_fallback = await run_db(lambda: supabase
@@ -1927,26 +1929,16 @@ class RoomView(discord.ui.View):
             trophies = pdata.get('trophies', 0)
 
             # ✅ Fully safe handicap lookup:
-            hcp = "-"
-            if self.course_name:
+            hcp_txt = ""
+            if self.course_id:
                 try:
-                    res = await run_db(lambda: supabase
-                        .table("handicaps")
-                        .select("handicap")
-                        .eq("player_id", str(p))
-                        .eq("course_id", self.course_id)
-                        .limit(1)
-                        .execute()
-                    )
-                    if res.data and len(res.data) > 0:
-                        hval = res.data[0].get("handicap")
-                        if hval is not None:
-                            hcp = round(hval, 1)
+                    hcp = await get_player_handicap(p, self.course_id)
+                    hcp_txt = f"HCP: {hcp}"
                 except Exception as e:
                     print(f"[RoomView] ⚠️ Handicap fetch failed for {p}: {e}")
 
             wins = pdata.get("wins", 0)
-            lines.append(f"<@{p}> | Wins: {wins} | Trophies: {trophies} | 🎯 HCP: {hcp}")
+            lines.append(f"<@{p}> 🏆 ({wins}) • {hcp_txt}")
 
         embed.description = "\n".join(lines)
         embed.add_field(name="🎮 Status", value="Game has ended.", inline=True)
