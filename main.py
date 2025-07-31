@@ -275,7 +275,7 @@ class HandicapModal(ui.Modal, title="Set Handicap"):
 async def get_player_handicap(player_id: int, course_id: str):
     # Step 1: Try to fetch this player's handicap for this course
     res = await run_db(lambda: supabase
-        table("handicaps")
+        .table("handicaps")
         .select("handicap")
         .eq("player_id", str(p))
         .eq("course_id", self.course_id)
