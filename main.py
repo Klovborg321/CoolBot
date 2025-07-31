@@ -1921,7 +1921,7 @@ class RoomView(discord.ui.View):
         )
 
         lines = []
-        for p in self.players:
+        for idx, p in enumerate(self.players):
             pdata = await get_player(p)
             rank = pdata.get('rank', 1000)
             trophies = pdata.get('trophies', 0)
@@ -1936,10 +1936,8 @@ class RoomView(discord.ui.View):
                     print(f"[RoomView] ⚠️ Handicap fetch failed for {p}: {e}")
 
             wins = pdata.get("wins", 0)
-            lines.append(f"<@{p}> 🏆 ({wins}) • {hcp_txt}")
+            lines.append(f"Player {idx + 1}: <@{p}> 🏆 ({wins}) • {hcp_txt}")
 
-        embed.description = "\n".join(lines)
-        embed.add_field(name="🎮 Status", value="Game has ended.", inline=True)
 
         if winner == "draw":
             embed.add_field(name="🏁 Result", value="🤝 It's a draw!", inline=False)
