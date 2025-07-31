@@ -1205,43 +1205,6 @@ async def start_new_game_button(channel, game_type, max_players=None):
     return msg
 
 
-
-
-async def show_betting_phase(self):
-    self.clear_items()
-    self.add_item(BettingButtonDropdown(self))
-
-    if self.betting_task:
-        self.betting_task.cancel()
-
-    # ✅ Build embed and include image_embed if available
-    if self.message:
-        updated_embed = await self.build_embed(self.message.guild)
-        embeds = [updated_embed]
-        if getattr(self, "image_embed", None):
-            embeds.insert(0, self.image_embed)
-        await self.message.edit(embeds=embeds, view=self)
-
-    self.betting_task = asyncio.create_task(self._betting_countdown())
-    self.betting_closed = True
-    self.clear_items()
-    await self.update_message()
-
-
-
-async def update_message(self, no_image=True, status=None):
-    if not self.message:
-        print("[update_message] SKIPPED: no message to update.")
-        return
-
-    # ✅ SAFETY: do not edit if ended!
-    if self.game_has_ended:
-        print("[update_message] SKIPPED: game already ended.")
-        return
-
-    embed = await self.build_embed(self.message.guild, no_image=no_image, status=status)
-    await self.message.edit(embed=embed, view=self)
-
 def fixed_width_name(name: str, width: int = 20) -> str:
     """Truncate or pad name to exactly `width` characters."""
     name = name.strip()
@@ -2768,6 +2731,7 @@ class GameView(discord.ui.View):
 
         image_embed = discord.Embed()
         image_embed.set_image(url="https://cdn.discordapp.com/attachments/1378860910310854666/1399416653317672970/game_progress_logo.png")
+        self.image_embed = image_embed  # ✅ store it for later use
 
         self.clear_items()  # ✅ Clear old buttons
         self.betting_button = BettingButtonDropdown(self)
@@ -3144,7 +3108,11 @@ class GameView(discord.ui.View):
             status="✅ Tournament full! Matches running — place your bets!" if not self.betting_closed else "🕐 Betting closed. Good luck!",
             bets=self.bets
         )
-        await target_message.edit(embed=embed, view=self)
+        embeds = [embed]
+        if getattr(self, "image_embed", None):
+            embeds.insert(0, self.image_embed)
+
+        await target_message.edit(embeds=embeds, view=self)
 
         return True
 
@@ -4459,6 +4427,7 @@ async def admin_leaderboard(
 
     image_embed = discord.Embed()
     image_embed.set_image(url="https://cdn.discordapp.com/attachments/1378860910310854666/1399307003284815892/leaderboard_banner.png")
+    self.image_embed = image_embed  # ✅ Add this!
 
     #await interaction.followup.send(embed=image_embed)
     
