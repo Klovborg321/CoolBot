@@ -184,6 +184,45 @@ class HandicapPaginationView(discord.ui.View):
 
 
 
+async def cleanup_stale_active_players():
+    print("[ActivePlayers] 🔍 Checking for stale entries...")
+
+    # Calculate the cutoff timestamp (2 hours ago)
+    two_hours_ago = datetime.now(timezone.utc) - timedelta(hours=2)
+
+    # Fetch all players with stale timestamps
+    res = await run_db(lambda: supabase
+        .table("active_players")
+        .select("player_id, created_at")
+        .lt("created_at", two_hours_ago.isoformat())
+        .execute()
+    )
+
+    stale_players = res.data or []
+
+    if not stale_players:
+        print("[ActivePlayers] ✅ No stale players found.")
+        return
+
+    for player in stale_players:
+        pid = player["player_id"]
+        await run_db(lambda: supabase
+            .table("active_players")
+            .delete()
+            .eq("player_id", pid)
+            .execute()
+        )
+        print(f"[ActivePlayers] 🗑️ Removed stale player: {pid}")
+
+    print(f"[ActivePlayers] ✅ Cleaned up {len(stale_players)} stale entries.")
+
+
+async def periodic_cleanup():
+    while True:
+        await cleanup_stale_active_players()
+        await asyncio.sleep(2 * 60 * 60)  # 2 hours
+
+
 async def autocomplete_course(interaction: discord.Interaction, current: str):
     try:
         res = await run_db(lambda: supabase
@@ -5567,7 +5606,7 @@ async def on_ready():
 
     # ✅ Start hourly countdown loop
     asyncio.create_task(start_hourly_scheduler(guild, channel))
-
+    bot.loop.create_task(periodic_cleanup())
 
 
 @tasks.loop(minutes=1)
