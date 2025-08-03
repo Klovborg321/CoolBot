@@ -2170,55 +2170,29 @@ class RoomView(discord.ui.View):
                 return
 
 
-            # ✅ Update player stats and handle +100 credits for 10 games played
+            # ✅ Handle credit reward for playing 10 games (global counter)
             for p in self.players:
                 pdata = await get_player(p)
                 stats = pdata.get("stats", {})
 
-                # ✅ Get stats for the current game type (singles, doubles, etc.)
-                gt_stats = stats.get(self.game_type, {
-                    "rank": 1000,
-                    "wins": 0,
-                    "losses": 0,
-                    "draws": 0,
-                    "games_played": 0,
-                    "current_streak": 0,
-                    "best_streak": 0,
-                    "trophies": 0
-                })
-
-                # Determine win/loss
-                if p == winner:
-                    gt_stats["wins"] = gt_stats.get("wins", 0) + 1
-                    gt_stats["current_streak"] = gt_stats.get("current_streak", 0) + 1
-                    gt_stats["best_streak"] = max(gt_stats.get("best_streak", 0), gt_stats["current_streak"])
-                else:
-                    gt_stats["losses"] = gt_stats.get("losses", 0) + 1
-                    gt_stats["current_streak"] = 0
-
-                gt_stats["games_played"] = gt_stats.get("games_played", 0) + 1
-
-                # 🎁 CREDIT REWARD LOGIC (global counter)
                 stats["games_since_credit"] = stats.get("games_since_credit", 0) + 1
                 if stats["games_since_credit"] >= 10:
                     stats["games_since_credit"] = 0
                     pdata["credits"] = pdata.get("credits", 0) + 100
                     await self.channel.send(f"💸 <@{p}> played 10 games and earned **+100 credits!**")
 
-                # ✅ Write changes back
-                stats[self.game_type] = gt_stats
                 pdata["stats"] = stats
                 await save_player(p, pdata)
-
-
 
             # ✅ Process bets
             if self.game_view:
                 for uid, uname, amount, choice in self.game_view.bets:
                     won = False
                     if self.game_type == "singles":
-                        won = (choice == "1" and self.players[0] == winner) or \
-                              (choice == "2" and self.players[1] == winner)
+                        won = (
+                            (choice == "1" and winner == self.players[0]) or
+                            (choice == "2" and winner == self.players[1])
+                        )
                     elif self.game_type == "doubles":
                         won = normalize_team(choice) == normalized_winner
                     elif self.game_type == "triples":
