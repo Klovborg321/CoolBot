@@ -16,7 +16,7 @@ import os
 import uuid
 from collections import defaultdict
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import zoneinfo
 import aiohttp
 from discord.ext import tasks
