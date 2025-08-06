@@ -4328,24 +4328,26 @@ async def init_tournament(interaction: discord.Interaction):
 
 
 
-@tree.command(name="admin_set_user_handicap", description="Set a user's handicap for a specific course.")
+@tree.command(name="admin_set_user_score", description="Set a user's best score to calculate handicap.")
 @app_commands.describe(
     user="Select the user to update",
-    course="Select the course"
+    course="Select the course",
+    score="Enter best score (e.g. 54 or -7)"
 )
 @app_commands.check(is_admin)
 @app_commands.autocomplete(course=autocomplete_course)
-async def set_user_handicap(
+async def set_user_score(
     interaction: discord.Interaction,
     user: discord.User,
-    course: str
+    course: str,
+    score: float
 ):
     await interaction.response.defer(ephemeral=True)
 
-    # Look up course info
+    # Step 1: Fetch course ID + avg_par
     res = await run_db(lambda: supabase
         .table("courses")
-        .select("id, name")
+        .select("id, name, avg_par")
         .ilike("name", course)
         .limit(1)
         .execute()
@@ -4355,13 +4357,46 @@ async def set_user_handicap(
         await interaction.followup.send("❌ Course not found.", ephemeral=True)
         return
 
-    course_id = res.data[0]["id"]
-    course_name = res.data[0]["name"]
+    course_data = res.data[0]
+    course_id = course_data["id"]
+    course_name = course_data["name"]
+    avg_par = course_data.get("avg_par")
 
-    # Show modal
-    await interaction.response.send_modal(
-        HandicapModal(user.id, course_name, course_id)
-    )
+    if avg_par is None:
+        await interaction.followup.send("❌ Course does not have avg_par set.", ephemeral=True)
+        return
+
+    # Step 2: Calculate handicap
+    handicap = avg_par - score
+
+    # Step 3: Save to Supabase
+    try:
+        await run_db(lambda: supabase
+            .table("handicaps")
+            .upsert({
+                "player_id": str(user.id),
+                "course_id": str(course_id),
+                "score": score,
+                "handicap": handicap
+            })
+            .execute()
+        )
+
+        await interaction.followup.send(
+            f"✅ Handicap set for <@{user.id}> on **{course_name}**:\n"
+            f"• Score: `{score}`\n"
+            f"• Avg Par: `{avg_par}`\n"
+            f"• Handicap: `{handicap:+.1f}`",
+            ephemeral=True
+        )
+
+    except Exception as e:
+        await interaction.followup.send(
+            f"❌ Failed to save handicap: {e}",
+            ephemeral=True
+        )
+
+
 
 @tree.command(name="init_singles")
 async def init_singles(interaction: discord.Interaction):
