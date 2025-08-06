@@ -4359,7 +4359,7 @@ async def set_user_handicap(
     course_name = res.data[0]["name"]
 
     # Show modal
-    await interaction.followup.send_modal(
+    await interaction.response.send_modal(
         HandicapModal(user.id, course_name, course_id)
     )
 
