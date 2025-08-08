@@ -2965,7 +2965,7 @@ class GameView(discord.ui.View):
         )
         if no_image:
             embed.set_author(
-                name="🏌️ ****************** PUTT CLUB CHANNEL ****************** 🏌️"
+                name="🏌️ ***************** PUTT CLUB CHANNEL ***************** 🏌️"
             )
         else:
             embed.set_author(
