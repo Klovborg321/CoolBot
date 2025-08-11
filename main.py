@@ -4328,32 +4328,60 @@ async def init_tournament(interaction: discord.Interaction):
 
 
 
-@app_commands.autocomplete
-async def autocomplete_course(interaction: Interaction, current: str):
-    # If user hasn’t typed, show first 25 alphabetically
+# ---- imports ----
+from typing import List
+import discord
+from discord import app_commands
+
+# NOTE: Assumes you already have:
+# - supabase client available as `supabase`
+# - `run_db` helper that awaits a sync lambda in a thread
+# - `is_admin` check
+# - `tree` = app_commands.CommandTree(bot)
+
+# =========================================================
+#               AUTOCOMPLETE: COURSES (<=25)
+# =========================================================
+async def autocomplete_course(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
+    """
+    Returns up to 25 matching courses. Choice.value = course ID.
+    """
+    # Base query
     query = supabase.table("courses").select("id, name, avg_par").order("name")
 
+    # Filter by what the user types
     if current:
-        # Filter by what they're typing (case-insensitive)
         query = query.ilike("name", f"%{current}%")
 
+    # Limit to 25 because Discord caps suggestions at 25
     res = await run_db(lambda: query.limit(25).execute())
     rows = res.data or []
 
-    # Build choices: label for humans, value = ID for code
-    choices = []
+    # Build label (<=100 chars) and return ID as value
+    choices: List[app_commands.Choice[str]] = []
     for r in rows:
         name = r.get("name", "Unknown")
         avg_par = r.get("avg_par")
-        label = f"{name}" if avg_par is None else f"{name} · avg_par {int(avg_par) if isinstance(avg_par, (int, float)) else avg_par}"
-        choices.append(app_commands.Choice(name=label[:100], value=r["id"]))  # name <= 100 chars
-
+        # Show avg_par neatly if present (no decimals)
+        if isinstance(avg_par, (int, float)):
+            label = f"{name} · avg_par {int(round(avg_par))}"
+        else:
+            label = name
+        # Truncate label to 100 chars per Discord requirement
+        choices.append(app_commands.Choice(name=label[:100], value=r["id"]))
     return choices
 
-@tree.command(name="admin_set_user_score", description="Set a user's best score to calculate handicap.")
+
+# =========================================================
+#          COMMAND: SET BEST SCORE -> CALC HANDICAP
+# =========================================================
+@tree.command(
+    name="admin_set_user_score",
+    description="Set a user's best score to calculate handicap."
+)
 @app_commands.describe(
     user="Select the user to update",
-    course="Select the course",  # shown label; value is ID
+    course="Select the course (autocomplete)",
     score="Enter best score (e.g. 54 or -7)"
 )
 @app_commands.check(is_admin)
@@ -4361,55 +4389,71 @@ async def autocomplete_course(interaction: Interaction, current: str):
 async def set_user_score(
     interaction: discord.Interaction,
     user: discord.User,
-    course: str,      # <-- This will be the course ID now
+    course: str,   # <-- This is the COURSE ID returned by autocomplete
     score: float
 ):
+    # We are NOT opening a modal, so deferring is fine here
     await interaction.response.defer(ephemeral=True)
 
-    # Fetch by ID (no ambiguous name lookups)
-    res = await run_db(lambda: supabase
-        .table("courses")
-        .select("id, name, avg_par")
-        .eq("id", course)
-        .maybe_single()
-        .execute()
-    )
+    # 1) Fetch the course by ID (exact)
+    try:
+        res = await run_db(lambda: supabase
+            .table("courses")
+            .select("id, name, avg_par")
+            .eq("id", course)
+            .maybe_single()
+            .execute()
+        )
+    except Exception as e:
+        await interaction.followup.send(f"❌ DB error while fetching course: {e}", ephemeral=True)
+        return
 
     if not res or not res.data:
         await interaction.followup.send("❌ Course not found.", ephemeral=True)
         return
 
-    course_id = res.data["id"]
-    course_name = res.data["name"]
-    avg_par = res.data.get("avg_par")
+    course_row = res.data
+    course_id = course_row["id"]
+    course_name = course_row["name"]
+    avg_par = course_row.get("avg_par")
 
     if avg_par is None:
         await interaction.followup.send("❌ Course does not have avg_par set.", ephemeral=True)
         return
 
-    handicap = score - avg_par
+    # 2) Calculate handicap
+    #    handicap = score - avg_par (as you specified)
+    try:
+        handicap = float(score) - float(avg_par)
+    except Exception:
+        await interaction.followup.send("❌ Invalid numeric values for score/avg_par.", ephemeral=True)
+        return
 
+    # 3) Save to Supabase
     try:
         await run_db(lambda: supabase
             .table("handicaps")
             .upsert({
                 "player_id": str(user.id),
                 "course_id": str(course_id),
-                "score": score,
-                "handicap": handicap
+                "score": float(score),
+                "handicap": float(handicap)
             })
             .execute()
         )
-
-        await interaction.followup.send(
-            f"✅ Handicap set for <@{user.id}> on **{course_name}**:\n"
-            f"• Score: `{score}`\n"
-            f"• Avg Par: `{avg_par}`\n"
-            f"• Handicap: `{handicap:+.1f}`",
-            ephemeral=True
-        )
     except Exception as e:
         await interaction.followup.send(f"❌ Failed to save handicap: {e}", ephemeral=True)
+        return
+
+    # 4) Confirm
+    avg_txt = int(round(avg_par)) if isinstance(avg_par, (int, float)) else avg_par
+    await interaction.followup.send(
+        f"✅ Handicap set for <@{user.id}> on **{course_name}**:\n"
+        f"• Score: `{score}`\n"
+        f"• Avg Par: `{avg_txt}`\n"
+        f"• Handicap: `{handicap:+.1f}`",
+        ephemeral=True
+    )
 
 
 @tree.command(name="init_singles")
