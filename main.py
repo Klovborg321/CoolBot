@@ -4327,114 +4327,114 @@ async def init_tournament(interaction: discord.Interaction):
     )
 
 
+# Imports you likely already have
+import discord
+from discord import app_commands
+from typing import List
 
-# ========= Paginated Courses View =========
-class CoursesView(discord.ui.View):
-    def __init__(self, rows: List[dict], page_size: int = 10, title: str = "📚 Courses"):
-        super().__init__(timeout=None)
-        self.rows = rows
-        self.page_size = max(1, page_size)
-        self.page = 0
-        self.total_pages = max(1, (len(self.rows) + self.page_size - 1) // self.page_size)
-        self.title = title
-
-        self.prev_btn.disabled = self.total_pages <= 1
-        self.next_btn.disabled = self.total_pages <= 1
-
-    def build_embed(self) -> discord.Embed:
-        start = self.page * self.page_size
-        end = min(len(self.rows), start + self.page_size)
-        slice_ = self.rows[start:end]
-
-        # Fixed-width header
-        lines = [f"{'Course':<30} {'Par':>3} {'Avg':>3}"]
-        for r in slice_:
-            name = (r.get("name") or "?")[:30]
-            par_val = r.get("par", r.get("course_par"))
-            par = "-" if par_val is None else str(int(par_val))
-            avg_val = r.get("avg_par")
-            # Show avg_par as integer (no decimals)
-            avg = "-" if avg_val is None else str(int(round(float(avg_val))))
-            lines.append(f"{name:<30} {par:>3} {avg:>3}")
-
-        desc = "```\n" + "\n".join(lines) + "\n```"
-        emb = discord.Embed(title=self.title, description=desc, color=discord.Color.green())
-        emb.set_footer(text=f"Page {self.page+1}/{self.total_pages} • {len(self.rows)} total")
-        return emb
-
-    @discord.ui.button(label="◀ Prev", style=discord.ButtonStyle.secondary, row=1)
-    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        if self.page > 0:
-            self.page -= 1
-            await interaction.message.edit(embed=self.build_embed(), view=self)
-
-    @discord.ui.button(label="Next ▶", style=discord.ButtonStyle.secondary, row=1)
-    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
-        if self.page < self.total_pages - 1:
-            self.page += 1
-            await interaction.message.edit(embed=self.build_embed(), view=self)
-
-# ========= /admin_list_courses =========
-@tree.command(name="admin_list_courses", description="Admin: Browse courses with pagination.")
-@app_commands.describe(
-    query="Optional name filter (case-insensitive)",
-    sort_by="Sort column: name, par, avg_par",
-    ascending="Sort ascending? (default: True)",
-    page_size="Rows per page (default 10)"
-)
-@app_commands.check(is_admin)
-async def admin_list_courses(
+# ---------- Autocomplete for the "course" argument ----------
+async def autocomplete_course(
     interaction: discord.Interaction,
-    query: Optional[str] = None,
-    sort_by: str = "name",
-    ascending: bool = True,
-    page_size: int = 10,
-):
-    await interaction.response.defer()  # public; switch to ephemeral if you want
-
-    sort_col = (sort_by or "name").lower()
-    if sort_col not in {"name", "par", "avg_par", "course_par"}:
-        sort_col = "name"
-    order_col = "name" if sort_col == "name" else ("par" if sort_col == "par" else sort_col)
-
+    current: str
+) -> List[app_commands.Choice[str]]:
     try:
         def fetch():
-            q = supabase.table("courses").select("id, name, avg_par, par, course_par")
+            q = supabase.table("courses").select("name").limit(25)
             # If your courses are per guild, uncomment the next line:
             # q = q.eq("server_id", str(interaction.guild.id))
-            if query:
-                q = q.ilike("name", f"%{query}%")
-            # Try DB-side ordering; fall back to Python if needed
-            try:
-                return q.order(order_col, desc=not ascending).execute()
-            except Exception:
-                return q.execute()
-
+            if current:
+                q = q.ilike("name", f"%{current}%")
+            return q.execute()
         res = await run_db(fetch)
-        rows = res.data or []
+        names = [row["name"] for row in (res.data or []) if row.get("name")]
 
-        # Python-side normalization of sort
-        if sort_col in {"par", "course_par"}:
-            def get_par(r): return r.get("par", r.get("course_par"))
-            rows.sort(key=lambda r: (get_par(r) is None, get_par(r) or 0), reverse=not ascending)
-        elif sort_col == "avg_par":
-            rows.sort(key=lambda r: (r.get("avg_par") is None, r.get("avg_par") or 0), reverse=not ascending)
-        else:
-            rows.sort(key=lambda r: (r.get("name") or "").lower(), reverse=not ascending)
+        # dedupe while preserving order
+        seen = set()
+        uniq = []
+        for n in names:
+            nl = n.lower()
+            if nl not in seen:
+                seen.add(nl)
+                uniq.append(n)
 
-        if not rows:
-            await interaction.followup.send("❌ No courses found.")
-            return
+        return [app_commands.Choice(name=n[:100], value=n[:100]) for n in uniq[:25]]
+    except Exception:
+        return []
 
-        view = CoursesView(rows, page_size=page_size, title="📚 Courses")
-        await interaction.followup.send(embed=view.build_embed(), view=view)
+# ---------- /admin_set_user_score (player, course, score) ----------
+@tree.command(name="admin_set_user_score", description="Set a user's best score to calculate handicap.")
+@app_commands.describe(
+    user="Select the user to update",
+    course="Select the course",
+    score="Enter best score (e.g. 54 or -7)"
+)
+@app_commands.check(is_admin)
+@app_commands.autocomplete(course=autocomplete_course)
+async def admin_set_user_score(
+    interaction: discord.Interaction,
+    user: discord.User,
+    course: str,
+    score: float
+):
+    await interaction.response.defer(ephemeral=True)
 
+    # 1) Fetch course (id, name, avg_par)
+    res = await run_db(lambda: supabase
+        .table("courses")
+        .select("id, name, avg_par")
+        # If per-guild courses, also filter by server_id == interaction.guild.id
+        .ilike("name", course)
+        .limit(1)
+        .execute()
+    )
+
+    if not res or not res.data:
+        await interaction.followup.send("❌ Course not found.", ephemeral=True)
+        return
+
+    course_row = res.data[0]
+    course_id = course_row["id"]
+    course_name = course_row["name"]
+    avg_par = course_row.get("avg_par")
+
+    if avg_par is None:
+        await interaction.followup.send("❌ Course does not have avg_par set.", ephemeral=True)
+        return
+
+    # 2) Calculate handicap = avg_par - score
+    try:
+        handicap = float(avg_par) - float(score)
+    except Exception:
+        await interaction.followup.send("❌ Invalid number for score or avg_par.", ephemeral=True)
+        return
+
+    # 3) Save to Supabase
+    try:
+        payload = {
+            "player_id": str(user.id),
+            "course_id": str(course_id),
+            "score": float(score),
+            "handicap": float(handicap),
+        }
+        # If your handicaps table also stores guild scoping, uncomment:
+        # payload["server_id"] = str(interaction.guild.id)
+
+        await run_db(lambda: supabase
+            .table("handicaps")
+            .upsert(payload)
+            .execute()
+        )
+
+        await interaction.followup.send(
+            f"✅ Handicap set for <@{user.id}> on **{course_name}**:\n"
+            f"• Score: `{score}`\n"
+            f"• Avg Par: `{int(round(float(avg_par)))}`\n"
+            f"• Handicap: `{handicap:+.1f}`",
+            ephemeral=True
+        )
     except Exception as e:
-        print(f"[admin_list_courses] ❌ {e}")
-        await interaction.followup.send("❌ Failed to list courses.")
-
+        print(f"[admin_set_user_score] ❌ {e}")
+        await interaction.followup.send("❌ Failed to save handicap.", ephemeral=True)
 
 
 @tree.command(name="init_singles")
