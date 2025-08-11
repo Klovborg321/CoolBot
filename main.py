@@ -4328,10 +4328,8 @@ async def init_tournament(interaction: discord.Interaction):
 
 
 
-@tree.command(
-    name="admin_set_user_score",
-    description="Set a user's best score to calculate handicap."
-)
+# --- Command: input best score; calculate handicap = avg_par - score; upsert ---
+@tree.command(name="admin_set_user_score", description="Set a user's best score to calculate handicap.")
 @app_commands.describe(
     user="Select the user to update",
     course="Select the course",
@@ -4347,7 +4345,7 @@ async def set_user_score(
 ):
     await interaction.response.defer(ephemeral=True)
 
-    # Fetch course info by name
+    # Fetch by NAME (matches autocomplete value)
     res = await run_db(lambda: supabase
         .table("courses")
         .select("id, name, avg_par")
@@ -4355,36 +4353,33 @@ async def set_user_score(
         .limit(1)
         .execute()
     )
-
     if not res.data:
         await interaction.followup.send("❌ Course not found.", ephemeral=True)
         return
 
-    course_data = res.data[0]
-    course_id = course_data["id"]
-    course_name = course_data["name"]
-    avg_par = course_data.get("avg_par")
+    row = res.data[0]
+    course_id = row["id"]
+    course_name = row["name"]
+    avg_par = row.get("avg_par")
 
     if avg_par is None:
         await interaction.followup.send("❌ Course does not have avg_par set.", ephemeral=True)
         return
 
-    # Calculate handicap
-    handicap = avg_par - score
+    # handicap = avg_par - score (your requested formula)
+    handicap = float(avg_par) - float(score)
 
-    # Save to Supabase
     try:
         await run_db(lambda: supabase
             .table("handicaps")
             .upsert({
                 "player_id": str(user.id),
                 "course_id": str(course_id),
-                "score": score,
-                "handicap": handicap
+                "score": float(score),
+                "handicap": float(handicap)
             })
             .execute()
         )
-
         await interaction.followup.send(
             f"✅ Handicap set for <@{user.id}> on **{course_name}**:\n"
             f"• Score: `{score}`\n"
@@ -4392,32 +4387,29 @@ async def set_user_score(
             f"• Handicap: `{handicap:+.1f}`",
             ephemeral=True
         )
-
     except Exception as e:
-        await interaction.followup.send(
-            f"❌ Failed to save handicap: {e}",
-            ephemeral=True
-        )
+        await interaction.followup.send(f"❌ Failed to save handicap: {e}", ephemeral=True)
 
 
+# --- Autocomplete: search all courses by name (no server_id in schema) ---
 async def autocomplete_course(interaction: discord.Interaction, current: str):
-    # Start base query for all courses
+    # Base query
     query = supabase.table("courses").select("name").order("name")
 
-    # If user typed something, filter by that text
+    # Narrow as the user types
     if current:
         query = query.ilike("name", f"%{current}%")
 
-    # Only return up to 25 matches
+    # Discord hard cap: 25
     res = await run_db(lambda: query.limit(25).execute())
     rows = res.data or []
 
-    # Return just the course names (value = name)
+    # Return course names as both label and value (fits your current handler)
     return [
         app_commands.Choice(name=r["name"], value=r["name"])
-        for r in rows
-        if r.get("name")
+        for r in rows if r.get("name")
     ]
+
 
 
 @tree.command(name="init_singles")
