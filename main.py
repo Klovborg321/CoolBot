@@ -4327,114 +4327,175 @@ async def init_tournament(interaction: discord.Interaction):
     )
 
 
-# Imports you likely already have
-import discord
-from discord import app_commands
-from typing import List
 
-# ---------- Autocomplete for the "course" argument ----------
-async def autocomplete_course(
-    interaction: discord.Interaction,
-    current: str
-) -> List[app_commands.Choice[str]]:
-    try:
-        def fetch():
-            q = supabase.table("courses").select("name").limit(25)
-            # If your courses are per guild, uncomment the next line:
-            # q = q.eq("server_id", str(interaction.guild.id))
-            if current:
-                q = q.ilike("name", f"%{current}%")
-            return q.execute()
-        res = await run_db(fetch)
-        names = [row["name"] for row in (res.data or []) if row.get("name")]
+# ---------- Helpers ----------
+async def fetch_courses_filtered(query: Optional[str], guild_id: Optional[str] = None) -> List[dict]:
+    def _fetch():
+        q = supabase.table("courses").select("id, name, avg_par, par, course_par")
+        # If courses are per guild, uncomment:
+        # if guild_id: q = q.eq("server_id", guild_id)
+        if query:
+            q = q.ilike("name", f"%{query}%")
+        # No hard limit; we paginate in the UI
+        return q.order("name", desc=False).execute()
+    res = await run_db(_fetch)
+    return res.data or []
 
-        # dedupe while preserving order
-        seen = set()
-        uniq = []
-        for n in names:
-            nl = n.lower()
-            if nl not in seen:
-                seen.add(nl)
-                uniq.append(n)
-
-        return [app_commands.Choice(name=n[:100], value=n[:100]) for n in uniq[:25]]
-    except Exception:
-        return []
-
-# ---------- /admin_set_user_score (player, course, score) ----------
-@tree.command(name="admin_set_user_score", description="Set a user's best score to calculate handicap.")
-@app_commands.describe(
-    user="Select the user to update",
-    course="Select the course",
-    score="Enter best score (e.g. 54 or -7)"
-)
-@app_commands.check(is_admin)
-@app_commands.autocomplete(course=autocomplete_course)
-async def admin_set_user_score(
-    interaction: discord.Interaction,
-    user: discord.User,
-    course: str,
-    score: float
-):
-    await interaction.response.defer(ephemeral=True)
-
-    # 1) Fetch course (id, name, avg_par)
+async def fetch_course_by_id(course_id: str) -> Optional[dict]:
     res = await run_db(lambda: supabase
         .table("courses")
         .select("id, name, avg_par")
-        # If per-guild courses, also filter by server_id == interaction.guild.id
-        .ilike("name", course)
+        .eq("id", course_id)
         .limit(1)
         .execute()
     )
+    if res and res.data:
+        return res.data[0]
+    return None
 
-    if not res or not res.data:
-        await interaction.followup.send("❌ Course not found.", ephemeral=True)
-        return
+# ---------- Paginated selector view ----------
+class CourseSelectPaginated(discord.ui.View):
+    def __init__(self, rows: List[dict], actor_id: int, target_user: discord.User, score: float, page_size: int = 10, guild_id: Optional[str] = None):
+        super().__init__(timeout=300)
+        self.rows = rows
+        self.actor_id = actor_id
+        self.target_user = target_user
+        self.score = float(score)
+        self.page_size = max(1, min(10, page_size))  # capped at 10 to match number buttons
+        self.page = 0
+        self.guild_id = guild_id
+        self.total_pages = max(1, (len(self.rows) + self.page_size - 1) // self.page_size)
 
-    course_row = res.data[0]
-    course_id = course_row["id"]
-    course_name = course_row["name"]
-    avg_par = course_row.get("avg_par")
+        # Create number buttons 1..page_size
+        for n in range(1, self.page_size + 1):
+            btn = discord.ui.Button(label=str(n), style=discord.ButtonStyle.primary, row=0)
+            async def on_click(interaction: discord.Interaction, n=n):
+                # Only the invoking admin can click
+                if interaction.user.id != self.actor_id:
+                    await interaction.response.send_message("🚫 Not your selector.", ephemeral=True)
+                    return
+                idx = self.page * self.page_size + (n - 1)
+                if idx >= len(self.rows):
+                    await interaction.response.defer()
+                    return
+                course_row = self.rows[idx]
+                await self._save_selection(interaction, course_row)
+            btn.callback = on_click
+            self.add_item(btn)
 
-    if avg_par is None:
-        await interaction.followup.send("❌ Course does not have avg_par set.", ephemeral=True)
-        return
+        # Prev / Next / Cancel
+        self.add_item(discord.ui.Button(label="◀ Prev", style=discord.ButtonStyle.secondary, row=1))
+        self.children[-1].callback = self._prev
+        self.add_item(discord.ui.Button(label="Next ▶", style=discord.ButtonStyle.secondary, row=1))
+        self.children[-1].callback = self._next
+        self.add_item(discord.ui.Button(label="Cancel", style=discord.ButtonStyle.danger, row=1))
+        self.children[-1].callback = self._cancel
 
-    # 2) Calculate handicap = avg_par - score
-    try:
-        handicap = float(avg_par) - float(score)
-    except Exception:
-        await interaction.followup.send("❌ Invalid number for score or avg_par.", ephemeral=True)
-        return
+        # Disable nav if single page
+        self._update_nav_state()
 
-    # 3) Save to Supabase
-    try:
+    def _update_nav_state(self):
+        # Prev is children[-3], Next is children[-2]
+        prev_btn = self.children[-3]
+        next_btn = self.children[-2]
+        prev_btn.disabled = (self.total_pages <= 1 or self.page == 0)
+        next_btn.disabled = (self.total_pages <= 1 or self.page >= self.total_pages - 1)
+
+    def _build_embed(self) -> discord.Embed:
+        start = self.page * self.page_size
+        end = min(len(self.rows), start + self.page_size)
+        slice_ = self.rows[start:end]
+
+        lines = [f"{'#':<2} {'Course':<30} {'Par':>3} {'Avg':>3}"]
+        for i, r in enumerate(slice_, start=1):
+            name = (r.get("name") or "?")[:30]
+            par_val = r.get("par", r.get("course_par"))
+            par = "-" if par_val is None else str(int(par_val))
+            avg_val = r.get("avg_par")
+            avg = "-" if avg_val is None else str(int(round(float(avg_val))))
+            lines.append(f"{i:<2} {name:<30} {par:>3} {avg:>3}")
+
+        desc = "Select by clicking **1–{n}**.\n".format(n=len(slice_))
+        desc += "```\n" + "\n".join(lines) + "\n```"
+
+        emb = discord.Embed(
+            title=f"📚 Pick course for {self.target_user.display_name}",
+            description=desc,
+            color=discord.Color.blurple()
+        )
+        emb.set_footer(text=f"Page {self.page+1}/{self.total_pages} • {len(self.rows)} courses")
+        return emb
+
+    async def _prev(self, interaction: discord.Interaction):
+        if interaction.user.id != self.actor_id:
+            await interaction.response.send_message("🚫 Not your selector.", ephemeral=True)
+            return
+        if self.page > 0:
+            self.page -= 1
+            self._update_nav_state()
+            await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        else:
+            await interaction.response.defer()
+
+    async def _next(self, interaction: discord.Interaction):
+        if interaction.user.id != self.actor_id:
+            await interaction.response.send_message("🚫 Not your selector.", ephemeral=True)
+            return
+        if self.page < self.total_pages - 1:
+            self.page += 1
+            self._update_nav_state()
+            await interaction.response.edit_message(embed=self._build_embed(), view=self)
+        else:
+            await interaction.response.defer()
+
+    async def _cancel(self, interaction: discord.Interaction):
+        if interaction.user.id != self.actor_id:
+            await interaction.response.send_message("🚫 Not your selector.", ephemeral=True)
+            return
+        for c in self.children:
+            c.disabled = True
+        await interaction.response.edit_message(content="❌ Cancelled.", embed=None, view=self)
+
+    async def _save_selection(self, interaction: discord.Interaction, course_row: dict):
+        # Re-fetch to ensure we have avg_par
+        course = await fetch_course_by_id(str(course_row["id"]))
+        if not course or course.get("avg_par") is None:
+            await interaction.response.send_message("❌ Selected course has no avg_par.", ephemeral=True)
+            return
+        avg_par = float(course["avg_par"])
+        handicap = avg_par - float(self.score)
+
         payload = {
-            "player_id": str(user.id),
-            "course_id": str(course_id),
-            "score": float(score),
+            "player_id": str(self.target_user.id),
+            "course_id": str(course["id"]),
+            "score": float(self.score),
             "handicap": float(handicap),
         }
-        # If your handicaps table also stores guild scoping, uncomment:
-        # payload["server_id"] = str(interaction.guild.id)
+        # If your schema is guild-scoped:
+        # if self.guild_id: payload["server_id"] = self.guild_id
 
-        await run_db(lambda: supabase
-            .table("handicaps")
-            .upsert(payload)
-            .execute()
-        )
+        try:
+            await run_db(lambda: supabase.table("handicaps").upsert(payload).execute())
+        except Exception as e:
+            print(f"[CourseSelectPaginated] upsert error: {e}")
+            await interaction.response.send_message("❌ Failed to save.", ephemeral=True)
+            return
 
-        await interaction.followup.send(
-            f"✅ Handicap set for <@{user.id}> on **{course_name}**:\n"
-            f"• Score: `{score}`\n"
-            f"• Avg Par: `{int(round(float(avg_par)))}`\n"
-            f"• Handicap: `{handicap:+.1f}`",
-            ephemeral=True
+        # Disable buttons and confirm
+        for c in self.children:
+            c.disabled = True
+        emb = discord.Embed(
+            title="✅ Handicap updated",
+            description=(
+                f"Player: <@{self.target_user.id}>\n"
+                f"Course: **{course['name']}**\n"
+                f"Score: `{self.score}`\n"
+                f"Avg Par: `{int(round(avg_par))}`\n"
+                f"Handicap: `{handicap:+.1f}`"
+            ),
+            color=discord.Color.green()
         )
-    except Exception as e:
-        print(f"[admin_set_user_score] ❌ {e}")
-        await interaction.followup.send("❌ Failed to save handicap.", ephemeral=True)
+        await inte
 
 
 @tree.command(name="init_singles")
