@@ -1,4 +1,3 @@
-from typing import Optional
 import requests
 import discord
 from discord.ext import commands, tasks
@@ -23,7 +22,7 @@ from discord.ext import tasks
 from discord import TextChannel, utils
 from types import SimpleNamespace
 import copy
-
+from typing import List, Optional
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
