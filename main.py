@@ -4342,34 +4342,31 @@ from discord import app_commands
 # =========================================================
 #               AUTOCOMPLETE: COURSES (<=25)
 # =========================================================
-async def autocomplete_course(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[str]]:
-    """
-    Returns up to 25 matching courses. Choice.value = course ID.
-    """
-    # Base query
-    query = supabase.table("courses").select("id, name, avg_par").order("name")
+async def autocomplete_course(interaction: discord.Interaction, current: str):
+    guild_id = str(interaction.guild.id)
 
-    # Filter by what the user types
+    query = supabase.table("courses").select("id, name, avg_par") \
+        .eq("server_id", guild_id) \
+        .order("name")
+
     if current:
         query = query.ilike("name", f"%{current}%")
 
-    # Limit to 25 because Discord caps suggestions at 25
     res = await run_db(lambda: query.limit(25).execute())
     rows = res.data or []
 
-    # Build label (<=100 chars) and return ID as value
-    choices: List[app_commands.Choice[str]] = []
+    choices = []
     for r in rows:
         name = r.get("name", "Unknown")
         avg_par = r.get("avg_par")
-        # Show avg_par neatly if present (no decimals)
         if isinstance(avg_par, (int, float)):
             label = f"{name} · avg_par {int(round(avg_par))}"
         else:
             label = name
-        # Truncate label to 100 chars per Discord requirement
         choices.append(app_commands.Choice(name=label[:100], value=r["id"]))
+
     return choices
+
 
 
 # =========================================================
