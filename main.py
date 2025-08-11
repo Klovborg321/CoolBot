@@ -4350,7 +4350,34 @@ async def _fetch_course_by_id(course_id: str) -> Optional[dict]:
         return res.data[0]
     return None
 
-# ---------- paginated selector view (10 choices per page via buttons) ----------
+# --- imports you need ---
+import discord
+from discord import app_commands
+from typing import List, Optional
+
+# --- helpers ---
+async def _fetch_courses_filtered(query: Optional[str], guild_id: Optional[str] = None) -> List[dict]:
+    def _q():
+        q = supabase.table("courses").select("id, name, avg_par, par, course_par")
+        # if guild-scoped, enable:
+        # if guild_id: q = q.eq("server_id", guild_id)
+        if query:
+            q = q.ilike("name", f"%{query}%")
+        return q.order("name", desc=False).execute()
+    res = await run_db(_q)
+    return res.data or []
+
+async def _fetch_course_by_id(course_id: str) -> Optional[dict]:
+    res = await run_db(lambda: supabase
+        .table("courses")
+        .select("id, name, avg_par")
+        .eq("id", course_id)
+        .limit(1)
+        .execute()
+    )
+    return (res.data or [None])[0]
+
+# --- paginated selector view (10 choices/page: 5+5 buttons) ---
 class _CourseSelectPaginated(discord.ui.View):
     def __init__(self, rows: List[dict], actor_id: int, target_user: discord.User, score: float,
                  page_size: int = 10, guild_id: Optional[str] = None):
@@ -4359,12 +4386,12 @@ class _CourseSelectPaginated(discord.ui.View):
         self.actor_id = actor_id
         self.target_user = target_user
         self.score = float(score)
-        self.page_size = max(1, min(10, page_size))  # 5 buttons per row x 2 rows
+        self.page_size = max(1, min(10, page_size))
         self.page = 0
         self.guild_id = guild_id
         self.total_pages = max(1, (len(self.rows) + self.page_size - 1) // self.page_size)
 
-        # number buttons 1..page_size across row 0 and 1
+        # number buttons (rows 0 & 1)
         self._num_buttons: List[discord.ui.Button] = []
         for n in range(1, self.page_size + 1):
             btn = discord.ui.Button(label=str(n), style=discord.ButtonStyle.primary, row=0 if n <= 5 else 1)
@@ -4372,11 +4399,12 @@ class _CourseSelectPaginated(discord.ui.View):
                 if interaction.user.id != self.actor_id:
                     await interaction.response.send_message("🚫 Not your selector.", ephemeral=True)
                     return
+                await interaction.response.defer()  # ACK fast to avoid timeouts
                 idx = self.page * self.page_size + (n - 1)
                 if idx >= len(self.rows):
-                    await interaction.response.defer()
+                    # nothing to edit; just ignore
                     return
-                await self._save_selection(interaction, self.rows[idx])
+                await self._save_selection(interaction, self.rows[idx], already_deferred=True)
             btn.callback = on_click
             self._num_buttons.append(btn)
             self.add_item(btn)
@@ -4428,36 +4456,38 @@ class _CourseSelectPaginated(discord.ui.View):
         if interaction.user.id != self.actor_id:
             await interaction.response.send_message("🚫 Not your selector.", ephemeral=True)
             return
+        await interaction.response.defer()
         if self.page > 0:
             self.page -= 1
             self._update_nav_state()
-            await interaction.response.edit_message(embed=self.build_embed(), view=self)
-        else:
-            await interaction.response.defer()
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     async def _next(self, interaction: discord.Interaction):
         if interaction.user.id != self.actor_id:
             await interaction.response.send_message("🚫 Not your selector.", ephemeral=True)
             return
+        await interaction.response.defer()
         if self.page < self.total_pages - 1:
             self.page += 1
             self._update_nav_state()
-            await interaction.response.edit_message(embed=self.build_embed(), view=self)
-        else:
-            await interaction.response.defer()
+            await interaction.edit_original_response(embed=self.build_embed(), view=self)
 
     async def _cancel(self, interaction: discord.Interaction):
         if interaction.user.id != self.actor_id:
             await interaction.response.send_message("🚫 Not your selector.", ephemeral=True)
             return
+        await interaction.response.defer()
         for c in self.children:
             c.disabled = True
-        await interaction.response.edit_message(content="❌ Cancelled.", embed=None, view=self)
+        await interaction.edit_original_response(content="❌ Cancelled.", embed=None, view=self)
 
-    async def _save_selection(self, interaction: discord.Interaction, course_row: dict):
+    async def _save_selection(self, interaction: discord.Interaction, course_row: dict, already_deferred: bool = False):
         course = await _fetch_course_by_id(str(course_row["id"]))  # ensure avg_par present
         if not course or course.get("avg_par") is None:
-            await interaction.response.send_message("❌ Selected course has no avg_par.", ephemeral=True)
+            if already_deferred:
+                await interaction.followup.send("❌ Selected course has no avg_par.", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ Selected course has no avg_par.", ephemeral=True)
             return
 
         avg_par = float(course["avg_par"])
@@ -4469,16 +4499,19 @@ class _CourseSelectPaginated(discord.ui.View):
             "score": float(self.score),
             "handicap": float(handicap),
         }
-        # If your schema is guild-scoped:
         # if self.guild_id: payload["server_id"] = self.guild_id
 
         try:
             await run_db(lambda: supabase.table("handicaps").upsert(payload).execute())
         except Exception as e:
             print(f"[_CourseSelectPaginated] upsert error: {e}")
-            await interaction.response.send_message("❌ Failed to save.", ephemeral=True)
+            if already_deferred:
+                await interaction.followup.send("❌ Failed to save.", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ Failed to save.", ephemeral=True)
             return
 
+        # disable UI and confirm
         for c in self.children:
             c.disabled = True
         emb = discord.Embed(
@@ -4490,9 +4523,9 @@ class _CourseSelectPaginated(discord.ui.View):
                          f"Handicap: `{handicap:+.1f}`"),
             color=discord.Color.green()
         )
-        await interaction.response.edit_message(embed=emb, view=self)
+        await interaction.edit_original_response(embed=emb, view=self)
 
-# ---------- your command with pagination ----------
+# --- your command with pagination (player, course, score) ---
 @tree.command(name="admin_set_user_score", description="Set a user's best score to calculate handicap.")
 @app_commands.describe(
     user="Select the user to update",
@@ -4510,10 +4543,10 @@ async def set_user_score(
     await interaction.response.defer(ephemeral=True)
     guild_id = str(interaction.guild.id) if interaction.guild else None
 
-    # fetch all matches for the typed course (no 25 cap here)
+    # find matches (no 25-cap here)
     matches = await _fetch_courses_filtered(course, guild_id=guild_id)
 
-    # exactly one match -> save immediately (your original behavior)
+    # exactly one match -> original behavior
     if len(matches) == 1:
         course_data = matches[0]
         if course_data.get("avg_par") is None:
@@ -4544,10 +4577,11 @@ async def set_user_score(
                 ephemeral=True
             )
         except Exception as e:
-            await interaction.followup.send(f"❌ Failed to save handicap: {e}", ephemeral=True)
+            print(f"[admin_set_user_score] upsert error: {e}")
+            await interaction.followup.send("❌ Failed to save handicap.", ephemeral=True)
         return
 
-    # zero or multiple matches -> open paginated selector and finish there
+    # zero or multiple -> open selector
     if not matches:
         matches = await _fetch_courses_filtered(None, guild_id=guild_id)
         if not matches:
@@ -4568,6 +4602,7 @@ async def set_user_score(
         view=view,
         ephemeral=True
     )
+
 
 
 
